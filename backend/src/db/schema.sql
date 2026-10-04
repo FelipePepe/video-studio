@@ -18,3 +18,17 @@ CREATE TABLE IF NOT EXISTS drafts (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS jobs (
+  id TEXT PRIMARY KEY,
+  draft_id TEXT NOT NULL REFERENCES drafts(id),
+  status TEXT NOT NULL CHECK (status IN ('queued','running','done','failed','cancelled')),
+  stage TEXT NOT NULL DEFAULT '',
+  progress REAL NOT NULL DEFAULT 0,
+  error TEXT,
+  output_path TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  started_at TEXT,
+  finished_at TEXT
+);
