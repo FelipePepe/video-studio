@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { ApiError } from '../src/api/client';
 import { PipelinePage } from '../src/components/PipelinePage';
 import { I18nProvider } from '../src/i18n';
-import { makeFakeApi } from './helpers/fakeApi';
+import { draft, makeFakeApi } from './helpers/fakeApi';
 
 function setup() {
   const fake = makeFakeApi();
@@ -71,6 +71,34 @@ describe('PipelinePage', () => {
     expect(view.container.querySelector('video')).toHaveAttribute('src', '/api/jobs/j1/output');
     expect(screen.getByRole('link', { name: 'Descargar' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Cancelar' })).not.toBeInTheDocument();
+  });
+
+  it('edit a title -> approve saves first -> stream events -> video', async () => {
+    const { fake, view, user } = setup();
+    await generate(user);
+    const scene1 = screen.getByRole('listitem', { name: 'Escena 1' });
+    await user.type(within(scene1).getByLabelText('Título'), ' v2');
+    await user.click(screen.getByRole('button', { name: 'Aprobar y generar' }));
+    expect(fake.api.putSegments).toHaveBeenCalledWith('d1', [
+      { ...draft.escaleta[0], title: 'Intro v2' },
+      draft.escaleta[1],
+    ]);
+    expect(await screen.findByRole('button', { name: 'Cancelar' })).toBeInTheDocument();
+    expect(fake.api.approveDraft).toHaveBeenCalledWith('d1', expect.anything());
+    act(() => fake.emit({ type: 'stage', stage: 'tts', progress: 0.1 }));
+    act(() => fake.emit({ type: 'done' }));
+    expect(view.container.querySelector('video')).toHaveAttribute('src', '/api/jobs/j1/output');
+    expect(screen.getByText('Intro v2')).toBeInTheDocument();
+  });
+
+  it('a failed save keeps the review open and does not approve', async () => {
+    const { fake, user } = setup();
+    fake.api.putSegments.mockRejectedValueOnce(new ApiError(409, 'Draft is locked'));
+    await generate(user);
+    await user.type(within(screen.getByRole('listitem', { name: 'Escena 1' })).getByLabelText('Título'), 'x');
+    await user.click(screen.getByRole('button', { name: 'Aprobar y generar' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Draft is locked');
+    expect(fake.api.approveDraft).not.toHaveBeenCalled();
   });
 
   it('failure shows the error and Retry approves again', async () => {
