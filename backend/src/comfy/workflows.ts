@@ -37,6 +37,7 @@ interface CommonOptions {
   numFrames?: number;
   steps?: number;
   filenamePrefix?: string;
+  pingpong?: boolean;
 }
 
 export type T2VOptions = CommonOptions;
@@ -124,8 +125,8 @@ function buildTail(
     crf: 19,
     save_metadata: false,
     trim_to_audio: false,
-    // Required by the Atlas note's VHS_VideoCombine settings (clip plays forward then back).
-    pingpong: true,
+    // The Atlas note's chain default plays the clip forward then back; I2V transitions and stills turn it off.
+    pingpong: o.pingpong ?? true,
     save_output: true,
   });
   return b.nodes;

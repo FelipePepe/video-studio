@@ -254,3 +254,13 @@ test('fails clearly when the draft is missing or empty', async () => {
   const empty = harness({ sceneCount: 0 });
   await assert.rejects(empty.execute(empty.job, empty.ctx), /no scenes/);
 });
+
+test('disables pingpong in every submitted workflow so clips keep numFrames / 16 seconds', async () => {
+  const h = harness();
+  await h.execute(h.job, h.ctx);
+  assert.equal(h.workflows.length, 5);
+  for (const w of h.workflows) {
+    const combine = Object.values(w).find((n) => n.class_type === 'VHS_VideoCombine')!;
+    assert.equal(combine.inputs.pingpong, false);
+  }
+});

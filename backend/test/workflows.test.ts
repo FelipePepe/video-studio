@@ -154,3 +154,12 @@ test('workflow is JSON-serializable without undefined values', () => {
   const wf = buildI2VWorkflow({ prompt: 'p', seed: 1, startImage: 'a.png' });
   assert.deepEqual(JSON.parse(JSON.stringify(wf)), wf);
 });
+
+test('pingpong defaults to true and can be disabled for T2V and I2V', () => {
+  const t2v = { prompt: 'p', seed: 1 };
+  const i2v = { ...t2v, startImage: 'a.png' };
+  assert.equal(one(buildT2VWorkflow(t2v), 'VHS_VideoCombine').inputs.pingpong, true);
+  assert.equal(one(buildI2VWorkflow(i2v), 'VHS_VideoCombine').inputs.pingpong, true);
+  assert.equal(one(buildT2VWorkflow({ ...t2v, pingpong: false }), 'VHS_VideoCombine').inputs.pingpong, false);
+  assert.equal(one(buildI2VWorkflow({ ...i2v, pingpong: false }), 'VHS_VideoCombine').inputs.pingpong, false);
+});

@@ -141,6 +141,7 @@ export function createExecute(deps: OrchestratorDeps): ExecuteFn {
               prompt: escaleta[i].visualPrompt,
               seed: seedFor(draft.id, i),
               numFrames: 1,
+              pingpong: false,
               filenamePrefix: `${prefix}_still_${pad(i)}`,
             }),
           );
@@ -171,6 +172,7 @@ export function createExecute(deps: OrchestratorDeps): ExecuteFn {
               prompt: escaleta[i + 1].visualPrompt,
               seed: seedFor(draft.id, 1000 + i),
               numFrames: frames,
+              pingpong: false,
               filenamePrefix: `${prefix}_trans_${pad(i)}`,
             }),
           );
@@ -190,7 +192,7 @@ export function createExecute(deps: OrchestratorDeps): ExecuteFn {
       begin('assemble');
       const videoParts: string[] = [];
       const audioParts: string[] = [];
-      // ComfyUI renders at DEFAULTS.fps (16); the normalized transition keeps that duration.
+      // ComfyUI renders at DEFAULTS.fps (16) with pingpong disabled, so a transition lasts numFrames / 16 seconds.
       const transitionSec = frames / DEFAULTS.fps;
       for (let i = 0; i < n; i++) {
         const kb = sceneFile(clipsDir, 'kb', i, 'mp4');
