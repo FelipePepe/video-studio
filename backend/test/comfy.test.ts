@@ -170,6 +170,64 @@ test('requests are aborted after the per-request timeout', async () => {
   }
 });
 
+function slowFetch(delayMs: number, body: BodyInit = '{}') {
+  return ((_url: string | URL | Request, init?: RequestInit) =>
+    new Promise<Response>((resolve, reject) => {
+      const timer = setTimeout(() => resolve(new Response(body)), delayMs);
+      init?.signal?.addEventListener('abort', () => {
+        clearTimeout(timer);
+        reject(new Error('aborted'));
+      });
+    })) as typeof fetch;
+}
+
+test('download is not aborted at the short timeout but at its own transfer timeout', async () => {
+  const keepAlive = setTimeout(() => {}, 2000);
+  try {
+    const ok = new ComfyClient('http://c', { fetchImpl: slowFetch(80, 'video'), requestTimeoutMs: 20, transferTimeoutMs: 500 });
+    assert.equal((await ok.download({ filename: 'a.mp4' })).toString(), 'video');
+    const slow = new ComfyClient('http://c', { fetchImpl: slowFetch(500), requestTimeoutMs: 500, transferTimeoutMs: 20 });
+    await assert.rejects(slow.download({ filename: 'a.mp4' }), /unreachable.*aborted/);
+  } finally {
+    clearTimeout(keepAlive);
+  }
+});
+
+test('uploadImage uses the transfer timeout', async () => {
+  const keepAlive = setTimeout(() => {}, 2000);
+  try {
+    const ok = new ComfyClient('http://c', {
+      fetchImpl: slowFetch(80, JSON.stringify({ name: 'u.png' })),
+      requestTimeoutMs: 20,
+      transferTimeoutMs: 500,
+    });
+    assert.equal(await ok.uploadImage(Buffer.from([1]), 'u.png'), 'u.png');
+    const slow = new ComfyClient('http://c', { fetchImpl: slowFetch(500), requestTimeoutMs: 500, transferTimeoutMs: 20 });
+    await assert.rejects(slow.uploadImage(Buffer.from([1]), 'u.png'), /unreachable.*aborted/);
+  } finally {
+    clearTimeout(keepAlive);
+  }
+});
+
+test('submit, poll and interrupt still abort at the short timeout', async () => {
+  const keepAlive = setTimeout(() => {}, 2000);
+  try {
+    const mk = () => new ComfyClient('http://c', { fetchImpl: slowFetch(500), sleep: noSleep, requestTimeoutMs: 20, transferTimeoutMs: 500 });
+    await assert.rejects(mk().submit({}), /unreachable.*aborted/);
+    await assert.rejects(mk().interrupt(), /unreachable.*aborted/);
+    await assert.rejects(mk().waitForCompletion('p', { timeoutMs: 1 }), /unreachable.*aborted|timed out/);
+  } finally {
+    clearTimeout(keepAlive);
+  }
+});
+
+test('default transfer timeouts are longer than the short default', () => {
+  const c = new ComfyClient('http://c') as unknown as { requestTimeoutMs: number; uploadTimeoutMs: number; downloadTimeoutMs: number };
+  assert.equal(c.requestTimeoutMs, 30_000);
+  assert.equal(c.uploadTimeoutMs, 120_000);
+  assert.equal(c.downloadTimeoutMs, 600_000);
+});
+
 test('uploadImage posts multipart with image and overwrite, returns name', async () => {
   const { fetchImpl, calls } = fakeFetch([json({ name: 'up.png', subfolder: '', type: 'input' })]);
   const client = new ComfyClient('http://c', { fetchImpl });
