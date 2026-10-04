@@ -36,6 +36,8 @@ Inherit from `video-studio-rebuild`: TDD ON (`node --test --import tsx` backend;
 - [ ] E3 Vertical 9:16 + cover thumb + `?variant=` routing.
 - [ ] E4 `GET /api/voices` (Piper describe endpoint).
 
+**Corrección de rama (2026-10-04):** E3 (y E4, al terminar) se implementan sobre `-p1` (la rama `-p2`/`-p3` proyectada no se crea): el candidato de review cubre E3+E4 juntos y la cadena de PRs es root → `-p1` → develop (tras merge de la cadena rebuild).
+
 ## Acceptance criteria
 - `pnpm -r test` green; `pnpm -r typecheck` clean.
 - E1: args-graph test (inputs, sidechaincompress, amix) + route validation (bad volume, missing file) + options persisted on the job row.
