@@ -33,6 +33,10 @@ export function configRouter(db: DatabaseSync, envDefaults: EnvDefaults): Router
       }
       patch[key] = value;
     }
+    if (Object.keys(patch).length === 0) {
+      res.status(400).json({ error: `Body must include at least one of: ${HOST_KEYS.join(', ')}` });
+      return;
+    }
     updateSettings(db, patch);
     res.json(resolveEffectiveConfig(db, envDefaults));
   });

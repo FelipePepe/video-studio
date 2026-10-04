@@ -68,3 +68,46 @@ test('static client passed to buildApp wins over DB config', async () => {
   const r = app.locals as AppResolvers;
   assert.equal(r.resolveComfy(), comfy);
 });
+
+test('PATCH /api/config rejects an empty object with 400 naming accepted keys', async () => {
+  const res = await request(makeApp()).patch('/api/config').send({});
+  assert.equal(res.status, 400);
+  assert.match(res.body.error, /comfyHost.*ollamaHost.*kokoroHost/);
+});
+
+test('PATCH /api/config rejects unrecognized keys only', async () => {
+  const res = await request(makeApp()).patch('/api/config').send({ foo: 'http://x' });
+  assert.equal(res.status, 400);
+});
+
+test('PATCH /api/config rejects a request without a body', async () => {
+  const res = await request(makeApp()).patch('/api/config');
+  assert.equal(res.status, 400);
+  assert.equal(typeof res.body.error, 'string');
+});
+
+test('PATCH /api/config rejects a non-JSON content type', async () => {
+  const res = await request(makeApp())
+    .patch('/api/config')
+    .set('Content-Type', 'text/plain')
+    .send('comfyHost=http://x');
+  assert.equal(res.status, 400);
+});
+
+test('malformed JSON body answers 400 JSON error', async () => {
+  const res = await request(makeApp())
+    .patch('/api/config')
+    .set('Content-Type', 'application/json')
+    .send('{"comfyHost":');
+  assert.equal(res.status, 400);
+  assert.deepEqual(res.body, { error: 'Invalid JSON body' });
+});
+
+test('unexpected errors answer 500 without leaking internals', async () => {
+  const db = openDatabase(':memory:');
+  const app = makeApp({ db });
+  db.close();
+  const res = await request(app).get('/api/config');
+  assert.equal(res.status, 500);
+  assert.deepEqual(res.body, { error: 'Internal server error' });
+});

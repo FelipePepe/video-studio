@@ -1,4 +1,4 @@
-import express, { type Express } from 'express';
+import express, { type ErrorRequestHandler, type Express } from 'express';
 import type { DatabaseSync } from 'node:sqlite';
 import { openDatabase } from './db/connection';
 import { loadEnvDefaults, resolveEffectiveConfig, type EnvDefaults } from './config/settings';
@@ -19,6 +19,16 @@ export interface AppResolvers {
   resolveKokoro: () => KokoroClient;
 }
 
+const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
+  const e = err as { type?: string; status?: number; expose?: boolean } | null;
+  if (e?.type === 'entity.parse.failed' || (e?.status === 400 && e.expose)) {
+    res.status(400).json({ error: 'Invalid JSON body' });
+    return;
+  }
+  console.error(err);
+  res.status(500).json({ error: 'Internal server error' });
+};
+
 export function buildApp(opts: AppOptions = {}): Express {
   const db = opts.db ?? openDatabase(':memory:');
   const envDefaults = opts.envDefaults ?? loadEnvDefaults();
@@ -35,5 +45,6 @@ export function buildApp(opts: AppOptions = {}): Express {
   Object.assign(app.locals, resolvers, { db });
 
   app.use('/api/config', configRouter(db, envDefaults));
+  app.use(errorHandler);
   return app;
 }
