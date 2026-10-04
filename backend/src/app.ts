@@ -3,20 +3,22 @@ import type { DatabaseSync } from 'node:sqlite';
 import { openDatabase } from './db/connection';
 import { loadEnvDefaults, resolveEffectiveConfig, type EnvDefaults } from './config/settings';
 import { configRouter } from './routes/config';
-import type { ComfyClient, KokoroClient, OllamaClient } from './clients/types';
+import { ComfyClient } from './clients/comfy';
+import { OllamaClient } from './clients/ollama';
+import { PiperClient } from './clients/piper';
 
 export interface AppOptions {
   db?: DatabaseSync;
   envDefaults?: EnvDefaults;
   comfy?: ComfyClient;
   ollama?: OllamaClient;
-  kokoro?: KokoroClient;
+  piper?: PiperClient;
 }
 
 export interface AppResolvers {
   resolveComfy: () => ComfyClient;
   resolveOllama: () => OllamaClient;
-  resolveKokoro: () => KokoroClient;
+  resolvePiper: () => PiperClient;
 }
 
 const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
@@ -38,9 +40,9 @@ export function buildApp(opts: AppOptions = {}): Express {
   app.use(express.json());
 
   const resolvers: AppResolvers = {
-    resolveComfy: () => opts.comfy ?? { host: effective().comfyHost },
-    resolveOllama: () => opts.ollama ?? { host: effective().ollamaHost },
-    resolveKokoro: () => opts.kokoro ?? { host: effective().kokoroHost },
+    resolveComfy: () => opts.comfy ?? new ComfyClient(effective().comfyHost),
+    resolveOllama: () => opts.ollama ?? new OllamaClient(effective().ollamaHost),
+    resolvePiper: () => opts.piper ?? new PiperClient(effective().piperHost),
   };
   Object.assign(app.locals, resolvers, { db });
 

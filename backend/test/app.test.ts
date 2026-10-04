@@ -5,6 +5,7 @@ import { buildApp } from '../src/app';
 import { openDatabase } from '../src/db/connection';
 import { loadEnvDefaults } from '../src/config/settings';
 import type { AppResolvers } from '../src/app';
+import { ComfyClient } from '../src/clients/comfy';
 
 const envDefaults = loadEnvDefaults({});
 
@@ -35,10 +36,10 @@ test('PATCH /api/config with empty string falls back to env default', async () =
   assert.equal(res.body.ollamaHost, envDefaults.ollamaHost);
 });
 
-for (const bad of ['ftp://x', 'not a url', 42]) {
+for (const bad of ['ftp://x', 'not a url', 42, 'http://p:1', 'tcp://nohostport', 'tcp://h:0', 'tcp://h:70000']) {
   test(`PATCH /api/config rejects invalid value ${JSON.stringify(bad)}`, async () => {
     const app = makeApp();
-    const res = await request(app).patch('/api/config').send({ kokoroHost: bad });
+    const res = await request(app).patch('/api/config').send({ piperHost: bad });
     assert.equal(res.status, 400);
     assert.equal(typeof res.body.error, 'string');
     const get = await request(app).get('/api/config');
@@ -58,11 +59,11 @@ test('PATCH takes effect on resolvers without restart', async () => {
   await request(app).patch('/api/config').send({ comfyHost: 'http://new:9' });
   assert.equal(r.resolveComfy().host, 'http://new:9');
   assert.equal(r.resolveOllama().host, envDefaults.ollamaHost);
-  assert.equal(r.resolveKokoro().host, envDefaults.kokoroHost);
+  assert.equal(r.resolvePiper().host, envDefaults.piperHost);
 });
 
 test('static client passed to buildApp wins over DB config', async () => {
-  const comfy = { host: 'http://static:1' };
+  const comfy = new ComfyClient('http://static:1');
   const app = makeApp({ comfy });
   await request(app).patch('/api/config').send({ comfyHost: 'http://db:2' });
   const r = app.locals as AppResolvers;
@@ -72,7 +73,7 @@ test('static client passed to buildApp wins over DB config', async () => {
 test('PATCH /api/config rejects an empty object with 400 naming accepted keys', async () => {
   const res = await request(makeApp()).patch('/api/config').send({});
   assert.equal(res.status, 400);
-  assert.match(res.body.error, /comfyHost.*ollamaHost.*kokoroHost/);
+  assert.match(res.body.error, /comfyHost.*ollamaHost.*piperHost/);
 });
 
 test('PATCH /api/config rejects unrecognized keys only', async () => {
@@ -110,4 +111,19 @@ test('unexpected errors answer 500 without leaking internals', async () => {
   const res = await request(app).get('/api/config');
   assert.equal(res.status, 500);
   assert.deepEqual(res.body, { error: 'Internal server error' });
+});
+
+test('PATCH /api/config accepts a tcp piperHost and rejects tcp for comfyHost', async () => {
+  const app = makeApp();
+  const ok = await request(app).patch('/api/config').send({ piperHost: 'tcp://p:10200' });
+  assert.equal(ok.status, 200);
+  assert.equal(ok.body.piperHost, 'tcp://p:10200');
+  const bad = await request(app).patch('/api/config').send({ comfyHost: 'tcp://p:10200' });
+  assert.equal(bad.status, 400);
+});
+
+test('resolvers build real clients from effective hosts', () => {
+  const r = makeApp().locals as AppResolvers;
+  assert.ok(r.resolveComfy() instanceof ComfyClient);
+  assert.equal(r.resolvePiper().host, envDefaults.piperHost);
 });

@@ -4,11 +4,12 @@ import {
   resolveEffectiveConfig,
   updateSettings,
   validateHostUrl,
+  validatePiperHost,
   type EnvDefaults,
   type SettingsPatch,
 } from '../config/settings';
 
-const HOST_KEYS = ['comfyHost', 'ollamaHost', 'kokoroHost'] as const;
+const HOST_KEYS = ['comfyHost', 'ollamaHost', 'piperHost'] as const;
 
 export function configRouter(db: DatabaseSync, envDefaults: EnvDefaults): Router {
   const router = Router();
@@ -27,11 +28,13 @@ export function configRouter(db: DatabaseSync, envDefaults: EnvDefaults): Router
     for (const key of HOST_KEYS) {
       const value = (body as Record<string, unknown>)[key];
       if (value === undefined) continue;
-      if (!validateHostUrl(value)) {
-        res.status(400).json({ error: `${key} must be an http or https URL` });
+      const valid = key === 'piperHost' ? validatePiperHost(value) : validateHostUrl(value);
+      if (!valid) {
+        const expected = key === 'piperHost' ? 'a tcp://host:port address' : 'an http or https URL';
+        res.status(400).json({ error: `${key} must be ${expected}` });
         return;
       }
-      patch[key] = value;
+      patch[key] = value as string;
     }
     if (Object.keys(patch).length === 0) {
       res.status(400).json({ error: `Body must include at least one of: ${HOST_KEYS.join(', ')}` });
