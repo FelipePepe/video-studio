@@ -2,11 +2,23 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
+// Databases created before the Kokoro -> Piper switch still carry `kokoro_host`.
+// CREATE TABLE IF NOT EXISTS does not touch them, so rename the column here and
+// drop its value: an old Kokoro http URL is not a valid Piper tcp:// host.
+function migrateKokoroHostToPiperHost(db: DatabaseSync): void {
+  const columns = (db.prepare('PRAGMA table_info(server_settings)').all() as { name: string }[]).map((c) => c.name);
+  if (columns.includes('kokoro_host') && !columns.includes('piper_host')) {
+    db.exec('ALTER TABLE server_settings RENAME COLUMN kokoro_host TO piper_host');
+    db.exec("UPDATE server_settings SET piper_host = ''");
+  }
+}
+
 export function openDatabase(path: string = ':memory:'): DatabaseSync {
   const db = new DatabaseSync(path);
   db.exec('PRAGMA foreign_keys = ON');
   db.exec('PRAGMA busy_timeout = 5000');
   if (path !== ':memory:') db.exec('PRAGMA journal_mode = WAL');
   db.exec(readFileSync(join(__dirname, 'schema.sql'), 'utf8'));
+  migrateKokoroHostToPiperHost(db);
   return db;
 }
