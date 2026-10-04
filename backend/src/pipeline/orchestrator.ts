@@ -14,11 +14,13 @@ import {
   kenBurnsArgs,
   musicMixArgs,
   muxAudioArgs,
+  burnSubtitlesArgs,
   normalizeClipArgs,
   runFfmpeg,
 } from '../media/ffmpeg';
 import { parseWav, type PcmFormat, wavDurationSec, wavSilence } from '../media/wav';
 import { getDraft } from './draftRepository';
+import { buildSrt, sceneCues } from './subtitles';
 import { DEFAULT_MUSIC_VOLUME } from './types';
 
 export type FfmpegFn = (args: string[], opts?: { signal?: AbortSignal }) => Promise<void>;
@@ -237,7 +239,25 @@ export function createExecute(deps: OrchestratorDeps): ExecuteFn {
       writeFileSync(audioList, buildConcatList(audioParts));
       await run(concatArgs({ listFile: videoList, out: video }));
       await run(concatArgs({ listFile: audioList, out: narration }));
-      if (job.options?.music) {
+      const subtitlesOn = job.options?.subtitles !== false;
+      if (subtitlesOn) {
+        const srtPath = join(workDir, 'subtitles.srt');
+        const present = durations.slice(0, -1).map((_, i) => transitions[i] !== undefined);
+        writeFileSync(srtPath, buildSrt(sceneCues(durations, transitionSec, escaleta.map((s) => s.narration), present)));
+        if (job.options?.music) {
+          const music = job.options.music;
+          if (!existsSync(music)) throw new Error(`Music file not found: ${music}`);
+          const muxed = join(workDir, 'muxed.mp4');
+          await run(
+            musicMixArgs({ video, audio: narration, music, musicVolume: job.options.musicVolume ?? DEFAULT_MUSIC_VOLUME, out: muxed }),
+          );
+          await run(burnSubtitlesArgs({ input: muxed, srt: srtPath, out: finalPath }));
+        } else {
+          const muxed = join(workDir, 'muxed.mp4');
+          await run(muxAudioArgs({ video, audio: narration, out: muxed }));
+          await run(burnSubtitlesArgs({ input: muxed, srt: srtPath, out: finalPath }));
+        }
+      } else if (job.options?.music) {
         const music = job.options.music;
         if (!existsSync(music)) throw new Error(`Music file not found: ${music}`);
         await run(

@@ -146,6 +146,21 @@ export function extractFrameArgs(o: { video: string; out: string }): string[] {
   return ['-i', o.video, '-frames:v', '1', o.out];
 }
 
+function escapeFilterPath(p: string): string {
+  return p.replace(/\\/g, '\\\\').replace(/:/g, '\\:');
+}
+
+/** Re-encodes the video stream to burn a subtitle track (SRT) in; audio is copied. */
+export function burnSubtitlesArgs(o: { input: string; srt: string; out: string }): string[] {
+  return [
+    '-i', o.input,
+    '-vf', `subtitles=${escapeFilterPath(o.srt)}`,
+    '-c:v', 'libx264', '-crf', '19', '-pix_fmt', 'yuv420p',
+    '-c:a', 'copy',
+    o.out,
+  ];
+}
+
 export interface NormalizeClipOptions {
   input: string;
   out: string;

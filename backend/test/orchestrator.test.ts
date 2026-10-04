@@ -191,12 +191,18 @@ test('assembles Ken Burns clips with the WAV durations, alternating with transit
   assert.ok(Math.abs(wavDurationSec(silence) - 33 / 16) < 1 / fmt.rate);
   assert.deepEqual(parseWav(silence).format, fmt);
 
-  const last = h.ffmpegCalls[h.ffmpegCalls.length - 1];
-  assert.deepEqual(last, [
+  const secondLast = h.ffmpegCalls[h.ffmpegCalls.length - 2];
+  assert.deepEqual(secondLast, [
     '-i', join(h.workDir, 'video.mp4'), '-i', join(h.workDir, 'audio', 'narration.wav'),
     '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-shortest',
-    join(h.workDir, 'final.mp4'),
+    join(h.workDir, 'muxed.mp4'),
   ]);
+
+  const last = h.ffmpegCalls[h.ffmpegCalls.length - 1];
+  assert.equal(last[1], join(h.workDir, 'muxed.mp4'));
+  assert.match(last[last.indexOf('-vf') + 1], /^subtitles=.*subtitles\.srt/);
+  assert.equal(last[last.length - 1], join(h.workDir, 'final.mp4'));
+  assert.ok(readFileSync(join(h.workDir, 'subtitles.srt'), 'utf8').includes('narration 0'));
 });
 
 test('a failed transition degrades to a hard cut and is reported', async () => {

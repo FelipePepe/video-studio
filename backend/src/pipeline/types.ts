@@ -1,11 +1,13 @@
 export type Voice = 'male' | 'female' | string;
 
-/** Options the approve endpoint accepts (E1: BGM). Stored as JSON on the job row. */
+/** Options the approve endpoint accepts (E1: BGM, E2: subtitles). Stored as JSON on the job row. */
 export interface ApproveOptions {
   /** Absolute path of a BGM file readable by the server. */
   music?: string;
   /** BGM target volume, 0.01..1 (default 0.25). */
   musicVolume?: number;
+  /** Burn the escaleta subtitles into the final video. Default true. */
+  subtitles?: boolean;
 }
 
 export const DEFAULT_MUSIC_VOLUME = 0.25;
