@@ -58,10 +58,19 @@ export class JobRunner {
     this.kick();
   }
 
-  enqueue(draftId: string): Job {
-    const job = createJob(this.db, draftId, this.clock);
+  /** Writes the queued job row only, so it can join an outer transaction. Call `schedule` after COMMIT. */
+  createJob(draftId: string): Job {
+    return createJob(this.db, draftId, this.clock);
+  }
+
+  schedule(job: Job): void {
     this.queue.push(job.id);
     this.kick();
+  }
+
+  enqueue(draftId: string): Job {
+    const job = this.createJob(draftId);
+    this.schedule(job);
     return job;
   }
 

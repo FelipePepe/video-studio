@@ -264,3 +264,28 @@ test('disables pingpong in every submitted workflow so clips keep numFrames / 16
     assert.equal(combine.inputs.pingpong, false);
   }
 });
+
+test('progress never decreases when a transition fails', async () => {
+  const h = harness({ failI2V: [0, 1] });
+  await h.execute(h.job, h.ctx);
+  const values = h.events.filter((e) => e.progress !== undefined).map((e) => e.progress as number);
+  assert.ok(values.length > 0);
+  for (let i = 1; i < values.length; i++) {
+    assert.ok(values[i] >= values[i - 1], `progress dropped from ${values[i - 1]} to ${values[i]} at event ${i}`);
+  }
+  const failure = h.events.find((e) => e.message);
+  assert.ok((failure?.progress ?? 0) >= 0.55);
+});
+
+test('fails clearly when scene WAVs have different formats', async () => {
+  const h = harness({ sceneCount: 2 });
+  let call = 0;
+  h.piper.synthesize = async () =>
+    wavFromPcm(Buffer.alloc(8000), call++ === 0 ? fmt : { rate: 22050, width: 2, channels: 1 });
+  await assert.rejects(
+    h.execute(h.job, h.ctx),
+    /scene 2.*22050 Hz.*16-bit.*1 ch.*scene 1.*16000 Hz.*16-bit.*1 ch/,
+  );
+  assert.equal(h.comfy.uploads.length, 0);
+  assert.equal(h.workflows.length, 0);
+});

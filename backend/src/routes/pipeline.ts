@@ -3,7 +3,8 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { OllamaClient } from '../clients/ollama';
 import { DraftInputError, DraftValidationError, generateDraft, validateEscaleta } from '../pipeline/draft';
 import { createDraft, DraftLockedError, getDraft, markApproved, updateEscaleta } from '../pipeline/draftRepository';
-import type { JobEvent } from '../jobs/types';
+import { getLatestJobForDraft } from '../jobs/jobRepository';
+import type { Job, JobEvent } from '../jobs/types';
 import type { EventHub } from '../jobs/eventHub';
 import type { JobRunner } from '../jobs/runner';
 import { streamJobEvents } from './jobs';
@@ -79,17 +80,33 @@ export function pipelineRouter(deps: PipelineDeps): Router {
    * stream does not cancel the job. `Accept: application/json` returns 202 `{ jobId }`.
    */
   router.post('/draft/:id/approve', (req, res) => {
-    const draft = getDraft(deps.db, req.params.id);
-    if (!draft) {
-      res.status(404).json({ error: 'Draft not found' });
-      return;
+    let job: Job;
+    deps.db.exec('BEGIN IMMEDIATE');
+    try {
+      const draft = getDraft(deps.db, req.params.id);
+      if (!draft) {
+        deps.db.exec('ROLLBACK');
+        res.status(404).json({ error: 'Draft not found' });
+        return;
+      }
+      if (draft.status === 'draft') {
+        markApproved(deps.db, draft.id);
+      } else {
+        // Already approved: only a failed or cancelled latest job may be retried.
+        const latest = getLatestJobForDraft(deps.db, draft.id);
+        if (latest && latest.status !== 'failed' && latest.status !== 'cancelled') {
+          deps.db.exec('ROLLBACK');
+          res.status(409).json({ error: `Draft is already ${draft.status}` });
+          return;
+        }
+      }
+      job = deps.runner.createJob(draft.id);
+      deps.db.exec('COMMIT');
+    } catch (e) {
+      deps.db.exec('ROLLBACK');
+      throw e;
     }
-    if (draft.status !== 'draft') {
-      res.status(409).json({ error: `Draft is already ${draft.status}` });
-      return;
-    }
-    markApproved(deps.db, draft.id);
-    const job = deps.runner.enqueue(draft.id);
+    deps.runner.schedule(job);
     if (req.get('Accept')?.includes('application/json')) {
       res.status(202).json({ jobId: job.id });
       return;

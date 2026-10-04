@@ -182,3 +182,87 @@ test('a client disconnect does not cancel the job and it can be followed via /ev
   await runner.idle();
   assert.equal((await request(app).get(`/api/jobs/${jobId}`)).body.status, 'done');
 });
+
+function gatedExecute() {
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  const execute: ExecuteFn = async (_job, ctx) => {
+    await gate;
+    const outputPath = join(ctx.workDir, 'final.mp4');
+    writeFileSync(outputPath, 'x');
+    return { outputPath };
+  };
+  return { execute, release };
+}
+
+const approveJson = (app: ReturnType<typeof buildApp>, id: string) =>
+  request(app).post(`/api/pipeline/draft/${id}/approve`).set('Accept', 'application/json');
+
+test('a job creation failure rolls the draft back to draft', async () => {
+  const { app, runner } = setup();
+  const draftId = await createDraftId(app);
+  const original = runner.createJob;
+  runner.createJob = () => {
+    throw new Error('disk full');
+  };
+  const failed = await approveJson(app, draftId);
+  assert.equal(failed.status, 500);
+  assert.equal((await request(app).get(`/api/pipeline/draft/${draftId}`)).body.status, 'draft');
+  runner.createJob = original;
+  const retry = await approveJson(app, draftId);
+  assert.equal(retry.status, 202);
+  await runner.idle();
+});
+
+test('approve after a failed job creates a new job', async () => {
+  let calls = 0;
+  const execute: ExecuteFn = async (_job, ctx) => {
+    if (calls++ === 0) throw new Error('boom');
+    const outputPath = join(ctx.workDir, 'final.mp4');
+    writeFileSync(outputPath, 'x');
+    return { outputPath };
+  };
+  const { app, runner } = setup(execute);
+  const draftId = await createDraftId(app);
+  const first = await approveJson(app, draftId);
+  await runner.idle();
+  assert.equal((await request(app).get(`/api/jobs/${first.body.jobId}`)).body.status, 'failed');
+  const second = await approveJson(app, draftId);
+  assert.equal(second.status, 202);
+  assert.notEqual(second.body.jobId, first.body.jobId);
+  await runner.idle();
+  assert.equal((await request(app).get(`/api/jobs/${second.body.jobId}`)).body.status, 'done');
+  assert.equal((await request(app).get(`/api/pipeline/draft/${draftId}`)).body.status, 'approved');
+});
+
+test('approve after a cancelled job creates a new job', async () => {
+  const { execute, release } = gatedExecute();
+  const { app, runner } = setup(execute);
+  const draftId = await createDraftId(app);
+  const first = await approveJson(app, draftId);
+  assert.equal(await runner.cancel(first.body.jobId), true);
+  release();
+  await runner.idle();
+  assert.equal((await request(app).get(`/api/jobs/${first.body.jobId}`)).body.status, 'cancelled');
+  const second = await approveJson(app, draftId);
+  assert.equal(second.status, 202);
+  assert.notEqual(second.body.jobId, first.body.jobId);
+  await runner.idle();
+});
+
+test('approve stays 409 while the latest job is queued, running or done', async () => {
+  const { execute, release } = gatedExecute();
+  const { app, runner } = setup(execute);
+  const running = await createDraftId(app);
+  const queued = await createDraftId(app);
+  const first = await approveJson(app, running);
+  assert.equal((await request(app).get(`/api/jobs/${first.body.jobId}`)).body.status, 'running');
+  const second = await approveJson(app, queued);
+  assert.equal((await request(app).get(`/api/jobs/${second.body.jobId}`)).body.status, 'queued');
+  assert.equal((await approveJson(app, running)).status, 409);
+  assert.equal((await approveJson(app, queued)).status, 409);
+  release();
+  await runner.idle();
+  assert.equal((await request(app).get(`/api/jobs/${first.body.jobId}`)).body.status, 'done');
+  assert.equal((await approveJson(app, running)).status, 409);
+});

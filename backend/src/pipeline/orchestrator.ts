@@ -16,7 +16,7 @@ import {
   normalizeClipArgs,
   runFfmpeg,
 } from '../media/ffmpeg';
-import { parseWav, wavDurationSec, wavSilence } from '../media/wav';
+import { parseWav, type PcmFormat, wavDurationSec, wavSilence } from '../media/wav';
 import { getDraft } from './draftRepository';
 
 export type FfmpegFn = (args: string[], opts?: { signal?: AbortSignal }) => Promise<void>;
@@ -41,6 +41,11 @@ const RANGES: Record<Stage, [number, number]> = {
 const KEN_BURNS_ZOOM = 1.08;
 const pad = (i: number) => String(i).padStart(2, '0');
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+class MixedWavFormatError extends Error {}
+
+const sameFormat = (a: PcmFormat, b: PcmFormat) => a.rate === b.rate && a.width === b.width && a.channels === b.channels;
+const describeFormat = (f: PcmFormat) => `${f.rate} Hz, ${f.width * 8}-bit, ${f.channels} ch`;
 
 function seedFor(draftId: string, sceneIndex: number): number {
   return createHash('sha256').update(`${draftId}:${sceneIndex}`).digest().readUInt32BE(0);
@@ -84,12 +89,15 @@ export function createExecute(deps: OrchestratorDeps): ExecuteFn {
       guard();
       throw new Error(`${stage} failed for ${what}: ${message(e)}`);
     };
+    // Emitted progress only moves forward, even when a stage event is re-sent (e.g. a transition fallback).
+    let emitted = 0;
+    const advance = (value: number) => (emitted = Math.max(emitted, value));
     const begin = (stage: Stage, msg?: string) => {
-      emit({ type: 'stage', stage, progress: RANGES[stage][0], ...(msg ? { message: msg } : {}) });
+      emit({ type: 'stage', stage, progress: advance(RANGES[stage][0]), ...(msg ? { message: msg } : {}) });
     };
     const step = (stage: Stage, done: number, total: number) => {
       const [lo, hi] = RANGES[stage];
-      emit({ type: 'progress', stage, progress: lo + ((hi - lo) * done) / total });
+      emit({ type: 'progress', stage, progress: advance(lo + ((hi - lo) * done) / total) });
     };
     const run = async (args: string[]) => {
       guard();
@@ -114,15 +122,22 @@ export function createExecute(deps: OrchestratorDeps): ExecuteFn {
       begin('tts');
       const wavPaths: string[] = [];
       const durations: number[] = [];
-      let format: ReturnType<typeof parseWav>['format'] | undefined;
+      let format: PcmFormat | undefined;
       for (let i = 0; i < n; i++) {
         guard();
         let wav: Buffer;
         try {
           wav = await piper.synthesize({ text: escaleta[i].narration, voice: escaleta[i].voice });
           durations.push(wavDurationSec(wav));
-          format ??= parseWav(wav).format;
+          const sceneFormat = parseWav(wav).format;
+          format ??= sceneFormat;
+          if (!sameFormat(format, sceneFormat)) {
+            throw new MixedWavFormatError(
+              `scene ${i + 1} is ${describeFormat(sceneFormat)} but scene 1 is ${describeFormat(format)}; all scenes must share one WAV format`,
+            );
+          }
         } catch (e) {
+          if (e instanceof MixedWavFormatError) throw new Error(`tts failed: ${e.message}`);
           return fail('tts', `scene ${i + 1}`, e);
         }
         const path = sceneFile(audioDir, 'scene', i, 'wav');

@@ -59,6 +59,13 @@ export function createJob(db: DatabaseSync, draftId: string, clock: Clock = now,
   return getJob(db, id) as Job;
 }
 
+export function getLatestJobForDraft(db: DatabaseSync, draftId: string): Job | undefined {
+  const row = db
+    .prepare('SELECT * FROM jobs WHERE draft_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1')
+    .get(draftId) as unknown as JobRow | undefined;
+  return row ? fromRow(row) : undefined;
+}
+
 export function listJobs(db: DatabaseSync, opts: { limit?: number; status?: JobStatus } = {}): Job[] {
   const { limit = 50, status } = opts;
   const rows = status
