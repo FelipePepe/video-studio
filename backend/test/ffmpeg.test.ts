@@ -8,8 +8,10 @@ import { join } from 'node:path';
 import {
   buildConcatList,
   concatArgs,
+  extractFrameArgs,
   kenBurnsArgs,
   muxAudioArgs,
+  normalizeClipArgs,
   runFfmpeg,
   xfadeArgs,
 } from '../src/media/ffmpeg';
@@ -138,4 +140,18 @@ test('kenBurns renders a real clip with ffmpeg', { skip: !hasFfmpeg }, async () 
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('extractFrameArgs grabs the first frame', () => {
+  assert.deepEqual(extractFrameArgs({ video: 'a.mp4', out: 'a.png' }), ['-i', 'a.mp4', '-frames:v', '1', 'a.png']);
+});
+
+test('normalizeClipArgs re-encodes to the shared stream parameters', () => {
+  const args = normalizeClipArgs({ input: 't.mp4', out: 'n.mp4' });
+  assert.deepEqual(args, [
+    '-i', 't.mp4',
+    '-vf', 'scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,fps=24,setsar=1,format=yuv420p',
+    '-an', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', 'n.mp4',
+  ]);
+  assert.match(normalizeClipArgs({ input: 'a', out: 'b', width: 640, height: 360, fps: 30 }).join(' '), /scale=640:360.*pad=640:360.*fps=30/);
 });

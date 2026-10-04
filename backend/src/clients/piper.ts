@@ -1,5 +1,8 @@
 import net from 'node:net';
 import { parsePiperHost, type PiperTarget } from '../config/piperHost';
+import { wavFromPcm, type PcmFormat } from '../media/wav';
+
+export { wavFromPcm, type PcmFormat };
 
 export interface PiperVoice {
   name: string;
@@ -21,31 +24,6 @@ export interface PiperSynthesizeOptions {
   voice: string;
   // Accepted for API stability; the Wyoming synthesize event has no speed field.
   speed?: number;
-}
-
-export interface PcmFormat {
-  rate: number;
-  width: number;
-  channels: number;
-}
-
-export function wavFromPcm(pcm: Buffer, fmt: PcmFormat): Buffer {
-  const header = Buffer.alloc(44);
-  const byteRate = fmt.rate * fmt.width * fmt.channels;
-  header.write('RIFF', 0);
-  header.writeUInt32LE(36 + pcm.length, 4);
-  header.write('WAVE', 8);
-  header.write('fmt ', 12);
-  header.writeUInt32LE(16, 16);
-  header.writeUInt16LE(1, 20);
-  header.writeUInt16LE(fmt.channels, 22);
-  header.writeUInt32LE(fmt.rate, 24);
-  header.writeUInt32LE(byteRate, 28);
-  header.writeUInt16LE(fmt.width * fmt.channels, 32);
-  header.writeUInt16LE(fmt.width * 8, 34);
-  header.write('data', 36);
-  header.writeUInt32LE(pcm.length, 40);
-  return Buffer.concat([header, pcm]);
 }
 
 function resolveVoice(voice: string): PiperVoice {
