@@ -1,6 +1,6 @@
 import { vi } from 'vitest';
 import type { ApiClient, ApproveOptions } from '../../src/api/client';
-import type { DraftCreated, JobEvent } from '../../src/api/types';
+import type { Draft, DraftCreated, Escaleta, JobEvent } from '../../src/api/types';
 
 export const draft: DraftCreated = {
   id: 'd1',
@@ -11,7 +11,7 @@ export const draft: DraftCreated = {
   ],
 };
 
-export type PipelineApi = Pick<ApiClient, 'createDraft' | 'approveDraft' | 'cancelJob'>;
+export type PipelineApi = Pick<ApiClient, 'createDraft' | 'approveDraft' | 'cancelJob' | 'putSegments'>;
 
 /** A fake api whose approve stream is driven by the test through `emit` / `finish` / `fail`. */
 export function makeFakeApi() {
@@ -29,6 +29,21 @@ export function makeFakeApi() {
         }),
     ),
     cancelJob: vi.fn(async () => ({ cancelled: true })),
+    putSegments: vi.fn(
+      async (id: string, escaleta: Escaleta): Promise<Draft> => ({
+        id,
+        sourceKind: 'url',
+        sourceRef: 'https://x.test/a',
+        language: 'es',
+        voiceA: 'male',
+        voiceB: 'female',
+        mix: false,
+        escaleta,
+        status: 'draft',
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:01Z',
+      }),
+    ),
   } satisfies PipelineApi;
   return {
     api,

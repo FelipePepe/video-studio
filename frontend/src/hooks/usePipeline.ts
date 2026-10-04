@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiError, type ApiClient } from '../api/client';
-import type { DraftCreated, DraftRequest, JobEvent } from '../api/types';
+import type { DraftCreated, DraftRequest, JobEvent, Scene } from '../api/types';
 import { useI18n } from '../i18n';
 
-export type PipelineApi = Pick<ApiClient, 'createDraft' | 'approveDraft' | 'cancelJob'>;
+export type PipelineApi = Pick<ApiClient, 'createDraft' | 'approveDraft' | 'cancelJob' | 'putSegments'>;
 
 export type PipelineState = 'idle' | 'drafting' | 'review' | 'rendering' | 'done' | 'failed';
 
@@ -25,6 +25,7 @@ export interface UsePipeline {
   jobId: string | null;
   outputUrl: string | null;
   createDraft(req: DraftRequest): Promise<void>;
+  saveSegments(escaleta: Scene[]): Promise<boolean>;
   approve(): Promise<void>;
   cancel(): Promise<void>;
   reset(): void;
@@ -38,7 +39,7 @@ function isStageId(value: unknown): value is StageId {
 
 export function usePipeline(api: PipelineApi): UsePipeline {
   const { t } = useI18n();
-  const [state, setState] = useState<PipelineState>('idle');
+  const [state, setStateRaw] = useState<PipelineState>('idle');
   const [draft, setDraft] = useState<DraftCreated | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [stages, setStages] = useState<StageInfo[]>(pendingStages);
@@ -47,6 +48,14 @@ export function usePipeline(api: PipelineApi): UsePipeline {
   const [jobId, setJobId] = useState<string | null>(null);
   const [outputUrl, setOutputUrl] = useState<string | null>(null);
 
+  // Mirrors `state` synchronously so guards can read it between renders.
+  const stateRef = useRef<PipelineState>('idle');
+  const setState = useCallback((next: PipelineState) => {
+    stateRef.current = next;
+    setStateRaw(next);
+  }, []);
+  // Generation counter: bumped on every approve() and reset() so stale streams are ignored.
+  const runId = useRef(0);
   const mounted = useRef(true);
   const controller = useRef<AbortController | null>(null);
   const jobIdRef = useRef<string | null>(null);
@@ -73,6 +82,7 @@ export function usePipeline(api: PipelineApi): UsePipeline {
 
   const createDraft = useCallback(
     async (req: DraftRequest) => {
+      if (stateRef.current !== 'idle') return;
       setError(null);
       setState('drafting');
       try {
@@ -85,6 +95,30 @@ export function usePipeline(api: PipelineApi): UsePipeline {
         if (!mounted.current) return;
         setError(errorMessage(e));
         setState('idle');
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [api, setState],
+  );
+
+  const saveSegments = useCallback(
+    async (escaleta: Scene[]): Promise<boolean> => {
+      const current = draftRef.current;
+      if (!current) {
+        setError(tRef.current('error.noDraft'));
+        return false;
+      }
+      setError(null);
+      try {
+        const saved = await api.putSegments(current.id, escaleta);
+        if (!mounted.current || draftRef.current?.id !== current.id) return false;
+        const next = { ...current, escaleta: saved.escaleta };
+        draftRef.current = next;
+        setDraft(next);
+        return true;
+      } catch (e) {
+        if (mounted.current) setError(errorMessage(e));
+        return false;
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -118,9 +152,15 @@ export function usePipeline(api: PipelineApi): UsePipeline {
     }
     if (event.type === 'done') {
       terminal.current = true;
+      const url = event.outputUrl || (jobIdRef.current ? `/api/jobs/${jobIdRef.current}/output` : null);
+      if (!url) {
+        setError(tRef.current('error.noOutput'));
+        setState('failed');
+        return;
+      }
       setStages((prev) => prev.map((s) => ({ id: s.id, status: 'done' })));
       setProgress(1);
-      setOutputUrl(event.outputUrl ?? `/api/jobs/${jobIdRef.current}/output`);
+      setOutputUrl(url);
       setState('done');
     } else if (event.type === 'error' || event.type === 'cancelled') {
       terminal.current = true;
@@ -129,7 +169,7 @@ export function usePipeline(api: PipelineApi): UsePipeline {
       setError(event.message || (event.type === 'cancelled' ? tRef.current('error.cancelled') : tRef.current('error.network')));
       setState('failed');
     }
-  }, []);
+  }, [setState]);
 
   const approve = useCallback(async () => {
     const current = draftRef.current;
@@ -138,6 +178,8 @@ export function usePipeline(api: PipelineApi): UsePipeline {
       return;
     }
     controller.current?.abort();
+    const run = ++runId.current;
+    const isStale = () => run !== runId.current;
     const ctrl = new AbortController();
     controller.current = ctrl;
     terminal.current = false;
@@ -151,19 +193,24 @@ export function usePipeline(api: PipelineApi): UsePipeline {
     setOutputUrl(null);
     setState('rendering');
     try {
-      await api.approveDraft(current.id, { onEvent: applyEvent, signal: ctrl.signal });
-      if (!mounted.current || ctrl.signal.aborted || terminal.current) return;
+      await api.approveDraft(current.id, {
+        onEvent: (event) => {
+          if (!isStale()) applyEvent(event);
+        },
+        signal: ctrl.signal,
+      });
+      if (!mounted.current || isStale() || ctrl.signal.aborted || terminal.current) return;
       terminal.current = true;
       setError(tRef.current('error.streamEnded'));
       setState('failed');
     } catch (e) {
-      if (!mounted.current || ctrl.signal.aborted || terminal.current) return;
+      if (!mounted.current || isStale() || ctrl.signal.aborted || terminal.current) return;
       terminal.current = true;
       setError(e instanceof ApiError && e.status === 409 ? tRef.current('error.conflict') : errorMessage(e));
       setState('failed');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [api, applyEvent]);
+  }, [api, applyEvent, setState]);
 
   const cancel = useCallback(async () => {
     const id = jobIdRef.current;
@@ -177,6 +224,7 @@ export function usePipeline(api: PipelineApi): UsePipeline {
   }, [api]);
 
   const reset = useCallback(() => {
+    runId.current += 1;
     controller.current?.abort();
     controller.current = null;
     draftRef.current = null;
@@ -190,10 +238,10 @@ export function usePipeline(api: PipelineApi): UsePipeline {
     setJobId(null);
     setOutputUrl(null);
     setState('idle');
-  }, []);
+  }, [setState]);
 
   return useMemo(
-    () => ({ state, draft, error, stages, progress, warnings, jobId, outputUrl, createDraft, approve, cancel, reset }),
-    [state, draft, error, stages, progress, warnings, jobId, outputUrl, createDraft, approve, cancel, reset],
+    () => ({ state, draft, error, stages, progress, warnings, jobId, outputUrl, createDraft, saveSegments, approve, cancel, reset }),
+    [state, draft, error, stages, progress, warnings, jobId, outputUrl, createDraft, saveSegments, approve, cancel, reset],
   );
 }

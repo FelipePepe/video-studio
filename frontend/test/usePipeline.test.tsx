@@ -192,4 +192,172 @@ describe('usePipeline', () => {
       console.error = orig;
     }
   });
+  describe('createDraft guard', () => {
+    it.each(['drafting', 'review', 'rendering', 'done', 'failed'] as const)('is ignored while %s', async (target) => {
+      const fake = makeFakeApi();
+      let release: (d: typeof draft) => void = () => {};
+      const hook = renderHook(() => usePipeline(fake.api));
+      if (target === 'drafting') {
+        fake.api.createDraft.mockImplementationOnce(() => new Promise((r) => (release = r)));
+        act(() => {
+          void hook.result.current.createDraft({ text: 'a' });
+        });
+      } else {
+        await act(async () => {
+          await hook.result.current.createDraft({ text: 'a' });
+        });
+        if (target !== 'review') {
+          act(() => {
+            void hook.result.current.approve();
+          });
+          if (target === 'done') act(() => fake.emit({ type: 'done' }));
+          if (target === 'failed') act(() => fake.emit({ type: 'error', message: 'boom' }));
+        }
+      }
+      expect(hook.result.current.state).toBe(target);
+      const calls = fake.api.createDraft.mock.calls.length;
+      const snapshot = hook.result.current;
+      await act(async () => {
+        await hook.result.current.createDraft({ text: 'second' });
+      });
+      expect(fake.api.createDraft).toHaveBeenCalledTimes(calls);
+      expect(hook.result.current.state).toBe(target);
+      expect(hook.result.current.draft).toEqual(snapshot.draft);
+      expect(hook.result.current.error).toBe(snapshot.error);
+      await act(async () => release(draft));
+    });
+  });
+
+  describe('stale streams', () => {
+    it('ignores events and settlement of a stream replaced by reset()', async () => {
+      const { fake, hook } = await toRendering();
+      act(() => fake.emit({ type: 'progress', stage: 'images', progress: 0.5 }));
+      act(() => hook.result.current.reset());
+      expect(hook.result.current.state).toBe('idle');
+      act(() => fake.emit({ type: 'done', outputUrl: '/late' }));
+      act(() => fake.emit({ type: 'error', message: 'late error' }));
+      await act(async () => fake.fail(new ApiError(500, 'late rejection')));
+      expect(hook.result.current.state).toBe('idle');
+      expect(hook.result.current.error).toBeNull();
+      expect(hook.result.current.outputUrl).toBeNull();
+      expect(hook.result.current.progress).toBe(0);
+    });
+
+    it('ignores late events and settlement of the old stream after a retry', async () => {
+      const fake = makeFakeApi();
+      const emitters: Array<(e: Parameters<typeof fake.emit>[0]) => void> = [];
+      const settle: Array<(e?: unknown) => void> = [];
+      fake.api.approveDraft.mockImplementation(
+        (_id, opts) =>
+          new Promise((resolve) => {
+            emitters.push((e) => opts.onEvent({ jobId: `j${emitters.length}`, ...e }));
+            settle.push(() => resolve(undefined));
+          }),
+      );
+      const { hook } = await toReview(fake);
+      act(() => {
+        void hook.result.current.approve();
+      });
+      act(() => emitters[0]!({ type: 'error', message: 'boom' }));
+      expect(hook.result.current.state).toBe('failed');
+      act(() => {
+        void hook.result.current.approve();
+      });
+      expect(hook.result.current.state).toBe('rendering');
+      act(() => emitters[0]!({ type: 'done', outputUrl: '/old' }));
+      await act(async () => settle[0]!());
+      expect(hook.result.current.state).toBe('rendering');
+      expect(hook.result.current.outputUrl).toBeNull();
+      act(() => emitters[1]!({ type: 'progress', stage: 'tts', progress: 0.2 }));
+      expect(hook.result.current.progress).toBe(0.2);
+    });
+  });
+
+  describe('output url', () => {
+    it('falls back to the job output when outputUrl is an empty string', async () => {
+      const { fake, hook } = await toRendering();
+      act(() => fake.emit({ type: 'done', outputUrl: '' }));
+      expect(hook.result.current.state).toBe('done');
+      expect(hook.result.current.outputUrl).toBe('/api/jobs/j1/output');
+    });
+
+    it('fails with a clear error when there is neither an output url nor a job id', async () => {
+      const { fake, hook } = await toRendering();
+      act(() => fake.emit({ type: 'done', jobId: '' }));
+      expect(hook.result.current.state).toBe('failed');
+      expect(hook.result.current.outputUrl).toBeNull();
+      expect(hook.result.current.error).toMatch(/vídeo|video/i);
+    });
+  });
+
+  it('cancel surfaces the error when cancelJob rejects but stays rendering', async () => {
+    const { fake, hook } = await toRendering();
+    act(() => fake.emit({ type: 'stage', stage: 'tts', progress: 0.1 }));
+    fake.api.cancelJob.mockRejectedValueOnce(new ApiError(500, 'cancel failed'));
+    await act(async () => {
+      await hook.result.current.cancel();
+    });
+    expect(hook.result.current.state).toBe('rendering');
+    expect(hook.result.current.error).toBe('cancel failed');
+  });
+  describe('saveSegments', () => {
+    const edited = [{ scene: 1, title: 'New', narration: 'n', visualPrompt: 'v', voice: 'male' }];
+
+    it('puts the escaleta, updates the draft from the response and returns true', async () => {
+      const { fake, hook } = await toReview();
+      let ok = false;
+      await act(async () => {
+        ok = await hook.result.current.saveSegments(edited);
+      });
+      expect(ok).toBe(true);
+      expect(fake.api.putSegments).toHaveBeenCalledWith('d1', edited);
+      expect(hook.result.current.draft?.escaleta).toEqual(edited);
+      expect(hook.result.current.draft?.id).toBe('d1');
+      expect(hook.result.current.error).toBeNull();
+    });
+
+    it('approves the saved draft after a save', async () => {
+      const { fake, hook } = await toReview();
+      await act(async () => {
+        await hook.result.current.saveSegments(edited);
+      });
+      act(() => {
+        void hook.result.current.approve();
+      });
+      expect(fake.api.approveDraft).toHaveBeenCalledWith('d1', expect.anything());
+    });
+
+    it('maps ApiError to error, keeps the previous draft and returns false', async () => {
+      const { fake, hook } = await toReview();
+      fake.api.putSegments.mockRejectedValueOnce(new ApiError(400, 'scene 1 title must be a non-empty string'));
+      let ok = true;
+      await act(async () => {
+        ok = await hook.result.current.saveSegments(edited);
+      });
+      expect(ok).toBe(false);
+      expect(hook.result.current.error).toBe('scene 1 title must be a non-empty string');
+      expect(hook.result.current.draft?.escaleta).toEqual(draft.escaleta);
+      expect(hook.result.current.state).toBe('review');
+    });
+
+    it('maps network errors to a generic message', async () => {
+      const { fake, hook } = await toReview();
+      fake.api.putSegments.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+      await act(async () => {
+        await hook.result.current.saveSegments(edited);
+      });
+      expect(hook.result.current.error).toBeTruthy();
+    });
+
+    it('returns false without calling the api when there is no draft', async () => {
+      const fake = makeFakeApi();
+      const hook = renderHook(() => usePipeline(fake.api));
+      let ok = true;
+      await act(async () => {
+        ok = await hook.result.current.saveSegments(edited);
+      });
+      expect(ok).toBe(false);
+      expect(fake.api.putSegments).not.toHaveBeenCalled();
+    });
+  });
 });
