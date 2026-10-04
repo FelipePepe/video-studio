@@ -34,10 +34,11 @@ Everything in the note, in phases. Out of scope: `visual-character-sync` (no spe
 - [x] T2c ffmpeg assembly helpers (Ken Burns, xfade, concat, mux) — `02d37bc`, ~250 lines; integration test ran with the local ffmpeg.
 - [x] T2d Wan2.2 T2V/I2V workflow builders — `1ce8b3b`, ~331 lines; tests encode VAE bf16 `wan_2.1_vae`, `end_image` omission, `save_output`, no `WanVideoSamplerv2`. Default negative prompt is the writer's choice (`blurry, low quality, distorted, watermark, text, static, deformed`).
 - [x] T2-fix Review correction `68c3320`: migrate `kokoro_host` → `piper_host` on existing DBs (RED: assertion on missing `piper_host`; GREEN 96/96).
-- [ ] T2e Hardening from phase-2 advisory findings (non-blocking): ComfyUI poll tolerates transient fetch errors and bounds each request (`R4-comfy-poll-no-transient-tolerance`, `R3-comfy-wait-unbounded-request`); Piper guards malformed frame parsing and de-duplicates host parsing (`R3-piper-unguarded-frame-parse`, `R2-dup-piper-host-parse`); make the settings migration atomic (`R4-migration-not-atomic`); document why `pingpong`/the no-op LoRA node exist (note-mandated). Remaining SUGGESTIONs deferred.
-- [ ] T3a Draft generation (article fetch → Ollama → validated escaleta)
+- [x] T2e (`ceaf96c`, ~205 lines; delegated writer, TDD RED on assertions/module-not-found) Hardening from phase-2 advisory findings (non-blocking): ComfyUI poll tolerates transient fetch errors and bounds each request (`R4-comfy-poll-no-transient-tolerance`, `R3-comfy-wait-unbounded-request`); Piper guards malformed frame parsing and de-duplicates host parsing (`R3-piper-unguarded-frame-parse`, `R2-dup-piper-host-parse`); make the settings migration atomic (`R4-migration-not-atomic`); document why `pingpong`/the no-op LoRA node exist (note-mandated). Remaining SUGGESTIONs deferred.
+- [x] T3a Draft generation (article fetch → Ollama → validated escaleta) — `6856475` (article + draft) and `759722f` (repository + endpoints), ~830 lines incl. ~400 of tests (over the ~400 heuristic: three behaviors plus tests). Parent re-verified 147 pass / 0 fail, typecheck clean. Decisions: invalid model output → 502; PUT keeps per-scene edited voices (falls back to the draft's voice rule); article wrapped in `<article>` with an ignore-instructions line; private-network URLs allowed by design (scheme, credentials, size, time limits apply).
+- [ ] T3c-first Job infrastructure (moved before T3b because the orchestrator runs inside a job): `jobs` table + repository, single-slot queue (one GPU job at a time), in-memory event hub, restart recovery (running → failed `interrupted`), `GET /api/jobs`, `GET /api/jobs/:id`, `GET /api/jobs/:id/events` (SSE: snapshot, `: ping`, live), `POST /api/jobs/:id/cancel`, `GET /api/jobs/:id/output`.
 - [ ] T3b Approval orchestrator with SSE
-- [ ] T3c Job management endpoints
+- [ ] T3d Make the ComfyUI request timeout per-operation (short for polling/submit, long for `download`/`uploadImage`), plus the advisory SUGGESTIONs on article charset/entities if cheap.
 - [ ] T4a Frontend scaffold, API client, settings modal, sidebar
 - [ ] T4b Pipeline form, progress stages, video panel
 - [ ] T4c Escaleta cards and SegmentEditor review mode
@@ -56,12 +57,13 @@ Everything in the note, in phases. Out of scope: `visual-character-sync` (no spe
 _(none yet)_
 
 ## Review assessments per task
-Last reviewed boundary: `68c3320` (end of PR slice 2).
+Last reviewed boundary: `759722f` (phase 3, part 1).
 - T0 (`a0c05bd`): risk medium (`executable_change`: `.npmrc`), `review_due: false`, reason `under_budget` (271 lines). Pending in the slice until T1.
 - T1 (`78668eb`): range `635c61e..78668eb`, risk medium, `review_due: true` (`slice_budget_reached`; 1791 lines counted, 1163 of them the generated lockfile). Consent granted by the user; one lens (`review-reliability`) → **approved**, acknowledged, authority burned (lineage `review-f093030dc3f776be`). Three non-blocking advisory findings (see T1b).
 
 - T1b (`9d69315`): range `78668eb..9d69315`, 168 lines, medium, `review_due: false` (`under_budget`); folded into the phase-2 range.
 - Phase 2 (`c1c7248..68c3320`): range `9d69315..HEAD`, high (`process_boundary` in `ffmpeg.ts`), `review_due: true` (`high_risk`). User granted consent; 4 lenses → `correction_required` (CRITICAL: `kokoro_host` rename without migration, found by reliability + resilience). One bounded correction (`68c3320`, ~51 lines of 200 budget). Native flow then required a maintainer recovery authorization (`scope_changed`); the user authorized it; `gentle-ai review recover` derived the binding and created successor `review-babf1faa9cb4fed2-r1`; 4 lenses → **approved**, acknowledged, authority burned. 13 advisory findings (→ T2e).
+- Phase 3 part 1 (`ceaf96c..759722f`): range `68c3320..759722f`, medium (`executable_change`: `app.ts`), `review_due: true` (`slice_budget_reached`, 1054 lines). User granted consent; 1 lens (reliability) → approved, acknowledged (lineage `review-c1d63844c8e05d9f`). 5 advisory findings; the WARNING `R3-comfy-timeout-applies-to-all-requests` (the 30 s request timeout also hits `uploadImage`/`download` of large files) is queued as T3d.
 
 ## Slices (PRs)
 Branch chain (local): `develop` ← `feature/video-studio-rebuild` (root, `a0c05bd` bootstrap) ← `feature/video-studio-rebuild-p1` (T1, T1b) ← `-p2` (T2a–d) ← `-p3` (T3a–c) ← `-p4` (T4a–c) ← `-p5` (T5a–b).
