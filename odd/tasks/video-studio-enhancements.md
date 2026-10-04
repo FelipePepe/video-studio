@@ -31,8 +31,8 @@ Inherit from `video-studio-rebuild`: TDD ON (`node --test --import tsx` backend;
 ~700–900 authored changed lines across 4 tasks (tests included). Under one slice per task ⇒ mostly `under_budget`/passive reviews; medium tiers handled by the native flow.
 
 ## Tasks
-- [ ] E1 BGM + ducking (route options → jobs.options → assemble) — route: inline (writer trigger fires — 5+ files — but no subagent mechanism in this pi runtime; recorded here).
-- [ ] E2 Burned subtitles (SRT builder + timeline cue math + encode step).
+- [x] E1 BGM + ducking (root) — `musicMixArgs` (sidechaincompress driven by narration, amix duration=first) in `media/ffmpeg.ts`; approve body `music` (path, `existsSync` at the boundary) + `musicVolume` (0,1], unknown keys → 400; `jobs.options` (TEXT) + guarded migration in `db/connection.ts`; orchestrator takes the music branch only when present. TDD: RED 5/5 (module/behavior) → GREEN 5/5; suite 235/235; typecheck clean. **Commit `c7e63a5`** on root. Route: inline (writer trigger fired — 10 files — no subagent mechanism in this pi runtime).
+- [x] E2 Burned subtitles (`-p1` branch) — `pipeline/subtitles.ts`: `buildSrt` (RFC-ish cue format, `HH:MM:SS,mmm`, validated cues) + `sceneCues` (per-scene timeline incl. the silences actually inserted between scenes); `burnSubtitlesArgs` (subtitles filter, libx264 re-encode, audio copy, path escaping for `\` and `:`); approve option `subtitles` (boolean, **default ON**; `false` keeps the classic mux tail); orchestrator: mux → `muxed.mp4` → burn → `final.mp4` (music mix keeps the same order before the burn). TDD: RED 7/7 → GREEN 7/7; suite **242/242**; typecheck clean. Commit on the E2 slice; the exact SHA is recorded in the `docs: record E2` commit body. The pre-existing orchestrator tail assertion was updated to the new default (burn at the end).
 - [ ] E3 Vertical 9:16 + cover thumb + `?variant=` routing.
 - [ ] E4 `GET /api/voices` (Piper describe endpoint).
 
@@ -47,7 +47,7 @@ Inherit from `video-studio-rebuild`: TDD ON (`node --test --import tsx` backend;
 _(none yet)_
 
 ## Review assessments per task
-(none yet — first native boundary for this feature is its root base)
+- E1 (`c7e63a5`): range `51b3a47..c7e63a5`, risk **high** (`process_boundary`, `media/ffmpeg.ts`), 351 lines, `review_due: true` (`high_risk`). User granted consent (option 1, 2026-10-04); 4 lenses (risk/resilience/readability/reliability) — all admitted `completed` via the pi `--agent pi --materialize` + `--input` flow → **approved**; acknowledged (lineage `review-f0475591901ba9f7`, revision `9a7c7fa1…c572c`, authority **burned**). Advisory (non-blocking, separate later work): R1-001 `music` has no path allow-list (local-tool trust model — base design); R3-001 orchestrator music branch untested at execution level; R3-002 unparseable stored `options` JSON throws in `fromRow` (`jobRepository.ts:42`).
 
 ## Slices (PRs)
 Local: root `feature/video-studio-enhancements` ← `-p1` (E2) ← `-p2` (E3) ← `-p3` (E4).
