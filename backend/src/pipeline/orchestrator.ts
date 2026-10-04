@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { ComfyClient } from '../clients/comfy';
@@ -12,12 +12,14 @@ import {
   concatArgs,
   extractFrameArgs,
   kenBurnsArgs,
+  musicMixArgs,
   muxAudioArgs,
   normalizeClipArgs,
   runFfmpeg,
 } from '../media/ffmpeg';
 import { parseWav, type PcmFormat, wavDurationSec, wavSilence } from '../media/wav';
 import { getDraft } from './draftRepository';
+import { DEFAULT_MUSIC_VOLUME } from './types';
 
 export type FfmpegFn = (args: string[], opts?: { signal?: AbortSignal }) => Promise<void>;
 
@@ -235,7 +237,15 @@ export function createExecute(deps: OrchestratorDeps): ExecuteFn {
       writeFileSync(audioList, buildConcatList(audioParts));
       await run(concatArgs({ listFile: videoList, out: video }));
       await run(concatArgs({ listFile: audioList, out: narration }));
-      await run(muxAudioArgs({ video, audio: narration, out: finalPath }));
+      if (job.options?.music) {
+        const music = job.options.music;
+        if (!existsSync(music)) throw new Error(`Music file not found: ${music}`);
+        await run(
+          musicMixArgs({ video, audio: narration, music, musicVolume: job.options.musicVolume ?? DEFAULT_MUSIC_VOLUME, out: finalPath }),
+        );
+      } else {
+        await run(muxAudioArgs({ video, audio: narration, out: finalPath }));
+      }
       return { outputPath: finalPath };
     } finally {
       signal.removeEventListener('abort', interruptOnce);

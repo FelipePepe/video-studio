@@ -1,3 +1,5 @@
+import type { ApproveOptions } from '../pipeline/types';
+
 export type JobStatus = 'queued' | 'running' | 'done' | 'failed' | 'cancelled';
 
 export interface Job {
@@ -8,6 +10,8 @@ export interface Job {
   progress: number;
   error: string | null;
   outputPath: string | null;
+  /** Approve-time options (JSON), or null. */
+  options: ApproveOptions | null;
   createdAt: string;
   updatedAt: string;
   startedAt: string | null;

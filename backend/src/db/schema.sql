@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS jobs (
   progress REAL NOT NULL DEFAULT 0,
   error TEXT,
   output_path TEXT,
+  options TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   started_at TEXT,

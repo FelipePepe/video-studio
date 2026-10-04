@@ -20,6 +20,22 @@ function migrateKokoroHostToPiperHost(db: DatabaseSync): void {
   }
 }
 
+// Databases that predate E1 (BGM options) have no `jobs.options` column.
+// CREATE TABLE IF NOT EXISTS does not add columns to existing tables.
+function migrateJobsOptionsColumn(db: DatabaseSync): void {
+  const columns = (db.prepare('PRAGMA table_info(jobs)').all() as { name: string }[]).map((c) => c.name);
+  if (!columns.includes('options')) {
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      db.exec('ALTER TABLE jobs ADD COLUMN options TEXT');
+      db.exec('COMMIT');
+    } catch (e) {
+      db.exec('ROLLBACK');
+      throw e;
+    }
+  }
+}
+
 export function openDatabase(path: string = ':memory:'): DatabaseSync {
   const db = new DatabaseSync(path);
   db.exec('PRAGMA foreign_keys = ON');
@@ -27,5 +43,6 @@ export function openDatabase(path: string = ':memory:'): DatabaseSync {
   if (path !== ':memory:') db.exec('PRAGMA journal_mode = WAL');
   db.exec(readFileSync(join(__dirname, 'schema.sql'), 'utf8'));
   migrateKokoroHostToPiperHost(db);
+  migrateJobsOptionsColumn(db);
   return db;
 }

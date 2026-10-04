@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync, SQLInputValue } from 'node:sqlite';
-import type { Job, JobStatus } from './types';
+import type { ApproveOptions } from '../pipeline/types';
+import { Job, JobStatus } from './types';
 
 export type Clock = () => Date;
 export type IdFactory = () => string;
@@ -13,6 +14,7 @@ interface JobRow {
   progress: number;
   error: string | null;
   output_path: string | null;
+  options: string | null;
   created_at: string;
   updated_at: string;
   started_at: string | null;
@@ -37,6 +39,7 @@ function fromRow(r: JobRow): Job {
     progress: r.progress,
     error: r.error,
     outputPath: r.output_path,
+    options: r.options ? (JSON.parse(r.options) as ApproveOptions) : null,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
     startedAt: r.started_at,
@@ -49,13 +52,13 @@ export function getJob(db: DatabaseSync, id: string): Job | undefined {
   return row ? fromRow(row) : undefined;
 }
 
-export function createJob(db: DatabaseSync, draftId: string, clock: Clock = now, newId: IdFactory = randomUUID): Job {
+export function createJob(db: DatabaseSync, draftId: string, clock: Clock = now, newId: IdFactory = randomUUID, opts: ApproveOptions | null = null): Job {
   const id = newId();
   const ts = clock().toISOString();
   db.prepare(
-    `INSERT INTO jobs (id, draft_id, status, stage, progress, created_at, updated_at)
-     VALUES (?, ?, 'queued', '', 0, ?, ?)`,
-  ).run(id, draftId, ts, ts);
+    `INSERT INTO jobs (id, draft_id, status, stage, progress, options, created_at, updated_at)
+     VALUES (?, ?, 'queued', '', 0, ?, ?, ?)`,
+  ).run(id, draftId, opts ? JSON.stringify(opts) : null, ts, ts);
   return getJob(db, id) as Job;
 }
 

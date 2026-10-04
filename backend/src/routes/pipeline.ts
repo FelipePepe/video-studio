@@ -1,9 +1,11 @@
+import { existsSync } from 'node:fs';
 import { Router } from 'express';
 import type { DatabaseSync } from 'node:sqlite';
 import type { OllamaClient } from '../clients/ollama';
 import { DraftInputError, DraftValidationError, generateDraft, validateEscaleta } from '../pipeline/draft';
 import { createDraft, DraftLockedError, getDraft, markApproved, updateEscaleta } from '../pipeline/draftRepository';
 import { getLatestJobForDraft } from '../jobs/jobRepository';
+import type { ApproveOptions } from '../pipeline/types';
 import type { Job, JobEvent } from '../jobs/types';
 import type { EventHub } from '../jobs/eventHub';
 import type { JobRunner } from '../jobs/runner';
@@ -16,6 +18,31 @@ export interface PipelineDeps {
   runner: JobRunner;
   hub: EventHub;
   heartbeatMs?: number;
+}
+
+class ApproveOptionsError extends Error {}
+
+function parseApproveOptions(body: unknown): ApproveOptions | null {
+  if (body === undefined || body === null) return null;
+  if (typeof body !== 'object' || Array.isArray(body)) throw new ApproveOptionsError('Body must be a JSON object');
+  const o = body as Record<string, unknown>;
+  for (const key of Object.keys(o)) {
+    if (key !== 'music' && key !== 'musicVolume') throw new ApproveOptionsError(`Unknown approve option: ${key}`);
+  }
+  if (Object.keys(o).length === 0) return null;
+  const opts: ApproveOptions = {};
+  if (o.music !== undefined) {
+    if (typeof o.music !== 'string' || o.music.length === 0) throw new ApproveOptionsError('music must be a non-empty path');
+    if (!existsSync(o.music)) throw new ApproveOptionsError(`Music file not found: ${o.music}`);
+    opts.music = o.music;
+  }
+  if (o.musicVolume !== undefined) {
+    if (typeof o.musicVolume !== 'number' || !Number.isFinite(o.musicVolume) || o.musicVolume <= 0 || o.musicVolume > 1) {
+      throw new ApproveOptionsError('musicVolume must be a number in (0, 1]');
+    }
+    opts.musicVolume = o.musicVolume;
+  }
+  return opts;
 }
 
 export function pipelineRouter(deps: PipelineDeps): Router {
@@ -80,6 +107,13 @@ export function pipelineRouter(deps: PipelineDeps): Router {
    * stream does not cancel the job. `Accept: application/json` returns 202 `{ jobId }`.
    */
   router.post('/draft/:id/approve', (req, res) => {
+    let opts: ApproveOptions | null;
+    try {
+      opts = parseApproveOptions(req.body);
+    } catch (e) {
+      res.status(400).json({ error: e instanceof Error ? e.message : 'Invalid approve options' });
+      return;
+    }
     let job: Job;
     deps.db.exec('BEGIN IMMEDIATE');
     try {
@@ -100,7 +134,7 @@ export function pipelineRouter(deps: PipelineDeps): Router {
           return;
         }
       }
-      job = deps.runner.createJob(draft.id);
+      job = deps.runner.createJob(draft.id, opts);
       deps.db.exec('COMMIT');
     } catch (e) {
       deps.db.exec('ROLLBACK');

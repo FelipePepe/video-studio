@@ -1,5 +1,15 @@
 export type Voice = 'male' | 'female' | string;
 
+/** Options the approve endpoint accepts (E1: BGM). Stored as JSON on the job row. */
+export interface ApproveOptions {
+  /** Absolute path of a BGM file readable by the server. */
+  music?: string;
+  /** BGM target volume, 0.01..1 (default 0.25). */
+  musicVolume?: number;
+}
+
+export const DEFAULT_MUSIC_VOLUME = 0.25;
+
 export interface Scene {
   scene: number;
   title: string;

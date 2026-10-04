@@ -1,6 +1,8 @@
 import { mkdirSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
+import type { ApproveOptions } from '../pipeline/types';
 import type { EventHub } from './eventHub';
 import {
   createJob,
@@ -59,8 +61,8 @@ export class JobRunner {
   }
 
   /** Writes the queued job row only, so it can join an outer transaction. Call `schedule` after COMMIT. */
-  createJob(draftId: string): Job {
-    return createJob(this.db, draftId, this.clock);
+  createJob(draftId: string, opts: ApproveOptions | null = null): Job {
+    return createJob(this.db, draftId, this.clock, randomUUID, opts);
   }
 
   schedule(job: Job): void {

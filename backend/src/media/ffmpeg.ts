@@ -100,11 +100,45 @@ export function buildConcatList(files: string[]): string {
   return files.map((f) => `file '${f.replace(/'/g, "'\\''")}'`).join('\n') + '\n';
 }
 
+export interface MusicMixOptions {
+  video: string;
+  audio: string;
+  music: string;
+  out: string;
+  musicVolume?: number;
+}
+
 export function muxAudioArgs(o: { video: string; audio: string; out: string }): string[] {
   return [
     '-i', o.video, '-i', o.audio,
     '-map', '0:v:0', '-map', '1:a:0',
     '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-shortest', o.out,
+  ];
+}
+
+/**
+ * Muxes the narration over the video (input 1) and an optional BGM (input 2),
+ * ducking the music with a sidechain compressor driven by the narration so the
+ * voice always stays on top. Music is volume-scaled first, mixed with
+ * `amix=duration=first` so its tail is cut when the narration ends.
+ */
+export function musicMixArgs(o: MusicMixOptions): string[] {
+  const volume = o.musicVolume ?? 0.25;
+  if (typeof volume !== 'number' || !Number.isFinite(volume) || volume <= 0 || volume > 1) {
+    throw new Error('musicVolume must be a number in (0, 1]');
+  }
+  const num = (v: number) => String(v);
+  const filter =
+    `[2:a]volume=${num(volume)}[m];` +
+    `[m][1:a]sidechaincompress=threshold=0.15:ratio=8:attack=50:release=400[bg];` +
+    `[1:a][bg]amix=inputs=2:duration=first:dropout_transition=0[a]`;
+  return [
+    '-i', o.video, '-i', o.audio, '-i', o.music,
+    '-filter_complex', filter,
+    '-map', '0:v:0',
+    '-map', '[a]',
+    '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k',
+    o.out,
   ];
 }
 
