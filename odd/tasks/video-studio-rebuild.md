@@ -41,9 +41,9 @@ Everything in the note, in phases. Out of scope: `visual-character-sync` (no spe
 - [x] T3e (`pingpong` fix, ~28 lines; RED on 2 assertions → GREEN 215/215): `VHS_VideoCombine.pingpong` is now an option (default `true`, the note's chain default); the orchestrator passes `false` for stills and transitions so a transition ends on its end image and lasts `frames/16` s.
 - [x] T3d (`2212c3f`) Make the ComfyUI request timeout per-operation (short for polling/submit, long for `download`/`uploadImage`), plus the advisory SUGGESTIONs on article charset/entities if cheap.
 - [x] T3f (~193 lines incl. tests; delegated writer; RED on 3+1+1 assertions → GREEN, suite 215 → 221) Fixes from the orchestrator review's advisory WARNINGs: approve is one SQLite transaction (draft status + job row; loop kick after COMMIT) and can be retried when the latest job failed/cancelled (also for an approved draft with no job); progress is monotonic; mixed WAV formats fail the job before any ComfyUI work. Remaining advisory items deferred: transition seed magic offset, `format` non-null cast, transition timeout without `interrupt`, `wav.ts` parse edge (R1-001).
-- [ ] T4a Frontend scaffold, API client, settings modal, sidebar
-- [ ] T4b Pipeline form, progress stages, video panel
-- [ ] T4c Escaleta cards and SegmentEditor review mode
+- [x] T4a Frontend scaffold, API client, settings modal, sidebar (`04fcebc..6587212`, 40 tests)
+- [x] T4b Pipeline form, progress stages, video panel (`885e069..4311885`, 75 tests). Deviation: no separate `<audio>` (backend only produces the muxed mp4).
+- [x] T4c Escaleta cards and SegmentEditor review mode, plus T4d hook fixes (`691f27e..2268f0a`; frontend 120 tests, backend 221; all native reviews approved, advisory items listed below)
 - [ ] T5a PipelineAgent (Claude tool use, unconnected to orchestrator)
 - [ ] T5b README/setup docs and Atlas note update
 
@@ -59,7 +59,7 @@ Everything in the note, in phases. Out of scope: `visual-character-sync` (no spe
 _(none yet)_
 
 ## Review assessments per task
-Last reviewed boundary: `832fa68` (phase 3, part 3).
+Last reviewed boundary: `2268f0a` (end of phase 4). Phase 4 reviews (all medium, 1 lens, approved, acknowledged): T3f+T4a `review-0a9007ad484a54f2`, T4b `review-cb78406645df3ccb`, T4c/T4d `review-eb6e45cecd2b5c8a`. Open advisory: `createDraft` guard is silent, focus-after-move unasserted, stale-save untested.
 - T0 (`a0c05bd`): risk medium (`executable_change`: `.npmrc`), `review_due: false`, reason `under_budget` (271 lines). Pending in the slice until T1.
 - T1 (`78668eb`): range `635c61e..78668eb`, risk medium, `review_due: true` (`slice_budget_reached`; 1791 lines counted, 1163 of them the generated lockfile). Consent granted by the user; one lens (`review-reliability`) → **approved**, acknowledged, authority burned (lineage `review-f093030dc3f776be`). Three non-blocking advisory findings (see T1b).
 
@@ -80,6 +80,9 @@ Remote: `FelipePepe/video-studio` (private, created at the user's request). PR #
 - PR #1 (`p1` → `feature/video-studio-rebuild`) is open: https://github.com/FelipePepe/video-studio/pull/1 (repo `FelipePepe/video-studio`, private, created 2026-10-04 at the user's request).
 
 ## Next step
+Phase 5 (T5a PipelineAgent with Claude tool use, T5b README + Atlas note correction: Piper replaces Kokoro, repo recreated) and the final PR `feature/video-studio-rebuild` → `develop`. Pending authorization: real spark run of single-frame Wan T2V. Run stopped by the usage limit after PR #4.
+
+(previous next-step text:)
 T1b (hardening, delegated writer), then phase 2 (T2a–d).
 
 User goal (2026-10-04): "implementa todas las fases" — continue through all phases without stopping between tasks, pausing only for real decisions/authorizations (remote repo, real-host runs on spark).
