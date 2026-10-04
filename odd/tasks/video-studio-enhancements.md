@@ -57,11 +57,11 @@ Inherit from `video-studio-rebuild`: TDD ON (`node --test --import tsx` backend;
 
 ## Slices (PRs)
 Local: root `feature/video-studio-enhancements` (E1) ← `-p1` (E2+E3+E4).
-Remote `FelipePepe/video-studio`: PR `-p1`→root y root→`feature/video-studio-rebuild-p5`; el merge de la cadena rebuild y la PR final root→`develop` deciden los humanos.
+Remote `FelipePepe/video-studio`: **PR #6** = root→`feature/video-studio-rebuild-p5` (E1), **PR #7** = `-p1`→root (E2+E3+E4); ambos OPEN (2026-10-04). El merge de la cadena rebuild y de estas PRs, y la PR final root→`develop`, deciden los humanos.
 
 ## Open items
 - Frontend toggles (music path + volume, subtitles on/off, vertical) and voice dropdown: follow-up feature, not started.
 - Default subtitle style (font/size/position) is ours; the Atlas note gets a line if it lands.
 
 ## Next step
-Push de las dos ramas + open de las dos PRs (`-p1`→root, root→p5); el merge de la cadena rebuild y de estas PRs sigue siendo humano.
+PRs #6 y #7 abiertas — esperar revisión/decisión humana (merge de la cadena rebuild y de estas PRs; luego PR root→`develop`). Opcional con autorización: e2e real en spark (Wan T2V single-frame + Piper).
