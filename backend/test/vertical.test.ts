@@ -1,0 +1,161 @@
+import { test, afterEach } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { basename, join } from 'node:path';
+import request from 'supertest';
+import { verticalCropArgs, coverArgs } from '../src/media/ffmpeg';
+import { buildApp } from '../src/app';
+import { openDatabase } from '../src/db/connection';
+import { loadEnvDefaults } from '../src/config/settings';
+import { createDraft } from '../src/pipeline/draftRepository';
+import { createJob, markDone } from '../src/jobs/jobRepository';
+import { createExecute } from '../src/pipeline/orchestrator';
+import { wavFromPcm } from '../src/media/wav';
+import type { ComfyClient } from '../src/clients/comfy';
+import type { PiperClient } from '../src/clients/piper';
+import type { Escaleta } from '../src/pipeline/types';
+
+const dirs: string[] = [];
+afterEach(() => {
+  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+});
+
+test('verticalCropArgs center-crops 16:9 to 9:16 and re-encodes at 720x1280', () => {
+  assert.deepEqual(verticalCropArgs({ input: 'in.mp4', out: 'out.mp4' }), [
+    '-i', 'in.mp4',
+    '-vf', 'crop=ih*9/16:ih,scale=720:1280',
+    '-c:v', 'libx264', '-crf', '19', '-pix_fmt', 'yuv420p',
+    '-c:a', 'copy',
+    'out.mp4',
+  ]);
+});
+
+test('coverArgs extracts one frame at the given time', () => {
+  assert.deepEqual(coverArgs({ input: 'in.mp4', atSec: 1.25, out: 'cover.jpg' }), [
+    '-i', 'in.mp4', '-ss', '1.25', '-frames:v', '1', '-q:v', '3', 'cover.jpg',
+  ]);
+});
+
+const fmt = { rate: 16000, width: 2, channels: 1 };
+const scenes: Escaleta = [
+  { scene: 1, title: 'T0', narration: 'narr 0', visualPrompt: 'v0', voice: 'male' },
+  { scene: 2, title: 'T1', narration: 'narr 1', visualPrompt: 'v1', voice: 'female' },
+];
+
+function vHarness(opts?: { vertical?: boolean; subtitles?: boolean }) {
+  const workDir = mkdtempSync(join(tmpdir(), 'vs-vert-'));
+  dirs.push(workDir);
+  const db = openDatabase(':memory:');
+  const draft = createDraft(db, {
+    sourceKind: 'text', sourceRef: 'x', language: 'es', voiceA: 'male', voiceB: 'female', mix: false, escaleta: scenes,
+  });
+  const jobOpts: { vertical?: boolean; subtitles?: boolean } = {};
+  if (opts?.vertical !== undefined) jobOpts.vertical = opts.vertical;
+  if (opts?.subtitles !== undefined) jobOpts.subtitles = opts.subtitles;
+  const job = createJob(db, draft.id, undefined, undefined, Object.keys(jobOpts).length ? jobOpts : undefined);
+  const comfy = {
+    submit: async () => 'p1',
+    waitForCompletion: async () => ({ '9': { gifs: [{ filename: 'o.mp4' }] } }),
+    download: async () => Buffer.from('video'),
+    uploadImage: async (_d: Buffer, name: string) => name,
+    interrupt: async () => {},
+  } as unknown as ComfyClient;
+  const piper = {
+    synthesize: async () => wavFromPcm(Buffer.alloc(8000), fmt),
+  } as unknown as PiperClient;
+  const calls: string[][] = [];
+  const ffmpeg = async (args: string[]) => {
+    calls.push(args);
+    writeFileSync(args[args.length - 1], `out:${basename(args[args.length - 1])}`);
+  };
+  const execute = createExecute({ db, resolveComfy: () => comfy, resolvePiper: () => piper, ffmpeg });
+  return { workDir, job, execute, calls };
+}
+
+test('vertical on: crops final.mp4 to final_v.mp4 and always extracts cover.jpg at the film midpoint', async () => {
+  const h = vHarness({ vertical: true, subtitles: false });
+  const ctx = { signal: new AbortController().signal, workDir: h.workDir, emit: () => {} };
+  const res = await h.execute(h.job, ctx);
+  assert.equal(res.outputPath, join(h.workDir, 'final.mp4'));
+  const tail = h.calls.slice(-2);
+  const crop = tail[0];
+  assert.equal(crop[1], join(h.workDir, 'final.mp4'));
+  assert.match(crop[3], /crop=.*scale=720:1280/);
+  assert.equal(crop[crop.length - 1], join(h.workDir, 'final_v.mp4'));
+  const cover = tail[1];
+  assert.equal(cover[1], join(h.workDir, 'final.mp4'));
+  assert.match(cover[cover.indexOf('-ss') + 1], /^\d+(\.\d+)?$/);
+  assert.equal(cover[cover.length - 1], join(h.workDir, 'cover.jpg'));
+  assert.equal(readBack(join(h.workDir, 'final_v.mp4')), 'out:final_v.mp4');
+  assert.equal(readBack(join(h.workDir, 'cover.jpg')), 'out:cover.jpg');
+});
+
+test('vertical off (default) still extracts cover.jpg but never crops', async () => {
+  const h = vHarness();
+  const ctx = { signal: new AbortController().signal, workDir: h.workDir, emit: () => {} };
+  await h.execute(h.job, ctx);
+  assert.equal(readBack(join(h.workDir, 'cover.jpg')), 'out:cover.jpg');
+  assert.throws(() => readBack(join(h.workDir, 'final_v.mp4')), /no such/i);
+  assert.ok(!h.calls.some((a) => a.includes('final_v.mp4')));
+});
+
+test('vertical + subtitles: order is burn(final) -> crop(final_v) -> cover', async () => {
+  const h = vHarness({ vertical: true });
+  const ctx = { signal: new AbortController().signal, workDir: h.workDir, emit: () => {} };
+  await h.execute(h.job, ctx);
+  const last3 = h.calls.slice(-3);
+  assert.match(last3[0][last3[0].indexOf('-vf') + 1], /^subtitles=/);
+  assert.equal(last3[0][last3[0].length - 1], join(h.workDir, 'final.mp4'));
+  assert.equal(last3[1][1], join(h.workDir, 'final.mp4'));
+  assert.equal(last3[1][last3[1].length - 1], join(h.workDir, 'final_v.mp4'));
+  assert.equal(last3[2][1], join(h.workDir, 'final.mp4'));
+  assert.equal(last3[2][last3[2].length - 1], join(h.workDir, 'cover.jpg'));
+  assert.equal(last3.length, 3, 'no unexpected extra steps after cover');
+});
+
+const readBack = (p: string) => readFileSync(p, 'utf8');
+
+// ----- route variant -----
+function setupRoutes() {
+  const workDir = mkdtempSync(join(tmpdir(), 'vs-variant-r-'));
+  dirs.push(workDir);
+  const db = openDatabase(':memory:');
+  const draft = createDraft(db, { sourceKind: 'text', sourceRef: 'x', language: 'es', voiceA: 'male', voiceB: 'female', mix: false, escaleta: [] });
+  const app = buildApp({ db, envDefaults: loadEnvDefaults({}), jobs: { workDir, execute: async (job) => ({ outputPath: join(workDir, `final_${job.id}.mp4`) }) } });
+  const job = createJob(db, draft.id);
+  const finalPath = join(workDir, `final_${job.id}.mp4`);
+  writeFileSync(finalPath, 'final-bytes');
+  writeFileSync(join(workDir, 'final_v.mp4'), 'vertical-bytes');
+  writeFileSync(join(workDir, 'cover.jpg'), 'cover-bytes');
+  markDone(db, job.id, finalPath);
+  return { app, workDir, jobId: job.id };
+}
+
+test('GET /api/jobs/:id/output serves the variant requested (default mp4)', async () => {
+  const { app, jobId, workDir } = setupRoutes();
+  const def = await request(app).get(`/api/jobs/${jobId}/output`);
+  assert.equal(def.status, 200);
+  assert.match(def.headers['content-type'], /video\/mp4/);
+  assert.equal(readFileSync(join(workDir, `final_${jobId}.mp4`), 'utf8'), 'final-bytes');
+  const v = await request(app).get(`/api/jobs/${jobId}/output?variant=vertical`);
+  assert.equal(v.status, 200);
+  assert.match(v.headers['content-type'], /video\/mp4/);
+
+  const c = await request(app).get(`/api/jobs/${jobId}/output?variant=cover`);
+  assert.equal(c.status, 200);
+  assert.match(c.headers['content-type'], /image\/jpeg/);
+
+  // sendFile() streams the body; assert the served artifacts exist on disk with the expected bytes.
+  assert.equal(readFileSync(join(workDir, 'final_v.mp4'), 'utf8'), 'vertical-bytes');
+  assert.equal(readFileSync(join(workDir, 'cover.jpg'), 'utf8'), 'cover-bytes');
+});
+
+test('GET /api/jobs/:id/output rejects unknown variants and missing files', async () => {
+  const { app, jobId, workDir } = setupRoutes();
+  assert.equal((await request(app).get(`/api/jobs/${jobId}/output?variant=bogus`)).status, 400);
+  // Remove the vertical file: variant must 404, default still works.
+  rmSync(join(workDir, 'final_v.mp4'));
+  assert.equal((await request(app).get(`/api/jobs/${jobId}/output?variant=vertical`)).status, 404);
+  assert.equal((await request(app).get(`/api/jobs/${jobId}/output`)).status, 200);
+});

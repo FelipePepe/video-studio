@@ -8,6 +8,8 @@ export interface ApproveOptions {
   musicVolume?: number;
   /** Burn the escaleta subtitles into the final video. Default true. */
   subtitles?: boolean;
+  /** Also produce a 9:16 vertical crop (`final_v.mp4`). Default false. */
+  vertical?: boolean;
 }
 
 export const DEFAULT_MUSIC_VOLUME = 0.25;

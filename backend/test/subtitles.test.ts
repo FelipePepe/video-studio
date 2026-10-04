@@ -110,15 +110,17 @@ test('default (subtitles on) burns the SRT after the mux and keeps final.mp4 as 
   const h = subsHarness();
   const { outputPath } = await h.execute(h.job, { signal: new AbortController().signal, workDir: h.workDir, emit: () => {} });
   assert.equal(outputPath, join(h.workDir, 'final.mp4'));
-  const last = h.ffmpegCalls[h.ffmpegCalls.length - 1];
-  assert.ok(last.includes('-vf'), 'final call must re-encode (subtitles filter)');
-  assert.match(last[last.indexOf('-vf') + 1], /^subtitles=/);
-  assert.match(last[last.indexOf('-vf') + 1], /subtitles\.srt/);
+  const cover = h.ffmpegCalls[h.ffmpegCalls.length - 1];
+  assert.equal(cover[cover.length - 1], join(h.workDir, 'cover.jpg'));
+  const burn = h.ffmpegCalls[h.ffmpegCalls.length - 2];
+  assert.ok(burn.includes('-vf'), 'burn step must re-encode (subtitles filter)');
+  assert.match(burn[burn.indexOf('-vf') + 1], /^subtitles=/);
+  assert.match(burn[burn.indexOf('-vf') + 1], /subtitles\.srt/);
   const srt = readFileSync(join(h.workDir, 'subtitles.srt'), 'utf8');
   assert.match(srt, /00:00:00,000 --> 00:00:00,500/);
   assert.match(srt, /narr 2/);
-  const secondLast = h.ffmpegCalls[h.ffmpegCalls.length - 2];
-  assert.equal(secondLast[secondLast.length - 1], join(h.workDir, 'muxed.mp4'));
+  const mux = h.ffmpegCalls[h.ffmpegCalls.length - 3];
+  assert.equal(mux[mux.length - 1], join(h.workDir, 'muxed.mp4'));
 });
 
 test('subtitles: false keeps the classic mux tail untouched', async () => {
@@ -126,8 +128,10 @@ test('subtitles: false keeps the classic mux tail untouched', async () => {
   const { outputPath } = await h.execute(h.job, { signal: new AbortController().signal, workDir: h.workDir, emit: () => {} });
   assert.equal(outputPath, join(h.workDir, 'final.mp4'));
   assert.ok(!h.ffmpegCalls.some((a) => a.includes('-vf') && a[a.indexOf('-vf') + 1]?.startsWith('subtitles=')));
-  const last = h.ffmpegCalls[h.ffmpegCalls.length - 1];
-  assert.ok(last.includes('-c:v') && last[last.indexOf('-c:v') + 1] === 'copy', 'classic tail copies the video stream');
+  const mux = h.ffmpegCalls[h.ffmpegCalls.length - 2];
+  assert.ok(mux.includes('-c:v') && mux[mux.indexOf('-c:v') + 1] === 'copy', 'classic tail copies the video stream');
+  const cover = h.ffmpegCalls[h.ffmpegCalls.length - 1];
+  assert.equal(cover[cover.length - 1], join(h.workDir, 'cover.jpg'));
 });
 
 test('music + subtitles: music mix first (muxed.mp4), burn second (final.mp4)', async () => {
@@ -139,7 +143,7 @@ test('music + subtitles: music mix first (muxed.mp4), burn second (final.mp4)', 
   const ctx = { signal: new AbortController().signal, workDir: h.workDir, emit: () => {} };
   await h.execute(h.job, ctx);
   const calls = h.ffmpegCalls;
-  const tail = calls.slice(-2);
+  const tail = calls.slice(-3);
   assert.deepEqual(tail[0].slice(0, 6), [
     '-i', join(h.workDir, 'video.mp4'),
     '-i', join(h.workDir, 'audio', 'narration.wav'),
@@ -147,8 +151,10 @@ test('music + subtitles: music mix first (muxed.mp4), burn second (final.mp4)', 
   ]);
   assert.match(tail[0][tail[0].indexOf('-filter_complex') + 1], /sidechaincompress/);
   assert.equal(tail[0][tail[0].length - 1], join(h.workDir, 'muxed.mp4'));
-  const last = tail[1];
-  assert.equal(last[1], join(h.workDir, 'muxed.mp4'));
-  assert.match(last[last.indexOf('-vf') + 1], /^subtitles=/);
-  assert.equal(last[last.length - 1], join(h.workDir, 'final.mp4'));
+  const burn = tail[1];
+  assert.equal(burn[1], join(h.workDir, 'muxed.mp4'));
+  assert.match(burn[burn.indexOf('-vf') + 1], /^subtitles=/);
+  assert.equal(burn[burn.length - 1], join(h.workDir, 'final.mp4'));
+  const cover = tail[2];
+  assert.equal(cover[cover.length - 1], join(h.workDir, 'cover.jpg'));
 });

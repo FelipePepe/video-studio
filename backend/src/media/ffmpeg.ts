@@ -161,6 +161,23 @@ export function burnSubtitlesArgs(o: { input: string; srt: string; out: string }
   ];
 }
 
+/** Center-crops the 16:9 film to 9:16 and scales it to 720x1280 (Shorts/Reels); audio copied. */
+export function verticalCropArgs(o: { input: string; out: string }): string[] {
+  return [
+    '-i', o.input,
+    '-vf', 'crop=ih*9/16:ih,scale=720:1280',
+    '-c:v', 'libx264', '-crf', '19', '-pix_fmt', 'yuv420p',
+    '-c:a', 'copy',
+    o.out,
+  ];
+}
+
+/** Extracts a single frame (JPEG cover) at the given timestamp. */
+export function coverArgs(o: { input: string; atSec: number; out: string }): string[] {
+  if (!Number.isFinite(o.atSec) || o.atSec < 0) throw new Error('coverArgs: atSec must be a non-negative number');
+  return ['-i', o.input, '-ss', String(o.atSec), '-frames:v', '1', '-q:v', '3', o.out];
+}
+
 export interface NormalizeClipOptions {
   input: string;
   out: string;

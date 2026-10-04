@@ -15,6 +15,8 @@ import {
   musicMixArgs,
   muxAudioArgs,
   burnSubtitlesArgs,
+  verticalCropArgs,
+  coverArgs,
   normalizeClipArgs,
   runFfmpeg,
 } from '../media/ffmpeg';
@@ -266,6 +268,12 @@ export function createExecute(deps: OrchestratorDeps): ExecuteFn {
       } else {
         await run(muxAudioArgs({ video, audio: narration, out: finalPath }));
       }
+      // E3: optional 9:16 crop of the final film, and always a cover frame at the midpoint.
+      const totalSec = durations.reduce((a, b) => a + b, 0) + transitions.filter((t) => t !== undefined).length * transitionSec;
+      if (job.options?.vertical) {
+        await run(verticalCropArgs({ input: finalPath, out: join(workDir, 'final_v.mp4') }));
+      }
+      await run(coverArgs({ input: finalPath, atSec: totalSec / 2, out: join(workDir, 'cover.jpg') }));
       return { outputPath: finalPath };
     } finally {
       signal.removeEventListener('abort', interruptOnce);
