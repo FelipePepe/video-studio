@@ -26,8 +26,8 @@ Everything in the note, in phases. Out of scope: `visual-character-sync` (no spe
 - **Forecast:** ~3,500–4,500 authored changed lines across 5 PRs (excluding lockfiles).
 
 ## Tasks
-- [ ] T0 Bootstrap: git, main/develop, feature branch, pnpm monorepo, lefthook, README — route: inline (mechanical config files)
-- [ ] T1 Backend foundation: node:sqlite connection + schema, server settings, buildApp with lazy clients, GET/PATCH /api/config — route: delegated writer
+- [x] T0 Bootstrap: git, main/develop, feature branch, pnpm monorepo, lefthook, README — route: inline (mechanical config files; no delegation trigger fired). Commit `a0c05bd` (`chore: bootstrap pnpm monorepo with lefthook`). Evidence: `pnpm install` ok, lefthook hooks installed (`.git/hooks/pre-commit`), commit passed branch-protection and gitleaks on `feature/video-studio-rebuild`. Not TDD-applicable (config only).
+- [x] T1 Backend foundation: node:sqlite connection + schema, server settings, buildApp with lazy clients, GET/PATCH /api/config — route: delegated writer (trigger: 2+ non-trivial files; model sonnet). TDD ON, runner `node --test --import tsx`. RED observed in 2 units (`Cannot find module '../src/db/connection'`, `'../src/app'`), GREEN afterwards. Parent re-verified: `pnpm --filter @video-studio/backend test` → 16 pass / 0 fail; `typecheck` clean. 322 authored lines in `backend/` (lockfile excluded). Notes: `schema.sql` is read via `__dirname` (a future emitting build must copy it); no `jobs` table yet (comes in T3c).
 - [ ] T2a ComfyUI client (submit, poll, upload, download)
 - [ ] T2b Ollama + Kokoro clients
 - [ ] T2c ffmpeg assembly helpers (Ken Burns, xfade, concat, mux)
@@ -47,13 +47,14 @@ Everything in the note, in phases. Out of scope: `visual-character-sync` (no spe
 - Draft → review → approve flow works end to end with fake clients; real-host run only with user authorization.
 
 ## Progress
-- 2026-10-04: plan approved. T0 in progress.
+- 2026-10-04: plan approved. T0 done (`a0c05bd`). Running slice count: 271 authored lines (incl. this doc).
 
 ## Verification evidence
 _(none yet)_
 
 ## Review assessments per task
-_(none yet)_
+Last reviewed boundary: `635c61e` (branch point).
+- T0 (`a0c05bd`): risk medium (`executable_change`: `.npmrc`), `review_due: false`, reason `under_budget` (271 lines). Stays pending in the slice until a later commit reaches ~400 lines.
 
 ## Slices (PRs)
 _(none yet)_
@@ -63,4 +64,4 @@ _(none yet)_
 - Kokoro host unknown (note says `localhost:8880`); configurable via settings.
 
 ## Next step
-Finish T0: commit bootstrap on `feature/video-studio-rebuild`.
+T1: delegated writer for the backend foundation (trigger: 2+ non-trivial files).
