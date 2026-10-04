@@ -1,4 +1,5 @@
 import net from 'node:net';
+import { parsePiperHost, type PiperTarget } from '../config/piperHost';
 
 export interface PiperVoice {
   name: string;
@@ -51,10 +52,16 @@ function resolveVoice(voice: string): PiperVoice {
   return voice === 'male' || voice === 'female' ? PIPER_VOICES[voice] : { name: voice };
 }
 
-function parseHost(host: string): { host: string; port: number } {
-  const m = /^tcp:\/\/([^/:\s]+):(\d{1,5})$/.exec(host);
-  if (!m) throw new Error(`Piper host must look like tcp://host:port, got "${host}"`);
-  return { host: m[1], port: Number(m[2]) };
+function parseHost(host: string): PiperTarget {
+  const target = parsePiperHost(host);
+  if (!target) throw new Error(`Piper host must look like tcp://host:port, got "${host}"`);
+  return target;
+}
+
+const MAX_FRAME_BYTES = 64 * 1024 * 1024;
+
+function validLength(n: unknown): n is number {
+  return typeof n === 'number' && Number.isInteger(n) && n >= 0;
 }
 
 interface WyomingHeader {
@@ -129,6 +136,10 @@ export class PiperClient {
           }
           const dataLen = h.data_length ?? 0;
           const payloadLen = h.payload_length ?? 0;
+          if (!validLength(dataLen) || !validLength(payloadLen) || dataLen + payloadLen > MAX_FRAME_BYTES) {
+            finish(new Error('Piper sent an invalid frame length'));
+            return;
+          }
           const total = nl + 1 + dataLen + payloadLen;
           if (buf.length < total) return;
           let extra: Record<string, unknown> = {};

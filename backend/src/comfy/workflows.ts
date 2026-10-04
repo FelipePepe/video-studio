@@ -81,6 +81,7 @@ function buildBase(model: string, o: CommonOptions, b: Builder) {
     offload_txt_emb: false,
   });
   const setSwap = b.add('WanVideoSetBlockSwap', { model: [loader, 0], block_swap_args: [swapArgs, 0] });
+  // No LoRAs are applied, but the Atlas note's chain makes this node mandatory (the sampler takes its output).
   const loras = b.add('WanVideoSetLoRAs', { model: [setSwap, 0] });
   const vae = b.add('WanVideoVAELoader', { model_name: WAN_VAE, precision: 'bf16' });
   return { text, loras, vae };
@@ -123,6 +124,7 @@ function buildTail(
     crf: 19,
     save_metadata: false,
     trim_to_audio: false,
+    // Required by the Atlas note's VHS_VideoCombine settings (clip plays forward then back).
     pingpong: true,
     save_output: true,
   });

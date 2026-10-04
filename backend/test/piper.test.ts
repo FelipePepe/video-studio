@@ -2,6 +2,7 @@ import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import net from 'node:net';
 import { PiperClient, PIPER_VOICES, wavFromPcm } from '../src/clients/piper';
+import { parsePiperHost } from '../src/config/piperHost';
 
 type Event = { type: string; data?: Record<string, unknown>; payload?: Buffer };
 
@@ -169,4 +170,29 @@ test('inline data on server events is also accepted', async () => {
   const wav = await new PiperClient(host).synthesize({ text: 'a', voice: 'male' });
   assert.equal(wav.readUInt32LE(24), 22050);
   assert.deepEqual([...wav.subarray(44)], [5, 0]);
+});
+
+for (const [label, field] of [
+  ['negative data_length', { data_length: -5 }],
+  ['fractional data_length', { data_length: 1.5 }],
+  ['string payload_length', { payload_length: '10' }],
+  ['oversized payload_length', { payload_length: 64 * 1024 * 1024 + 1 }],
+  ['oversized combined lengths', { data_length: 40 * 1024 * 1024, payload_length: 40 * 1024 * 1024 }],
+] as const) {
+  test(`rejects a frame with ${label}`, async () => {
+    const { host } = await fakeServer((sock) => {
+      sock.write(JSON.stringify({ type: 'audio-chunk', version: '1.5.4', ...field }) + '\n');
+    });
+    await assert.rejects(
+      new PiperClient(host, { timeoutMs: 2000 }).synthesize({ text: 'a', voice: 'male' }),
+      /invalid frame length/i,
+    );
+  });
+}
+
+test('parsePiperHost parses valid hosts and rejects malformed ones', () => {
+  assert.deepEqual(parsePiperHost('tcp://spark:10200'), { host: 'spark', port: 10200 });
+  for (const bad of ['http://x:1', 'tcp://x', 'tcp://x:0', 'tcp://x:70000', 'tcp://:1', '']) {
+    assert.equal(parsePiperHost(bad), null, bad);
+  }
 });

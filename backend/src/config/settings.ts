@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
+import { parsePiperHost } from './piperHost';
 
 export interface HostConfig {
   comfyHost: string;
@@ -31,10 +32,7 @@ export function validateHostUrl(value: unknown): value is string {
 export function validatePiperHost(value: unknown): value is string {
   if (typeof value !== 'string') return false;
   if (value === '') return true;
-  const m = /^tcp:\/\/[^/:\s]+:(\d{1,5})$/.exec(value);
-  if (!m) return false;
-  const port = Number(m[1]);
-  return port >= 1 && port <= 65535;
+  return parsePiperHost(value) !== null;
 }
 
 interface SettingsRow {
