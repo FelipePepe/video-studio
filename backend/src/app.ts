@@ -6,8 +6,9 @@ import { configRouter } from './routes/config';
 import { pipelineRouter } from './routes/pipeline';
 import { jobsRouter } from './routes/jobs';
 import { EventHub } from './jobs/eventHub';
-import { JobRunner, unconfiguredExecute } from './jobs/runner';
+import { JobRunner } from './jobs/runner';
 import type { ExecuteFn } from './jobs/types';
+import { createExecute, type FfmpegFn } from './pipeline/orchestrator';
 import { ComfyClient } from './clients/comfy';
 import { OllamaClient } from './clients/ollama';
 import { PiperClient } from './clients/piper';
@@ -19,6 +20,7 @@ export interface AppOptions {
   ollama?: OllamaClient;
   piper?: PiperClient;
   fetchImpl?: typeof fetch;
+  ffmpeg?: FfmpegFn;
   jobs?: { workDir?: string; execute?: ExecuteFn; autoStart?: boolean; heartbeatMs?: number };
 }
 
@@ -55,14 +57,31 @@ export function buildApp(opts: AppOptions = {}): Express {
   const jobRunner = new JobRunner({
     db,
     hub: eventHub,
-    execute: opts.jobs?.execute ?? unconfiguredExecute,
+    execute:
+      opts.jobs?.execute ??
+      createExecute({
+        db,
+        resolveComfy: resolvers.resolveComfy,
+        resolvePiper: resolvers.resolvePiper,
+        ffmpeg: opts.ffmpeg,
+      }),
     workDir: opts.jobs?.workDir ?? 'data/jobs',
   });
   if (opts.jobs?.autoStart) jobRunner.start();
   Object.assign(app.locals, resolvers, { db, eventHub, jobRunner });
 
   app.use('/api/config', configRouter(db, envDefaults));
-  app.use('/api/pipeline', pipelineRouter({ db, resolveOllama: resolvers.resolveOllama, fetchImpl: opts.fetchImpl }));
+  app.use(
+    '/api/pipeline',
+    pipelineRouter({
+      db,
+      resolveOllama: resolvers.resolveOllama,
+      fetchImpl: opts.fetchImpl,
+      runner: jobRunner,
+      hub: eventHub,
+      heartbeatMs: opts.jobs?.heartbeatMs,
+    }),
+  );
   app.use('/api/jobs', jobsRouter({ db, runner: jobRunner, hub: eventHub, heartbeatMs: opts.jobs?.heartbeatMs }));
   app.use(errorHandler);
   return app;

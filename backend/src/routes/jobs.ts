@@ -44,6 +44,55 @@ function resolveOutput(workDir: string, outputPath: string): { root: string; rel
   }
 }
 
+export interface StreamDeps {
+  hub: EventHub;
+  heartbeatMs?: number;
+}
+
+/**
+ * Streams a job's events as SSE until its terminal event. `prelude` is written first
+ * and replaces the snapshot fallback when the hub has nothing buffered. Closing the
+ * connection only unsubscribes; it never affects the job.
+ */
+export function streamJobEvents(res: Response, deps: StreamDeps, job: Job, prelude?: JobEvent): void {
+  const { hub, heartbeatMs = 15_000 } = deps;
+  res.set({
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  res.flushHeaders();
+
+  let heartbeat: NodeJS.Timeout | undefined;
+  let unsubscribe: (() => void) | undefined;
+  const close = () => {
+    if (heartbeat) clearInterval(heartbeat);
+    unsubscribe?.();
+    heartbeat = undefined;
+    unsubscribe = undefined;
+  };
+  const send = (event: JobEvent) => {
+    if (res.writableEnded) return;
+    writeEvent(res, event);
+    if (TERMINAL_EVENT_TYPES.has(event.type)) {
+      close();
+      res.end();
+    }
+  };
+  res.on('close', close);
+
+  if (prelude) send(prelude);
+  const buffered = hub.replay(job.id);
+  const initial = buffered.length > 0 ? buffered : prelude ? [] : [snapshotEvent(job)];
+  for (const event of initial) send(event);
+  if (res.writableEnded) return;
+  // Replay and subscribe happen in the same tick, so no event can fall between them.
+  unsubscribe = hub.subscribe(job.id, send);
+  heartbeat = setInterval(() => res.write(': ping\n\n'), heartbeatMs);
+  heartbeat.unref();
+}
+
 export function jobsRouter(deps: JobsDeps): Router {
   const { db, runner, hub, heartbeatMs = 15_000 } = deps;
   const router = Router();
@@ -80,39 +129,7 @@ export function jobsRouter(deps: JobsDeps): Router {
       res.status(404).json({ error: 'Job not found' });
       return;
     }
-    res.set({
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      Connection: 'keep-alive',
-      'X-Accel-Buffering': 'no',
-    });
-    res.flushHeaders();
-
-    let heartbeat: NodeJS.Timeout | undefined;
-    let unsubscribe: (() => void) | undefined;
-    const close = () => {
-      if (heartbeat) clearInterval(heartbeat);
-      unsubscribe?.();
-      heartbeat = undefined;
-      unsubscribe = undefined;
-    };
-    const send = (event: JobEvent) => {
-      if (res.writableEnded) return;
-      writeEvent(res, event);
-      if (TERMINAL_EVENT_TYPES.has(event.type)) {
-        close();
-        res.end();
-      }
-    };
-    res.on('close', close);
-
-    const buffered = hub.replay(job.id);
-    for (const event of buffered.length > 0 ? buffered : [snapshotEvent(job)]) send(event);
-    if (res.writableEnded) return;
-    // Replay and subscribe happen in the same tick, so no event can fall between them.
-    unsubscribe = hub.subscribe(job.id, send);
-    heartbeat = setInterval(() => res.write(': ping\n\n'), heartbeatMs);
-    heartbeat.unref();
+    streamJobEvents(res, { hub, heartbeatMs }, job);
   });
 
   router.post('/:id/cancel', async (req, res) => {

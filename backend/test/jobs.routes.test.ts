@@ -12,7 +12,7 @@ import { loadEnvDefaults } from '../src/config/settings';
 import { createDraft } from '../src/pipeline/draftRepository';
 import { createJob, markDone, markFailed, markRunning, updateJob } from '../src/jobs/jobRepository';
 import type { EventHub } from '../src/jobs/eventHub';
-import type { JobRunner } from '../src/jobs/runner';
+import { unconfiguredExecute, type JobRunner } from '../src/jobs/runner';
 import type { ExecuteFn, JobEvent } from '../src/jobs/types';
 
 const dirs: string[] = [];
@@ -286,12 +286,21 @@ test('cancelling a running job over HTTP ends with a cancelled event on the stre
   assert.equal(dataEvents(stream.text()).at(-1)?.type, 'cancelled');
 });
 
-test('buildApp boots with the default execute that fails jobs with "pipeline not configured"', async () => {
+test('buildApp defaults to the orchestrator, which rejects a draft without scenes', async () => {
   const { runner, db, draftId } = setup();
   runner.start();
   const job = runner.enqueue(draftId);
   await runner.idle();
   const row = db.prepare('SELECT status, error FROM jobs WHERE id = ?').get(job.id) as { status: string; error: string };
   assert.equal(row.status, 'failed');
+  assert.match(row.error, /has no scenes/);
+});
+
+test('unconfiguredExecute can still be injected explicitly', async () => {
+  const { runner, db, draftId } = setup({ execute: unconfiguredExecute });
+  runner.start();
+  const job = runner.enqueue(draftId);
+  await runner.idle();
+  const row = db.prepare('SELECT error FROM jobs WHERE id = ?').get(job.id) as { error: string };
   assert.equal(row.error, 'pipeline not configured');
 });
