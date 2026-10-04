@@ -3,6 +3,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { openDatabase } from './db/connection';
 import { loadEnvDefaults, resolveEffectiveConfig, type EnvDefaults } from './config/settings';
 import { configRouter } from './routes/config';
+import { pipelineRouter } from './routes/pipeline';
 import { ComfyClient } from './clients/comfy';
 import { OllamaClient } from './clients/ollama';
 import { PiperClient } from './clients/piper';
@@ -13,6 +14,7 @@ export interface AppOptions {
   comfy?: ComfyClient;
   ollama?: OllamaClient;
   piper?: PiperClient;
+  fetchImpl?: typeof fetch;
 }
 
 export interface AppResolvers {
@@ -47,6 +49,7 @@ export function buildApp(opts: AppOptions = {}): Express {
   Object.assign(app.locals, resolvers, { db });
 
   app.use('/api/config', configRouter(db, envDefaults));
+  app.use('/api/pipeline', pipelineRouter({ db, resolveOllama: resolvers.resolveOllama, fetchImpl: opts.fetchImpl }));
   app.use(errorHandler);
   return app;
 }
