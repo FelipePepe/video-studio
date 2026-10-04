@@ -1,0 +1,13 @@
+node_modules/
+dist/
+coverage/
+*.log
+.env
+.env.*
+!.env.example
+
+# runtime data (sqlite db, generated media)
+data/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
