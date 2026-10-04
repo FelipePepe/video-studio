@@ -40,6 +40,7 @@ Everything in the note, in phases. Out of scope: `visual-character-sync` (no spe
 - [x] T3b Approval orchestrator with SSE — `3b79032` (wav + ffmpeg helpers), `88e0f18` (orchestrator), `0487cc8` (SSE refactor + approve route + wiring); ~1,000 lines incl. tests; parent re-verified 213 pass. Design: single-frame Wan T2V per scene → still PNG, I2V transitions (33 frames) between consecutive stills with hard-cut fallback, Ken Burns per still sized to its narration WAV, narration track with silence in transition slots, mux. ASSUMPTIONS NOT YET VERIFIED AGAINST REAL COMFYUI: single-frame T2V (`num_frames: 1`) works with the Wan chain; ComfyUI renders at 16 fps so a transition lasts `frames/16` s.
 - [x] T3e (`pingpong` fix, ~28 lines; RED on 2 assertions → GREEN 215/215): `VHS_VideoCombine.pingpong` is now an option (default `true`, the note's chain default); the orchestrator passes `false` for stills and transitions so a transition ends on its end image and lasts `frames/16` s.
 - [x] T3d (`2212c3f`) Make the ComfyUI request timeout per-operation (short for polling/submit, long for `download`/`uploadImage`), plus the advisory SUGGESTIONs on article charset/entities if cheap.
+- [x] T3f (~193 lines incl. tests; delegated writer; RED on 3+1+1 assertions → GREEN, suite 215 → 221) Fixes from the orchestrator review's advisory WARNINGs: approve is one SQLite transaction (draft status + job row; loop kick after COMMIT) and can be retried when the latest job failed/cancelled (also for an approved draft with no job); progress is monotonic; mixed WAV formats fail the job before any ComfyUI work. Remaining advisory items deferred: transition seed magic offset, `format` non-null cast, transition timeout without `interrupt`, `wav.ts` parse edge (R1-001).
 - [ ] T4a Frontend scaffold, API client, settings modal, sidebar
 - [ ] T4b Pipeline form, progress stages, video panel
 - [ ] T4c Escaleta cards and SegmentEditor review mode
@@ -58,7 +59,7 @@ Everything in the note, in phases. Out of scope: `visual-character-sync` (no spe
 _(none yet)_
 
 ## Review assessments per task
-Last reviewed boundary: `9eccc60` (phase 3, part 2).
+Last reviewed boundary: `832fa68` (phase 3, part 3).
 - T0 (`a0c05bd`): risk medium (`executable_change`: `.npmrc`), `review_due: false`, reason `under_budget` (271 lines). Pending in the slice until T1.
 - T1 (`78668eb`): range `635c61e..78668eb`, risk medium, `review_due: true` (`slice_budget_reached`; 1791 lines counted, 1163 of them the generated lockfile). Consent granted by the user; one lens (`review-reliability`) → **approved**, acknowledged, authority burned (lineage `review-f093030dc3f776be`). Three non-blocking advisory findings (see T1b).
 
@@ -66,13 +67,13 @@ Last reviewed boundary: `9eccc60` (phase 3, part 2).
 - Phase 2 (`c1c7248..68c3320`): range `9d69315..HEAD`, high (`process_boundary` in `ffmpeg.ts`), `review_due: true` (`high_risk`). User granted consent; 4 lenses → `correction_required` (CRITICAL: `kokoro_host` rename without migration, found by reliability + resilience). One bounded correction (`68c3320`, ~51 lines of 200 budget). Native flow then required a maintainer recovery authorization (`scope_changed`); the user authorized it; `gentle-ai review recover` derived the binding and created successor `review-babf1faa9cb4fed2-r1`; 4 lenses → **approved**, acknowledged, authority burned. 13 advisory findings (→ T2e).
 - Phase 3 part 1 (`ceaf96c..759722f`): range `68c3320..759722f`, medium (`executable_change`: `app.ts`), `review_due: true` (`slice_budget_reached`, 1054 lines). User granted consent; 1 lens (reliability) → approved, acknowledged (lineage `review-c1d63844c8e05d9f`). 5 advisory findings; the WARNING `R3-comfy-timeout-applies-to-all-requests` (the 30 s request timeout also hits `uploadImage`/`download` of large files) is queued as T3d.
 - Phase 3 part 2 (`2212c3f..9eccc60`): range `759722f..9eccc60`, medium, 1354 lines, `review_due: true` (`slice_budget_reached`). User granted consent; 1 lens (reliability) → approved, acknowledged (lineage `review-c751f0ed3cea429c`). 3 advisory SUGGESTIONs (cooperative cancel, weak poll-timeout assertion, `idle()` before `start()`).
+- Phase 3 part 3 (`3b79032..832fa68`): range `9eccc60..832fa68`, high (`process_boundary`, `ffmpeg.ts`), 1050 lines, `review_due: true` (`high_risk`). User granted consent; 4 lenses → approved without correction, acknowledged (lineage `review-d027623226958574`). 10 advisory findings; the 3 behavior-affecting ones were fixed in T3f. T3e (`pingpong`) was fixed before this review started.
 
 ## Slices (PRs)
 Branch chain (local): `develop` ← `feature/video-studio-rebuild` (root, `a0c05bd` bootstrap) ← `feature/video-studio-rebuild-p1` (T1, T1b) ← `-p2` (T2a–d) ← `-p3` (T3a–c) ← `-p4` (T4a–c) ← `-p5` (T5a–b).
-No git remote exists yet, so no PR has been opened. Pushing and creating the GitHub repo needs the user's explicit authorization (destination, repo name, visibility).
+Remote: `FelipePepe/video-studio` (private, created at the user's request). PR #1 (p1 → root), PR #2 (p2 → p1), PR #3 (p3 → p2) opened; the agent never merges.
 
 ## Open items
-- No git remote: PRs cannot be opened until the user authorizes creating/pushing a GitHub repo.
 - `visual-character-sync` has no spec.
 - TTS is Piper (Wyoming, `tcp://192.168.1.60:10200` default), not Kokoro as the Atlas note says; the Atlas note must be corrected in T5b.
 - Wyoming protocol verified against real spark (2026-10-04, user-authorized, read-only probe `describe` + one 1.6 s synthesis at `192.168.1.60:10200`): events carry data via `data_length` (not inline), `audio-start` → ~36 `audio-chunk` → `audio-stop`, 22050 Hz 16-bit mono, 163 voices incl. `es_ES-davefx-medium` and `es_ES-sharvard-medium` (speakers `M`,`F`; index 1 accepted). The PiperClient itself is still tested only against a local fake server that mirrors these facts; running the client end to end against spark needs a further check.
