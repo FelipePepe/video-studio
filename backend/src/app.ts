@@ -3,6 +3,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { openDatabase } from './db/connection';
 import { loadEnvDefaults, resolveEffectiveConfig, type EnvDefaults } from './config/settings';
 import { configRouter } from './routes/config';
+import { ollamaModelsRouter } from './routes/ollamaModels';
 import { pipelineRouter } from './routes/pipeline';
 import { jobsRouter } from './routes/jobs';
 import { voicesRouter } from './routes/voices';
@@ -54,7 +55,7 @@ export function buildApp(opts: AppOptions = {}): Express {
 
   const resolvers: AppResolvers = {
     resolveComfy: () => opts.comfy ?? new ComfyClient(effective().comfyHost),
-    resolveOllama: () => opts.ollama ?? new OllamaClient(effective().ollamaHost),
+    resolveOllama: () => opts.ollama ?? new OllamaClient(effective().ollamaHost, { model: effective().ollamaModel }),
     resolvePiper: () => opts.piper ?? new PiperClient(effective().piperHost),
   };
   const eventHub = new EventHub();
@@ -75,6 +76,7 @@ export function buildApp(opts: AppOptions = {}): Express {
   Object.assign(app.locals, resolvers, { db, eventHub, jobRunner });
 
   app.use('/api/config', configRouter(db, envDefaults));
+  app.use('/api/ollama/models', ollamaModelsRouter({ listModels: () => resolvers.resolveOllama().listModels() }));
   app.use('/api/music', musicRouter({ musicDir: () => opts.musicDir ?? process.env.MUSIC_DIR ?? '' }));
   app.use('/api/pipeline/voices', voicesRouter({ listVoices: () => resolvers.resolvePiper().listVoices() }));
   app.use(

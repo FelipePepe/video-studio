@@ -15,6 +15,7 @@ test('loadEnvDefaults uses built-in defaults when env is empty', () => {
     comfyHost: 'http://192.168.1.60:8188',
     ollamaHost: 'http://192.168.1.60:11434',
     piperHost: 'tcp://192.168.1.60:10200',
+    ollamaModel: 'qwen3:8b',
   });
 });
 
@@ -23,8 +24,18 @@ test('loadEnvDefaults reads COMFY_HOST, OLLAMA_HOST and PIPER_HOST', () => {
     COMFY_HOST: 'http://c:1',
     OLLAMA_HOST: 'http://o:2',
     PIPER_HOST: 'tcp://k:3',
+  } as NodeJS.ProcessEnv);
+  assert.deepEqual(env, {
+    comfyHost: 'http://c:1',
+    ollamaHost: 'http://o:2',
+    piperHost: 'tcp://k:3',
+    ollamaModel: 'qwen3:8b',
   });
-  assert.deepEqual(env, { comfyHost: 'http://c:1', ollamaHost: 'http://o:2', piperHost: 'tcp://k:3' });
+});
+
+test('loadEnvDefaults reads OLLAMA_MODEL when set', () => {
+  const env = loadEnvDefaults({ OLLAMA_MODEL: 'qwen3:14b' } as NodeJS.ProcessEnv);
+  assert.equal(env.ollamaModel, 'qwen3:14b');
 });
 
 test('validateHostUrl accepts http, https and empty', () => {
@@ -42,15 +53,15 @@ test('validateHostUrl rejects other schemes, garbage and non-strings', () => {
 
 test('getSettings returns empty strings on a fresh database', () => {
   const db = openDatabase(':memory:');
-  assert.deepEqual(getSettings(db), { comfyHost: '', ollamaHost: '', piperHost: '' });
+  assert.deepEqual(getSettings(db), { comfyHost: '', ollamaHost: '', piperHost: '', ollamaModel: '' });
 });
 
 test('updateSettings upserts and applies partial patches', () => {
   const db = openDatabase(':memory:');
   updateSettings(db, { comfyHost: 'http://c:1' });
-  assert.deepEqual(getSettings(db), { comfyHost: 'http://c:1', ollamaHost: '', piperHost: '' });
+  assert.deepEqual(getSettings(db), { comfyHost: 'http://c:1', ollamaHost: '', piperHost: '', ollamaModel: '' });
   updateSettings(db, { ollamaHost: 'http://o:2' });
-  assert.deepEqual(getSettings(db), { comfyHost: 'http://c:1', ollamaHost: 'http://o:2', piperHost: '' });
+  assert.deepEqual(getSettings(db), { comfyHost: 'http://c:1', ollamaHost: 'http://o:2', piperHost: '', ollamaModel: '' });
   updateSettings(db, { comfyHost: '' });
   assert.equal(getSettings(db).comfyHost, '');
 });

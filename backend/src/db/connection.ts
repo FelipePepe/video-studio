@@ -36,6 +36,20 @@ function migrateJobsOptionsColumn(db: DatabaseSync): void {
   }
 }
 
+function migrateServerSettingsOllamaModel(db: DatabaseSync): void {
+  const columns = (db.prepare('PRAGMA table_info(server_settings)').all() as { name: string }[]).map((c) => c.name);
+  if (!columns.includes('ollama_model')) {
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      db.exec("ALTER TABLE server_settings ADD COLUMN ollama_model TEXT NOT NULL DEFAULT ''");
+      db.exec('COMMIT');
+    } catch (e) {
+      db.exec('ROLLBACK');
+      throw e;
+    }
+  }
+}
+
 export function openDatabase(path: string = ':memory:'): DatabaseSync {
   const db = new DatabaseSync(path);
   db.exec('PRAGMA foreign_keys = ON');
@@ -43,6 +57,7 @@ export function openDatabase(path: string = ':memory:'): DatabaseSync {
   if (path !== ':memory:') db.exec('PRAGMA journal_mode = WAL');
   db.exec(readFileSync(join(__dirname, 'schema.sql'), 'utf8'));
   migrateKokoroHostToPiperHost(db);
+  migrateServerSettingsOllamaModel(db);
   migrateJobsOptionsColumn(db);
   return db;
 }

@@ -34,6 +34,8 @@ export interface ApproveOptions {
 export interface ApiClient {
   getConfig(): Promise<Settings>;
   patchConfig(partial: Partial<Settings>): Promise<Settings>;
+  /** Ollama model names; returns [] on any failure so the UI falls back to free text. */
+  listModels(): Promise<string[]>;
   createDraft(req: DraftRequest): Promise<DraftCreated>;
   getDraft(id: string): Promise<Draft>;
   putSegments(id: string, escaleta: Escaleta): Promise<Draft>;
@@ -133,6 +135,14 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
   return {
     getConfig: () => request<Settings>('GET', '/api/config'),
     patchConfig: (partial) => request<Settings>('PATCH', '/api/config', partial),
+    async listModels() {
+      try {
+        const body = await request<{ models: string[] }>('GET', '/api/ollama/models');
+        return Array.isArray(body.models) ? body.models : [];
+      } catch {
+        return [];
+      }
+    },
     createDraft: (req) => request<DraftCreated>('POST', '/api/pipeline/draft', req),
     getDraft: (id) => request<Draft>('GET', draftPath(id)),
     putSegments: (id, escaleta) => request<Draft>('PUT', `${draftPath(id)}/segments`, { escaleta }),

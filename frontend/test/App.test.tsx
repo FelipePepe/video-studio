@@ -5,10 +5,10 @@ import { App } from '../src/App';
 
 afterEach(() => localStorage.clear());
 
-const settings = { comfyHost: 'http://c', ollamaHost: 'http://o', piperHost: 'tcp://p:1' };
+const settings = { comfyHost: 'http://c', ollamaHost: 'http://o', piperHost: 'tcp://p:1', ollamaModel: '' };
 
 function makeApi() {
-  return { getConfig: vi.fn(async () => settings), patchConfig: vi.fn(async () => settings) };
+  return { getConfig: vi.fn(async () => settings), patchConfig: vi.fn(async () => settings), listModels: vi.fn(async () => []) };
 }
 
 describe('App shell', () => {

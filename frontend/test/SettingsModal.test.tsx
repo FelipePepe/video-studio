@@ -11,12 +11,14 @@ const initial: Settings = {
   comfyHost: 'http://comfy:8188',
   ollamaHost: 'http://ollama:11434',
   piperHost: 'tcp://piper:10200',
+  ollamaModel: '',
 };
 
-function makeApi(overrides: Partial<{ getConfig: () => Promise<Settings>; patchConfig: (p: Partial<Settings>) => Promise<Settings> }> = {}) {
+function makeApi(overrides: Partial<{ getConfig: () => Promise<Settings>; patchConfig: (p: Partial<Settings>) => Promise<Settings>; listModels: () => Promise<string[]> }> = {}) {
   return {
     getConfig: vi.fn(overrides.getConfig ?? (async () => initial)),
     patchConfig: vi.fn(overrides.patchConfig ?? (async (p: Partial<Settings>) => ({ ...initial, ...p }))),
+    listModels: vi.fn(overrides.listModels ?? (async () => [] as string[])),
   };
 }
 

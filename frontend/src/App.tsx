@@ -8,7 +8,7 @@ import { I18nProvider } from './i18n';
 
 export interface AppProps {
   /** Injectable for tests; defaults to a client talking to `/api`. */
-  api?: (Pick<ApiClient, 'getConfig' | 'patchConfig'> & Partial<PipelineApi>) | ApiClient;
+  api?: (Pick<ApiClient, 'getConfig' | 'patchConfig' | 'listModels'> & Partial<PipelineApi>) | ApiClient;
 }
 
 export function App({ api }: AppProps) {
