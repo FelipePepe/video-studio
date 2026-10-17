@@ -6,23 +6,29 @@ import { I18nProvider, LANGUAGE_STORAGE_KEY } from '../src/i18n';
 
 afterEach(() => localStorage.clear());
 
-function setup(onOpenSettings = vi.fn()) {
+function setup(onOpenSettings = vi.fn(), view: 'pipeline' | 'jobs' = 'pipeline') {
   render(
     <I18nProvider>
-      <Sidebar onOpenSettings={onOpenSettings} />
+      <Sidebar view={view} onOpenSettings={onOpenSettings} />
     </I18nProvider>,
   );
   return { onOpenSettings, user: userEvent.setup() };
 }
 
 describe('Sidebar', () => {
-  it('renders the app name and nav items with Pipeline active and Jobs disabled', () => {
+  it('renders the app name and links to Pipeline and Trabajos, marking the active view', () => {
     setup();
     expect(screen.getByText('Video Studio')).toBeInTheDocument();
     const nav = screen.getByRole('navigation', { name: 'Navegación principal' });
     expect(nav).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Pipeline' })).toHaveAttribute('aria-current', 'page');
-    expect(screen.getByRole('button', { name: /Trabajos/ })).toBeDisabled();
+    expect(screen.getByRole('link', { name: 'Trabajos' })).toHaveAttribute('href', '#trabajos');
+  });
+
+  it('marks Trabajos active when the jobs view is on', () => {
+    setup(vi.fn(), 'jobs');
+    expect(screen.getByRole('link', { name: 'Trabajos' })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('link', { name: 'Pipeline' })).not.toHaveAttribute('aria-current');
   });
 
   it('opens settings from the settings button', async () => {

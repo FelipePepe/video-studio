@@ -6,6 +6,7 @@ import type {
   Escaleta,
   Job,
   JobEvent,
+  JobStatus,
   MusicLibrary,
   Settings,
   VoiceOption,
@@ -34,6 +35,8 @@ export interface ApproveOptions {
 export interface ApiClient {
   getConfig(): Promise<Settings>;
   patchConfig(partial: Partial<Settings>): Promise<Settings>;
+  /** Ollama model names; returns [] on any failure so the UI falls back to free text. */
+  listModels(): Promise<string[]>;
   createDraft(req: DraftRequest): Promise<DraftCreated>;
   getDraft(id: string): Promise<Draft>;
   putSegments(id: string, escaleta: Escaleta): Promise<Draft>;
@@ -43,6 +46,8 @@ export interface ApiClient {
   /** Piper roster; returns [] on failure so the UI can fall back to male/female. */
   listVoices(): Promise<VoiceOption[]>;
   getJob(id: string): Promise<Job>;
+  /** Job list; optional status filter and limit (backend caps limit at 200). */
+  listJobs(params?: { status?: JobStatus; limit?: number }): Promise<Job[]>;
   cancelJob(id: string): Promise<{ cancelled: boolean }>;
 }
 
@@ -133,10 +138,25 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
   return {
     getConfig: () => request<Settings>('GET', '/api/config'),
     patchConfig: (partial) => request<Settings>('PATCH', '/api/config', partial),
+    async listModels() {
+      try {
+        const body = await request<{ models: string[] }>('GET', '/api/ollama/models');
+        return Array.isArray(body.models) ? body.models : [];
+      } catch {
+        return [];
+      }
+    },
     createDraft: (req) => request<DraftCreated>('POST', '/api/pipeline/draft', req),
     getDraft: (id) => request<Draft>('GET', draftPath(id)),
     putSegments: (id, escaleta) => request<Draft>('PUT', `${draftPath(id)}/segments`, { escaleta }),
     getJob: (id) => request<Job>('GET', jobPath(id)),
+    listJobs(params) {
+      const qs = new URLSearchParams();
+      if (params?.status) qs.set('status', params.status);
+      if (params?.limit !== undefined) qs.set('limit', String(params.limit));
+      const q = qs.toString();
+      return request<Job[]>('GET', `/api/jobs${q ? `?${q}` : ''}`);
+    },
     cancelJob: (id) => request<{ cancelled: boolean }>('POST', `${jobPath(id)}/cancel`),
 
     async listMusic() {

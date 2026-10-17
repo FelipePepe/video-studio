@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ApiError, createApiClient } from '../src/api/client';
-import type { JobEvent } from '../src/api/types';
+import type { Job, JobEvent } from '../src/api/types';
 
 interface Call {
   url: string;
@@ -46,6 +46,39 @@ describe('listVoices', () => {
   it('returns [] on failure so the UI can fall back to male/female', async () => {
     const { fetchImpl } = fakeFetch(() => new Response('boom', { status: 502 }));
     expect(await createApiClient({ fetchImpl }).listVoices()).toEqual([]);
+  });
+});
+
+describe('listJobs', () => {
+  const job = (id: string, status: Job['status']): Job => ({
+    id,
+    draftId: 'd1',
+    status,
+    stage: '',
+    progress: 0,
+    error: null,
+    outputPath: null,
+    createdAt: '2026-10-17T10:00:00Z',
+    updatedAt: '2026-10-17T10:00:00Z',
+    startedAt: null,
+    finishedAt: null,
+  });
+
+  it('GETs /api/jobs and returns the list', async () => {
+    const jobs = [job('j2', 'done'), job('j1', 'running')];
+    const { fetchImpl, calls } = fakeFetch(() => json(jobs));
+    expect(await createApiClient({ fetchImpl }).listJobs()).toEqual(jobs);
+    expect(calls[0].url).toBe('/api/jobs');
+    expect(calls[0].init?.method ?? 'GET').toBe('GET');
+  });
+
+  it('sends status and limit as query params only when provided', async () => {
+    const { fetchImpl, calls } = fakeFetch(() => json([]));
+    const api = createApiClient({ fetchImpl });
+    await api.listJobs({ status: 'running', limit: 50 });
+    expect(calls[0].url).toBe('/api/jobs?status=running&limit=50');
+    await api.listJobs();
+    expect(calls[1].url).toBe('/api/jobs');
   });
 });
 

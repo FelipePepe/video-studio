@@ -4,6 +4,8 @@ export interface Settings {
   comfyHost: string;
   ollamaHost: string;
   piperHost: string;
+  /** Ollama model used for the escaleta (empty = Ollama default). */
+  ollamaModel: string;
 }
 
 export type Voice = 'male' | 'female' | string;

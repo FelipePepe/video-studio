@@ -4,6 +4,7 @@ import {
   resolveEffectiveConfig,
   updateSettings,
   validateHostUrl,
+  validateOllamaModel,
   validatePiperHost,
   type EnvDefaults,
   type SettingsPatch,
@@ -36,8 +37,16 @@ export function configRouter(db: DatabaseSync, envDefaults: EnvDefaults): Router
       }
       patch[key] = value as string;
     }
+    if ('ollamaModel' in body) {
+      const value = (body as Record<string, unknown>).ollamaModel;
+      if (!validateOllamaModel(value)) {
+        res.status(400).json({ error: 'ollamaModel must be a string' });
+        return;
+      }
+      patch.ollamaModel = value as string;
+    }
     if (Object.keys(patch).length === 0) {
-      res.status(400).json({ error: `Body must include at least one of: ${HOST_KEYS.join(', ')}` });
+      res.status(400).json({ error: `Body must include at least one of: ${[...HOST_KEYS, 'ollamaModel'].join(', ')}` });
       return;
     }
     updateSettings(db, patch);
