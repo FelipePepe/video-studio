@@ -1,4 +1,17 @@
-import type { Draft, DraftCreated, DraftRequest, Escaleta, Job, JobEvent, Settings } from './types';
+import type {
+  ApproveBody,
+  Draft,
+  DraftCreated,
+  DraftRequest,
+  Escaleta,
+  Job,
+  JobEvent,
+  MusicLibrary,
+  Settings,
+  VoiceOption,
+} from './types';
+
+export type { ApproveBody };
 
 export class ApiError extends Error {
   readonly status: number;
@@ -14,6 +27,8 @@ export interface ApproveOptions {
   onEvent: (event: JobEvent) => void;
   /** Aborting only stops listening; the backend job keeps running. */
   signal?: AbortSignal;
+  /** Render options (music, volume, subtitles, vertical). Omitted = backend defaults. */
+  body?: ApproveBody;
 }
 
 export interface ApiClient {
@@ -23,6 +38,10 @@ export interface ApiClient {
   getDraft(id: string): Promise<Draft>;
   putSegments(id: string, escaleta: Escaleta): Promise<Draft>;
   approveDraft(id: string, options: ApproveOptions): Promise<JobEvent | undefined>;
+  /** Returns null when the music library is not configured (404). */
+  listMusic(): Promise<MusicLibrary | null>;
+  /** Piper roster; returns [] on failure so the UI can fall back to male/female. */
+  listVoices(): Promise<VoiceOption[]>;
   getJob(id: string): Promise<Job>;
   cancelJob(id: string): Promise<{ cancelled: boolean }>;
 }
@@ -120,14 +139,36 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
     getJob: (id) => request<Job>('GET', jobPath(id)),
     cancelJob: (id) => request<{ cancelled: boolean }>('POST', `${jobPath(id)}/cancel`),
 
-    async approveDraft(id, { onEvent, signal }) {
+    async listMusic() {
+      try {
+        return await request<MusicLibrary>('GET', '/api/music');
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 404) return null;
+        throw e;
+      }
+    },
+
+    async listVoices() {
+      try {
+        return await request<VoiceOption[]>('GET', '/api/pipeline/voices');
+      } catch {
+        return [];
+      }
+    },
+
+    async approveDraft(id, { onEvent, signal, body }) {
       let last: JobEvent | undefined;
       try {
-        const res = await doFetch(`${baseUrl}${draftPath(id)}/approve`, {
+        const init: RequestInit = {
           method: 'POST',
           headers: { Accept: 'text/event-stream' },
           signal,
-        });
+        };
+        if (body !== undefined) {
+          init.headers = { Accept: 'text/event-stream', 'Content-Type': 'application/json' };
+          init.body = JSON.stringify(body);
+        }
+        const res = await doFetch(`${baseUrl}${draftPath(id)}/approve`, init);
         if (!res.ok) throw await toApiError(res);
         if (!res.body) return undefined;
         await parseSseStream(res.body, (data) => {

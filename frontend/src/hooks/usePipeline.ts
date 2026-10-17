@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ApiError, type ApiClient } from '../api/client';
+import { ApiError, type ApiClient, type ApproveBody } from '../api/client';
 import type { DraftCreated, DraftRequest, JobEvent, Scene } from '../api/types';
 import { useI18n } from '../i18n';
 
-export type PipelineApi = Pick<ApiClient, 'createDraft' | 'approveDraft' | 'cancelJob' | 'putSegments'>;
+export type PipelineApi = Pick<
+  ApiClient,
+  'createDraft' | 'approveDraft' | 'cancelJob' | 'putSegments' | 'listMusic' | 'listVoices'
+>;
 
 export type PipelineState = 'idle' | 'drafting' | 'review' | 'rendering' | 'done' | 'failed';
 
@@ -26,7 +29,7 @@ export interface UsePipeline {
   outputUrl: string | null;
   createDraft(req: DraftRequest): Promise<void>;
   saveSegments(escaleta: Scene[]): Promise<boolean>;
-  approve(): Promise<void>;
+  approve(options?: { body?: ApproveBody }): Promise<void>;
   cancel(): Promise<void>;
   reset(): void;
 }
@@ -171,7 +174,8 @@ export function usePipeline(api: PipelineApi): UsePipeline {
     }
   }, [setState]);
 
-  const approve = useCallback(async () => {
+  const approve = useCallback(
+    async (options?: { body?: ApproveBody }) => {
     const current = draftRef.current;
     if (!current) {
       setError(tRef.current('error.noDraft'));
@@ -198,6 +202,7 @@ export function usePipeline(api: PipelineApi): UsePipeline {
           if (!isStale()) applyEvent(event);
         },
         signal: ctrl.signal,
+        body: options?.body,
       });
       if (!mounted.current || isStale() || ctrl.signal.aborted || terminal.current) return;
       terminal.current = true;

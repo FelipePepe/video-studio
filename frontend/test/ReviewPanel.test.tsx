@@ -6,8 +6,10 @@ import { I18nProvider } from '../src/i18n';
 import { draft } from './helpers/fakeApi';
 
 function setup(over: Partial<React.ComponentProps<typeof ReviewPanel>> = {}) {
+  const api = over.api ?? { listMusic: vi.fn(async () => null), listVoices: vi.fn(async () => []) };
   const props = {
     draft,
+    api,
     error: null,
     onSave: vi.fn(async () => true),
     onApprove: vi.fn(),

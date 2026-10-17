@@ -6,6 +6,7 @@ import { configRouter } from './routes/config';
 import { pipelineRouter } from './routes/pipeline';
 import { jobsRouter } from './routes/jobs';
 import { voicesRouter } from './routes/voices';
+import { musicRouter } from './routes/music';
 import { EventHub } from './jobs/eventHub';
 import { JobRunner } from './jobs/runner';
 import type { ExecuteFn } from './jobs/types';
@@ -22,6 +23,8 @@ export interface AppOptions {
   piper?: PiperClient;
   fetchImpl?: typeof fetch;
   ffmpeg?: FfmpegFn;
+  /** Music library directory (background music picker). Defaults to the MUSIC_DIR env var; empty = disabled. */
+  musicDir?: string;
   jobs?: { workDir?: string; execute?: ExecuteFn; autoStart?: boolean; heartbeatMs?: number };
 }
 
@@ -72,6 +75,7 @@ export function buildApp(opts: AppOptions = {}): Express {
   Object.assign(app.locals, resolvers, { db, eventHub, jobRunner });
 
   app.use('/api/config', configRouter(db, envDefaults));
+  app.use('/api/music', musicRouter({ musicDir: () => opts.musicDir ?? process.env.MUSIC_DIR ?? '' }));
   app.use('/api/pipeline/voices', voicesRouter({ listVoices: () => resolvers.resolvePiper().listVoices() }));
   app.use(
     '/api/pipeline',

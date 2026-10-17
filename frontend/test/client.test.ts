@@ -20,6 +20,62 @@ function fakeFetch(respond: (call: Call) => Response | Promise<Response>) {
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 
+describe('listMusic', () => {
+  it('GETs /api/music and returns the library', async () => {
+    const lib = { musicDir: '/music', files: [{ name: 'a.mp3', path: '/music/a.mp3', size: 1, mtime: 'x' }] };
+    const { fetchImpl, calls } = fakeFetch(() => json(lib));
+    expect(await createApiClient({ fetchImpl }).listMusic()).toEqual(lib);
+    expect(calls[0].url).toBe('/api/music');
+    expect(calls[0].init?.method ?? 'GET').toBe('GET');
+  });
+
+  it('returns null (not an error) when the library is not configured (404)', async () => {
+    const { fetchImpl } = fakeFetch(() => json({ error: 'Music library not configured (set MUSIC_DIR)' }, 404));
+    expect(await createApiClient({ fetchImpl }).listMusic()).toBeNull();
+  });
+});
+
+describe('listVoices', () => {
+  it('GETs /api/pipeline/voices', async () => {
+    const roster = [{ name: 'es_ES-davefx-medium' }, { name: 'es_ES-sharvard-medium', speaker: 1 }];
+    const { fetchImpl, calls } = fakeFetch(() => json(roster));
+    expect(await createApiClient({ fetchImpl }).listVoices()).toEqual(roster);
+    expect(calls[0].url).toBe('/api/pipeline/voices');
+  });
+
+  it('returns [] on failure so the UI can fall back to male/female', async () => {
+    const { fetchImpl } = fakeFetch(() => new Response('boom', { status: 502 }));
+    expect(await createApiClient({ fetchImpl }).listVoices()).toEqual([]);
+  });
+});
+
+describe('approveDraft body', () => {
+  const emptySse = () =>
+    new Response(
+      new ReadableStream({
+        start(c) {
+          c.close();
+        },
+      }),
+      { status: 200, headers: { 'Content-Type': 'text/event-stream' } },
+    );
+  it('sends the approve options body when provided', async () => {
+    const { fetchImpl, calls } = fakeFetch(() => emptySse());
+    const body = { music: '/music/a.mp3', musicVolume: 0.3, subtitles: true, vertical: false };
+    await createApiClient({ fetchImpl }).approveDraft('d1', { onEvent: () => {}, body });
+    expect(calls[0].init?.method).toBe('POST');
+    expect(JSON.parse(calls[0].init?.body as string)).toEqual(body);
+    expect(new Headers(calls[0].init?.headers).get('Content-Type')).toBe('application/json');
+  });
+
+  it('sends no body or content-type when options are omitted', async () => {
+    const { fetchImpl, calls } = fakeFetch(() => emptySse());
+    await createApiClient({ fetchImpl }).approveDraft('d1', { onEvent: () => {} });
+    expect(calls[0].init?.body).toBeUndefined();
+    expect(new Headers(calls[0].init?.headers).get('Content-Type')).toBeNull();
+  });
+});
+
 const settings = { comfyHost: 'http://c', ollamaHost: 'http://o', piperHost: 'tcp://p:1' };
 
 describe('api client requests', () => {
