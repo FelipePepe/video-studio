@@ -59,7 +59,45 @@ export interface JobEvent {
   at?: string;
 }
 
-/** Body of POST /api/pipeline/draft (validated by the backend, which is the authority). */
+/**
+ * Body of POST /api/pipeline/draft/:id/approve. All keys optional — only send what differs
+ * from the backend defaults (subtitles ON, vertical OFF, no music). The backend rejects
+ * unknown keys, so keep this in sync with parseApproveOptions (backend/src/routes/pipeline.ts).
+ */
+export interface ApproveBody {
+  /** Absolute server path of the background music file (from GET /api/music or manual). */
+  music?: string;
+  /** Music volume in (0, 1]; the narration ducks it via sidechain compression. */
+  musicVolume?: number;
+  /** Burn subtitles (ON by default). */
+  subtitles?: boolean;
+  /** Render vertical 9:16 (OFF by default). */
+  vertical?: boolean;
+}
+
+/** One entry of GET /api/music (backend/src/lib/musicLibrary.ts). */
+export interface MusicFile {
+  name: string;
+  path: string;
+  size: number;
+  mtime: string;
+}
+
+/** Response of GET /api/music. */
+export interface MusicLibrary {
+  musicDir: string;
+  files: MusicFile[];
+}
+
+/** One entry of GET /api/pipeline/voices (Piper roster). */
+export interface VoiceOption {
+  name: string;
+  speaker?: number;
+}
+
+/**
+ * Body of POST /api/pipeline/draft. (validated by the backend, which is the authority.)
+ */
 export interface DraftRequest {
   url?: string;
   text?: string;
