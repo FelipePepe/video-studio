@@ -1,6 +1,6 @@
 # video-studio-enhancements
 
-**Status:** tasks complete, PRs open (waiting on human merge) · **Updated:** 2026-10-04
+**Status:** merged to develop (PR #8 → `18a798f`) · **Updated:** 2026-10-17
 **Repo:** `/mnt/nas/sources/ai-tools/video-studio/` · **Root branch:** `feature/video-studio-enhancements` (cut from `feature/video-studio-rebuild-p5`)
 **Engram mirror:** `odd/video-studio-enhancements/tasks`
 
@@ -57,11 +57,11 @@ Inherit from `video-studio-rebuild`: TDD ON (`node --test --import tsx` backend;
 
 ## Slices (PRs)
 Local: root `feature/video-studio-enhancements` (E1) ← `-p1` (E2+E3+E4).
-Remote `FelipePepe/video-studio`: **PR #6** = root→`feature/video-studio-rebuild-p5` (E1), **PR #7** = `-p1`→root (E2+E3+E4); ambos OPEN (2026-10-04). El merge de la cadena rebuild y de estas PRs, y la PR final root→`develop`, deciden los humanos.
+Remote `FelipePepe/video-studio`: **PR #6** = root→`feature/video-studio-rebuild-p5` (E1), **PR #7** = `-p1`→root (E2+E3+E4); ambos OPEN (2026-10-04). 2026-10-17: cadena resuelta — **PR #8** (`feature/video-studio-enhancements`→`develop`, squash `18a798f`) mergeada con suites 253/253 backend + 120/120 frontend verdes; `develop` queda con rebuild fases 1–5 + E1–E4.
 
 ## Open items
 - Frontend toggles (music path + volume, subtitles on/off, vertical) and voice dropdown: follow-up feature, not started.
 - Default subtitle style (font/size/position) is ours; the Atlas note gets a line if it lands.
 
 ## Next step
-PRs #6 (E1) y #7 (E2+E3+E4) abiertas — esperan revisión/decisión humana (merges, luego root→`develop`). Opcional con autorización: e2e real en spark (Wan T2V single-frame + Piper).
+Cadena cerrada en `develop` (2026-10-17). Abierto: toggles frontend (música+vol, subtítulos, vertical) y dropdown de voces — follow-up pendiente. Opcional con autorización: e2e real en spark (Wan T2V single-frame + Piper).
