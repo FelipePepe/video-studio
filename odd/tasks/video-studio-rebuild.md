@@ -44,8 +44,8 @@ Everything in the note, in phases. Out of scope: `visual-character-sync` (no spe
 - [x] T4a Frontend scaffold, API client, settings modal, sidebar (`04fcebc..6587212`, 40 tests)
 - [x] T4b Pipeline form, progress stages, video panel (`885e069..4311885`, 75 tests). Deviation: no separate `<audio>` (backend only produces the muxed mp4).
 - [x] T4c Escaleta cards and SegmentEditor review mode, plus T4d hook fixes (`691f27e..2268f0a`; frontend 120 tests, backend 221; all native reviews approved, advisory items listed below)
-- [ ] T5a PipelineAgent (Claude tool use, unconnected to orchestrator)
-- [ ] T5b README/setup docs and Atlas note update
+- [x] T5a PipelineAgent with **Ollama tool-calling** (CHANGED 2026-10-04 by user: "cambia el sdk de anthropic por ollama" — Atlas note's Anthropic SDK/`claude-opus-4-8` line is obsolete; T5b updates it). `backend/src/pipeline/agent.ts`: single tool `submit_workflow(workflow, mode)` against Ollama `/api/chat` with native `tools`, system prompt encodes the full Wan2.2/WanVideoWrapper know-how (exact nodes, model names, `wan_2.1_vae bf16` never changes, omit `end_image` when absent, 720p/81fr/50 steps/cfg 6.0/unipc/20 block swap), `generate(req)` → `{ promptId, mode }` at the first valid tool call, otherwise `PipelineAgentError` (no tool call, bad mode, empty workflow, malformed args). Not wired to the orchestrator (manual step, per the note). Model chain: `opts.model ?? OLLAMA_MODEL ?? qwen3:8b`. Route: inline (writer trigger fired — 2 non-trivial files — but no subagent mechanism is exposed in this pi runtime). TDD ON, runner `node --test --import tsx`. RED: module-not-found on `../src/pipeline/agent`. GREEN: 9/9 agent tests; parent re-verified suite **230 pass / 0 fail**, typecheck clean. **Commit `e64340b`** (`feat(backend): add PipelineAgent using Ollama tool-calling for Wan2.2 workflows`).
+- [x] T5b README/setup docs and Atlas note update — **commit `bf5e6bc`** (`docs: record phase 5 completion`; amended after the T5a SHA placeholder was filled in).; Atlas note updated in the Obsidian vault (`/mnt/nas/Obsidian/Proyectos/video-studio.md`). README: Phase-2 text uses Piper (Wyoming), stack table, PipelineAgent (Ollama) section, recreation + `FelipePepe/video-studio` (private) status, Running + API sections, tests 230/120. Atlas note `Proyectos/video-studio.md`: status → recreado+activo (repo path, private remote, PR chain, 230/120 tests, single-frame T2V pending); `[!info]` keeps the 2026-10-04 not-found finding; TTS row → Piper (Kokoro descartado 2026-10-04); Agente IA row → Ollama tool-calling (historical Anthropic line annotated); flow diagram; `piper_host` + migration. Wikilinks preserved. Route: inline (docs, 2 files).
 
 ## Acceptance criteria
 - `pnpm -r test` green; `pnpm -r typecheck` clean.
@@ -59,7 +59,8 @@ Everything in the note, in phases. Out of scope: `visual-character-sync` (no spe
 _(none yet)_
 
 ## Review assessments per task
-Last reviewed boundary: `2268f0a` (end of phase 4). Phase 4 reviews (all medium, 1 lens, approved, acknowledged): T3f+T4a `review-0a9007ad484a54f2`, T4b `review-cb78406645df3ccb`, T4c/T4d `review-eb6e45cecd2b5c8a`. Open advisory: `createDraft` guard is silent, focus-after-move unasserted, stale-save untested.
+Last reviewed boundary: `2268f0a` (end of phase 4). Phase 5: T5a (`e64340b`) — range `2268f0a..e64340b`, risk medium (`executable_change`: `agent.ts`), 361 lines, `review_due: false` (`under_budget`); pending in the slice.
+Phase 4 reviews (all medium, 1 lens, approved, acknowledged): T3f+T4a `review-0a9007ad484a54f2`, T4b `review-cb78406645df3ccb`, T4c/T4d `review-eb6e45cecd2b5c8a`. Open advisory: `createDraft` guard is silent, focus-after-move unasserted, stale-save untested.
 - T0 (`a0c05bd`): risk medium (`executable_change`: `.npmrc`), `review_due: false`, reason `under_budget` (271 lines). Pending in the slice until T1.
 - T1 (`78668eb`): range `635c61e..78668eb`, risk medium, `review_due: true` (`slice_budget_reached`; 1791 lines counted, 1163 of them the generated lockfile). Consent granted by the user; one lens (`review-reliability`) → **approved**, acknowledged, authority burned (lineage `review-f093030dc3f776be`). Three non-blocking advisory findings (see T1b).
 
@@ -71,16 +72,16 @@ Last reviewed boundary: `2268f0a` (end of phase 4). Phase 4 reviews (all medium,
 
 ## Slices (PRs)
 Branch chain (local): `develop` ← `feature/video-studio-rebuild` (root, `a0c05bd` bootstrap) ← `feature/video-studio-rebuild-p1` (T1, T1b) ← `-p2` (T2a–d) ← `-p3` (T3a–c) ← `-p4` (T4a–c) ← `-p5` (T5a–b).
-Remote: `FelipePepe/video-studio` (private, created at the user's request). PR #1 (p1 → root), PR #2 (p2 → p1), PR #3 (p3 → p2) opened; the agent never merges.
+Remote: `FelipePepe/video-studio` (private, created at the user's request). PR #1 (p1 → root), PR #2 (p2 → p1), PR #3 (p3 → p2), PR #4 (p4 → p3), PR #5 (p5 → p4) opened; the agent never merges. Final PR `feature/video-studio-rebuild` → `develop` opens once the user merges the chain. The enhancement feature (bgm/subtitles/vertical+thumb/voices, planned 2026-10-04) cuts its own root branch from `feature/video-studio-rebuild-p5`.
 
 ## Open items
 - `visual-character-sync` has no spec.
-- TTS is Piper (Wyoming, `tcp://192.168.1.60:10200` default), not Kokoro as the Atlas note says; the Atlas note must be corrected in T5b.
+- TTS is Piper (Wyoming, `tcp://192.168.1.60:10200` default), not Kokoro as the Atlas note says; the Atlas note was corrected in T5b (2026-10-04).
 - Wyoming protocol verified against real spark (2026-10-04, user-authorized, read-only probe `describe` + one 1.6 s synthesis at `192.168.1.60:10200`): events carry data via `data_length` (not inline), `audio-start` → ~36 `audio-chunk` → `audio-stop`, 22050 Hz 16-bit mono, 163 voices incl. `es_ES-davefx-medium` and `es_ES-sharvard-medium` (speakers `M`,`F`; index 1 accepted). The PiperClient itself is still tested only against a local fake server that mirrors these facts; running the client end to end against spark needs a further check.
 - PR #1 (`p1` → `feature/video-studio-rebuild`) is open: https://github.com/FelipePepe/video-studio/pull/1 (repo `FelipePepe/video-studio`, private, created 2026-10-04 at the user's request).
 
 ## Next step
-Phase 5 (T5a PipelineAgent with Claude tool use, T5b README + Atlas note correction: Piper replaces Kokoro, repo recreated) and the final PR `feature/video-studio-rebuild` → `develop`. Pending authorization: real spark run of single-frame Wan T2V. Run stopped by the usage limit after PR #4.
+Enhancement feature (post-phase-5 plan, approved 2026-10-04 by the user over the MoneyPrinter* analysis): **E1 BGM + ducking** (MoneyPrinterTurbo `bgm.py` pattern → our ffmpeg mix), **E2 burned subtitles** (SRT/ASS from escaleta + per-scene WAV timings), **E3 vertical 9:16 crop + cover thumb**, **E4 `GET /api/voices`** (Piper voice list). Root branch from `feature/video-studio-rebuild-p5`, one feature doc `odd/tasks/video-studio-enhancements.md`, phase branches + PRs per the cached `feature-branch-chain` strategy; final root PR → `develop` after the rebuild chain. Pending authorization: real spark run of single-frame Wan T2V (+ real Piper client e2e).
 
 (previous next-step text:)
 T1b (hardening, delegated writer), then phase 2 (T2a–d).
