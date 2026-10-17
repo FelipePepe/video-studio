@@ -3,7 +3,10 @@ import { ApiError, type ApiClient, type ApproveBody } from '../api/client';
 import type { DraftCreated, DraftRequest, JobEvent, Scene } from '../api/types';
 import { useI18n } from '../i18n';
 
-export type PipelineApi = Pick<ApiClient, 'createDraft' | 'approveDraft' | 'cancelJob' | 'putSegments'>;
+export type PipelineApi = Pick<
+  ApiClient,
+  'createDraft' | 'approveDraft' | 'cancelJob' | 'putSegments' | 'listMusic' | 'listVoices'
+>;
 
 export type PipelineState = 'idle' | 'drafting' | 'review' | 'rendering' | 'done' | 'failed';
 

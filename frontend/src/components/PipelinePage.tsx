@@ -1,5 +1,6 @@
 import { useI18n } from '../i18n';
 import { usePipeline, type PipelineApi } from '../hooks/usePipeline';
+import type { ApiClient } from '../api/client';
 import { EscaletaCards } from './EscaletaCards';
 import { GuideCard } from './GuideCard';
 import { PipelineForm } from './PipelineForm';
@@ -22,7 +23,7 @@ export function PipelinePage({ api }: PipelinePageProps) {
       <h1 className="pipeline__title">{t('pipeline.title')}</h1>
 
       {p.state === 'review' && p.draft ? (
-        <ReviewPanel draft={p.draft} error={p.error} onSave={p.saveSegments} onApprove={() => void p.approve()} onBack={p.reset} />
+        <ReviewPanel draft={p.draft} api={api} error={p.error} onSave={p.saveSegments} onApprove={(body) => void p.approve({ body })} onBack={p.reset} />
       ) : (
         <div className="pipeline__grid">
           <div className="pipeline__form">

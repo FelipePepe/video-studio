@@ -6,6 +6,8 @@ import { FIELD_LIMITS, MAX_SCENES, emptyScene, renumber, sceneErrors, type TextF
 export interface SegmentEditorProps {
   scenes: Escaleta;
   onChange: (next: Escaleta) => void;
+  /** Voice options for the per-scene selector (Piper roster via the API). Defaults to the male/female roles. */
+  voices?: string[];
 }
 
 const VOICES = ['male', 'female'];
@@ -19,12 +21,15 @@ const FIELD_LABEL: Record<TextField, MessageKey> = {
 type Action = 'up' | 'down';
 
 /** Controlled editor: one editable card per scene, reorder/add/delete, live validation. */
-export function SegmentEditor({ scenes, onChange }: SegmentEditorProps) {
+export function SegmentEditor({ scenes, onChange, voices: voiceOptions }: SegmentEditorProps) {
   const { t } = useI18n();
   const baseId = useId();
   const [announcement, setAnnouncement] = useState('');
   const listRef = useRef<HTMLOListElement>(null);
   const pendingFocus = useRef<{ index: number; action: Action } | null>(null);
+
+  // Roles first (with their labels), then the Piper roster, never dropping a voice an existing scene already uses.
+  const voiceList = voiceOptions ?? VOICES;
 
   // After a move, keep keyboard focus on the moved scene's control.
   useEffect(() => {
@@ -74,7 +79,7 @@ export function SegmentEditor({ scenes, onChange }: SegmentEditorProps) {
           const errors = sceneErrors(scene);
           const n = index + 1;
           const id = `${baseId}-${index}`;
-          const voices = VOICES.includes(scene.voice) ? VOICES : [...VOICES, scene.voice];
+          const voices = voiceList.includes(scene.voice) ? voiceList : [...voiceList, scene.voice];
           return (
             <li key={index} className="card scene-card" aria-label={format(t('editor.scene'), { n })}>
               <div className="scene-card__head">
