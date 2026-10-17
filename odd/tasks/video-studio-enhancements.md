@@ -1,6 +1,6 @@
 # video-studio-enhancements
 
-**Status:** in progress · **Created:** 2026-10-04
+**Status:** tasks complete, PRs open (waiting on human merge) · **Updated:** 2026-10-04
 **Repo:** `/mnt/nas/sources/ai-tools/video-studio/` · **Root branch:** `feature/video-studio-enhancements` (cut from `feature/video-studio-rebuild-p5`)
 **Engram mirror:** `odd/video-studio-enhancements/tasks`
 
@@ -64,4 +64,4 @@ Remote `FelipePepe/video-studio`: **PR #6** = root→`feature/video-studio-rebui
 - Default subtitle style (font/size/position) is ours; the Atlas note gets a line if it lands.
 
 ## Next step
-PRs #6 y #7 abiertas — esperar revisión/decisión humana (merge de la cadena rebuild y de estas PRs; luego PR root→`develop`). Opcional con autorización: e2e real en spark (Wan T2V single-frame + Piper).
+PRs #6 (E1) y #7 (E2+E3+E4) abiertas — esperan revisión/decisión humana (merges, luego root→`develop`). Opcional con autorización: e2e real en spark (Wan T2V single-frame + Piper).
