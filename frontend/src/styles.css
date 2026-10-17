@@ -321,3 +321,32 @@ body {
 .review__spacer { flex: 1; }
 .review__dirty { font-size: 0.875rem; color: var(--text-muted); }
 .review__count { margin: 0 0 12px; color: var(--text-muted); }
+
+/* ── Jobs (Trabajos) ─────────────────────────────── */
+.jobs { display: grid; gap: 16px; }
+.jobs__head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.jobs__title { margin: 0; font-size: 1.4rem; }
+.jobs__controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.jobs__alert { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; color: var(--danger); }
+.jobs__list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+
+.job { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.job__main { display: grid; gap: 6px; min-width: 0; flex: 1; }
+.job__row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.job__status {
+  padding: 2px 10px; border-radius: 999px; font-size: 0.78rem; font-weight: 600; white-space: nowrap;
+}
+.job__status[data-status='queued'] { background: var(--surface); color: var(--text-muted); border: 1px solid var(--border); }
+.job__status[data-status='running'] { background: var(--accent); color: var(--accent-text); }
+.job__status[data-status='done'] { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); }
+.job__status[data-status='failed'] { background: color-mix(in srgb, var(--danger) 15%, transparent); color: var(--danger); }
+.job__status[data-status='cancelled'] { background: var(--surface); color: var(--text-muted); border: 1px dashed var(--border); }
+.job__id { font-size: 0.8rem; color: var(--text-muted); font-family: ui-monospace, monospace; }
+.job__created { font-size: 0.8rem; color: var(--text-muted); }
+.job__progress { display: flex; align-items: center; gap: 8px; width: 100%; }
+.job__progress .progress__bar { flex: 1; }
+.job__pct { font-size: 0.78rem; color: var(--text-muted); min-width: 2.5em; text-align: right; }
+.job__stage { font-size: 0.8rem; color: var(--text-muted); min-width: 6em; overflow: hidden; text-overflow: ellipsis; }
+.job__error { margin: 0; color: var(--danger); font-size: 0.85rem; }
+.job__actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.job a.btn { text-decoration: none; }

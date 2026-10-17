@@ -4,11 +4,15 @@ import type { Lang } from '../i18n';
 const LANGS: Lang[] = ['es', 'en'];
 
 export interface SidebarProps {
+  /** Active view; marks the corresponding item with `aria-current`. Defaults to pipeline. */
+  view?: 'pipeline' | 'jobs';
   onOpenSettings: () => void;
 }
 
-export function Sidebar({ onOpenSettings }: SidebarProps) {
+export function Sidebar({ view = 'pipeline', onOpenSettings }: SidebarProps) {
   const { t, lang, setLang } = useI18n();
+
+  const itemClass = (active: boolean) => `nav-item${active ? ' nav-item--active' : ''}`;
 
   return (
     <aside className="sidebar">
@@ -17,15 +21,22 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
       <nav className="sidebar__nav" aria-label={t('nav.label')}>
         <ul>
           <li>
-            <a className="nav-item nav-item--active" href="#pipeline" aria-current="page">
+            <a
+              className={itemClass(view === 'pipeline')}
+              href="#pipeline"
+              aria-current={view === 'pipeline' ? 'page' : undefined}
+            >
               {t('nav.pipeline')}
             </a>
           </li>
           <li>
-            {/* Placeholder until the jobs view exists. */}
-            <button type="button" className="nav-item" disabled>
-              {t('nav.jobs')} <small>({t('nav.soon')})</small>
-            </button>
+            <a
+              className={itemClass(view === 'jobs')}
+              href="#trabajos"
+              aria-current={view === 'jobs' ? 'page' : undefined}
+            >
+              {t('nav.jobs')}
+            </a>
           </li>
         </ul>
       </nav>

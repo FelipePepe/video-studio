@@ -6,6 +6,7 @@ import type {
   Escaleta,
   Job,
   JobEvent,
+  JobStatus,
   MusicLibrary,
   Settings,
   VoiceOption,
@@ -45,6 +46,8 @@ export interface ApiClient {
   /** Piper roster; returns [] on failure so the UI can fall back to male/female. */
   listVoices(): Promise<VoiceOption[]>;
   getJob(id: string): Promise<Job>;
+  /** Job list; optional status filter and limit (backend caps limit at 200). */
+  listJobs(params?: { status?: JobStatus; limit?: number }): Promise<Job[]>;
   cancelJob(id: string): Promise<{ cancelled: boolean }>;
 }
 
@@ -147,6 +150,13 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
     getDraft: (id) => request<Draft>('GET', draftPath(id)),
     putSegments: (id, escaleta) => request<Draft>('PUT', `${draftPath(id)}/segments`, { escaleta }),
     getJob: (id) => request<Job>('GET', jobPath(id)),
+    listJobs(params) {
+      const qs = new URLSearchParams();
+      if (params?.status) qs.set('status', params.status);
+      if (params?.limit !== undefined) qs.set('limit', String(params.limit));
+      const q = qs.toString();
+      return request<Job[]>('GET', `/api/jobs${q ? `?${q}` : ''}`);
+    },
     cancelJob: (id) => request<{ cancelled: boolean }>('POST', `${jobPath(id)}/cancel`),
 
     async listMusic() {
