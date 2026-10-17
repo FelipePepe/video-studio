@@ -5,6 +5,7 @@ import { loadEnvDefaults, resolveEffectiveConfig, type EnvDefaults } from './con
 import { configRouter } from './routes/config';
 import { pipelineRouter } from './routes/pipeline';
 import { jobsRouter } from './routes/jobs';
+import { voicesRouter } from './routes/voices';
 import { EventHub } from './jobs/eventHub';
 import { JobRunner } from './jobs/runner';
 import type { ExecuteFn } from './jobs/types';
@@ -71,6 +72,7 @@ export function buildApp(opts: AppOptions = {}): Express {
   Object.assign(app.locals, resolvers, { db, eventHub, jobRunner });
 
   app.use('/api/config', configRouter(db, envDefaults));
+  app.use('/api/pipeline/voices', voicesRouter({ listVoices: () => resolvers.resolvePiper().listVoices() }));
   app.use(
     '/api/pipeline',
     pipelineRouter({

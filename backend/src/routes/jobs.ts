@@ -1,5 +1,5 @@
 import { realpathSync, statSync } from 'node:fs';
-import { isAbsolute, relative, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { Router, type Response } from 'express';
 import type { DatabaseSync } from 'node:sqlite';
 import type { EventHub } from '../jobs/eventHub';
@@ -151,7 +151,23 @@ export function jobsRouter(deps: JobsDeps): Router {
       res.status(404).json({ error: 'Output not available' });
       return;
     }
-    const target = resolveOutput(runner.workDir, job.outputPath);
+    const variant = req.query.variant;
+    let rel = job.outputPath;
+    let contentType = 'video/mp4';
+    if (variant !== undefined) {
+      if (variant !== 'vertical' && variant !== 'cover') {
+        res.status(400).json({ error: "variant must be 'vertical' or 'cover'" });
+        return;
+      }
+      const dir = dirname(job.outputPath);
+      if (variant === 'vertical') {
+        rel = join(dir, 'final_v.mp4');
+      } else {
+        rel = join(dir, 'cover.jpg');
+        contentType = 'image/jpeg';
+      }
+    }
+    const target = resolveOutput(runner.workDir, rel);
     if (target === 'outside') {
       res.status(403).json({ error: 'Output path is outside the work directory' });
       return;
@@ -160,7 +176,7 @@ export function jobsRouter(deps: JobsDeps): Router {
       res.status(404).json({ error: 'Output file not found' });
       return;
     }
-    res.type('video/mp4');
+    res.type(contentType);
     res.sendFile(target.rel, { root: target.root }, (err) => {
       if (err && !res.headersSent) res.status(404).json({ error: 'Output file not found' });
     });

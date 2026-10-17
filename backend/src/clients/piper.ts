@@ -151,4 +151,74 @@ export class PiperClient {
       socket.on('close', () => finish(new Error('Piper connection closed before audio-stop')));
     });
   }
+
+  /** Lists the voices installed on the Piper server (Wyoming `describe` event). */
+  async listVoices(): Promise<PiperVoice[]> {
+    const target = parseHost(this.host);
+    return new Promise<PiperVoice[]>((resolve, reject) => {
+      const socket = this.connect({ host: target.host, port: target.port });
+      let buf = Buffer.alloc(0);
+      let settled = false;
+      const settleOk = (v: PiperVoice[]) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        socket.destroy();
+        resolve(v);
+      };
+      const settleError = (e: Error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        socket.destroy();
+        reject(e);
+      };
+      const timer = setTimeout(
+        () => settleError(new Error(`Piper request timed out after ${this.timeoutMs}ms`)),
+        this.timeoutMs,
+      );
+
+      socket.on('connect', () => {
+        socket.write(JSON.stringify({ type: 'describe' }) + '\n');
+      });
+      socket.on('data', (d: Buffer) => {
+        buf = Buffer.concat([buf, d]);
+        const nl = buf.indexOf(0x0a);
+        if (nl < 0) return;
+        let h: WyomingHeader;
+        try {
+          h = JSON.parse(buf.subarray(0, nl).toString('utf8')) as WyomingHeader;
+        } catch {
+          return settleError(new Error('Piper sent a malformed event header'));
+        }
+        const dataLen = h.data_length ?? 0;
+        if (!validLength(dataLen) || dataLen > MAX_FRAME_BYTES) {
+          return settleError(new Error('Piper sent an invalid frame length'));
+        }
+        const total = nl + 1 + dataLen;
+        if (buf.length < total) return;
+        let data: Record<string, unknown> = { ...(h.data ?? {}) };
+        if (dataLen > 0) {
+          try {
+            data = { ...data, ...JSON.parse(buf.subarray(nl + 1, nl + 1 + dataLen).toString('utf8')) };
+          } catch {
+            return settleError(new Error('Piper sent malformed event data'));
+          }
+        }
+        if (h.type === 'error') {
+          return settleError(new Error(`Piper error: ${String(data.text ?? data.code ?? 'unknown')}`));
+        }
+        if (h.type === 'describe') {
+          const voices = data.voices;
+          if (Array.isArray(voices) && voices.every((v) => v !== null && typeof (v as PiperVoice).name === 'string')) {
+            return settleOk(voices as PiperVoice[]);
+          }
+          return settleError(new Error('Piper describe event has no voices array'));
+        }
+        buf = buf.subarray(total); // ignore keep-alives and other events
+      });
+      socket.on('error', (e) => settleError(new Error(`Piper unreachable at ${this.host}: ${e.message}`)));
+      socket.on('close', () => settleError(new Error('Piper connection closed before describe')));
+    });
+  }
 }

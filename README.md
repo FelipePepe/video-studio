@@ -43,8 +43,10 @@ pnpm --filter @video-studio/backend dev   # backend :3001
 
 - `POST /api/pipeline/draft` — Ollama escaleta (no TTS yet)
 - `PUT /api/pipeline/draft/:id/segments` — human review / editing
-- `POST /api/pipeline/draft/:id/approve` — TTS + ComfyUI + ffmpeg, SSE progress
-- `GET /api/jobs`, `GET /api/jobs/:id`, `GET /api/jobs/:id/events` (SSE), `POST /api/jobs/:id/cancel`, `GET /api/jobs/:id/output`
+- `POST /api/pipeline/draft/:id/approve` — TTS + ComfyUI + ffmpeg, SSE progress. Opcional `{ music, musicVolume?, subtitles?, vertical? }`
+- `GET /api/pipeline/voices` — roster de voces de Piper (Wyoming `describe`), `?lang=es` filtra
+- `GET /api/jobs`, `GET /api/jobs/:id`, `GET /api/jobs/:id/events` (SSE), `POST /api/jobs/:id/cancel`
+- `GET /api/jobs/:id/output` — `?variant=vertical` (9:16, `final_v.mp4`) o `?variant=cover` (`cover.jpg`)
 - `GET/PATCH /api/config` — ComfyUI / Ollama / Piper hosts
 
 ## Workflow

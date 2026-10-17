@@ -27,7 +27,7 @@ function parseApproveOptions(body: unknown): ApproveOptions | null {
   if (typeof body !== 'object' || Array.isArray(body)) throw new ApproveOptionsError('Body must be a JSON object');
   const o = body as Record<string, unknown>;
   for (const key of Object.keys(o)) {
-    if (key !== 'music' && key !== 'musicVolume') throw new ApproveOptionsError(`Unknown approve option: ${key}`);
+    if (key !== 'music' && key !== 'musicVolume' && key !== 'subtitles' && key !== 'vertical') throw new ApproveOptionsError(`Unknown approve option: ${key}`);
   }
   if (Object.keys(o).length === 0) return null;
   const opts: ApproveOptions = {};
@@ -41,6 +41,14 @@ function parseApproveOptions(body: unknown): ApproveOptions | null {
       throw new ApproveOptionsError('musicVolume must be a number in (0, 1]');
     }
     opts.musicVolume = o.musicVolume;
+  }
+  if (o.subtitles !== undefined) {
+    if (typeof o.subtitles !== 'boolean') throw new ApproveOptionsError('subtitles must be a boolean');
+    opts.subtitles = o.subtitles;
+  }
+  if (o.vertical !== undefined) {
+    if (typeof o.vertical !== 'boolean') throw new ApproveOptionsError('vertical must be a boolean');
+    opts.vertical = o.vertical;
   }
   return opts;
 }
