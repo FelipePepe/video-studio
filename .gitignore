@@ -6,6 +6,9 @@ coverage/
 .env.*
 !.env.example
 
+# vite/vitest cache
+.vite/
+
 # runtime data (sqlite db, generated media)
 data/
 *.sqlite
