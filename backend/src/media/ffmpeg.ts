@@ -107,3 +107,24 @@ export function muxAudioArgs(o: { video: string; audio: string; out: string }): 
     '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-shortest', o.out,
   ];
 }
+
+export function extractFrameArgs(o: { video: string; out: string }): string[] {
+  return ['-i', o.video, '-frames:v', '1', o.out];
+}
+
+export interface NormalizeClipOptions {
+  input: string;
+  out: string;
+  width?: number;
+  height?: number;
+  fps?: number;
+}
+
+/** Re-encodes a clip to the Ken Burns stream parameters so the concat demuxer can join them. */
+export function normalizeClipArgs(o: NormalizeClipOptions): string[] {
+  const { input, out, width = 1280, height = 720, fps = 24 } = o;
+  const vf =
+    `scale=${width}:${height}:force_original_aspect_ratio=decrease,` +
+    `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,fps=${fps},setsar=1,format=yuv420p`;
+  return ['-i', input, '-vf', vf, '-an', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', out];
+}

@@ -1,4 +1,8 @@
 import net from 'node:net';
+import { parsePiperHost, type PiperTarget } from '../config/piperHost';
+import { wavFromPcm, type PcmFormat } from '../media/wav';
+
+export { wavFromPcm, type PcmFormat };
 
 export interface PiperVoice {
   name: string;
@@ -22,39 +26,20 @@ export interface PiperSynthesizeOptions {
   speed?: number;
 }
 
-export interface PcmFormat {
-  rate: number;
-  width: number;
-  channels: number;
-}
-
-export function wavFromPcm(pcm: Buffer, fmt: PcmFormat): Buffer {
-  const header = Buffer.alloc(44);
-  const byteRate = fmt.rate * fmt.width * fmt.channels;
-  header.write('RIFF', 0);
-  header.writeUInt32LE(36 + pcm.length, 4);
-  header.write('WAVE', 8);
-  header.write('fmt ', 12);
-  header.writeUInt32LE(16, 16);
-  header.writeUInt16LE(1, 20);
-  header.writeUInt16LE(fmt.channels, 22);
-  header.writeUInt32LE(fmt.rate, 24);
-  header.writeUInt32LE(byteRate, 28);
-  header.writeUInt16LE(fmt.width * fmt.channels, 32);
-  header.writeUInt16LE(fmt.width * 8, 34);
-  header.write('data', 36);
-  header.writeUInt32LE(pcm.length, 40);
-  return Buffer.concat([header, pcm]);
-}
-
 function resolveVoice(voice: string): PiperVoice {
   return voice === 'male' || voice === 'female' ? PIPER_VOICES[voice] : { name: voice };
 }
 
-function parseHost(host: string): { host: string; port: number } {
-  const m = /^tcp:\/\/([^/:\s]+):(\d{1,5})$/.exec(host);
-  if (!m) throw new Error(`Piper host must look like tcp://host:port, got "${host}"`);
-  return { host: m[1], port: Number(m[2]) };
+function parseHost(host: string): PiperTarget {
+  const target = parsePiperHost(host);
+  if (!target) throw new Error(`Piper host must look like tcp://host:port, got "${host}"`);
+  return target;
+}
+
+const MAX_FRAME_BYTES = 64 * 1024 * 1024;
+
+function validLength(n: unknown): n is number {
+  return typeof n === 'number' && Number.isInteger(n) && n >= 0;
 }
 
 interface WyomingHeader {
@@ -129,6 +114,10 @@ export class PiperClient {
           }
           const dataLen = h.data_length ?? 0;
           const payloadLen = h.payload_length ?? 0;
+          if (!validLength(dataLen) || !validLength(payloadLen) || dataLen + payloadLen > MAX_FRAME_BYTES) {
+            finish(new Error('Piper sent an invalid frame length'));
+            return;
+          }
           const total = nl + 1 + dataLen + payloadLen;
           if (buf.length < total) return;
           let extra: Record<string, unknown> = {};

@@ -63,3 +63,32 @@ test('opening a pre-piper database migrates kokoro_host to piper_host and drops 
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('a failing kokoro -> piper migration rolls back and leaves the legacy column intact', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'video-studio-'));
+  try {
+    const file = join(dir, 'legacy-fail.sqlite');
+    const legacy = new DatabaseSync(file);
+    legacy.exec(`CREATE TABLE server_settings (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      comfy_host TEXT NOT NULL DEFAULT '',
+      ollama_host TEXT NOT NULL DEFAULT '',
+      kokoro_host TEXT NOT NULL DEFAULT ''
+    );
+    INSERT INTO server_settings (id, kokoro_host) VALUES (1, 'http://localhost:8880');
+    CREATE TRIGGER block_update BEFORE UPDATE ON server_settings BEGIN SELECT RAISE(ABORT, 'blocked'); END;`);
+    legacy.close();
+
+    assert.throws(() => openDatabase(file), /blocked/);
+
+    const check = new DatabaseSync(file);
+    const columns = (check.prepare('PRAGMA table_info(server_settings)').all() as { name: string }[]).map(
+      (c) => c.name,
+    );
+    check.close();
+    assert.ok(columns.includes('kokoro_host'));
+    assert.ok(!columns.includes('piper_host'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

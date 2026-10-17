@@ -100,10 +100,132 @@ test('waitForCompletion times out', async () => {
   await assert.rejects(client.waitForCompletion('p1', { intervalMs: 10, timeoutMs: 25 }), /timed out/i);
 });
 
-test('waitForCompletion throws on non-2xx history response', async () => {
-  const { fetchImpl } = fakeFetch([new Response('boom', { status: 500 })]);
+test('waitForCompletion throws after repeated 5xx history responses', async () => {
+  const { fetchImpl, calls } = fakeFetch([500, 500, 500, 500].map(() => new Response('boom', { status: 500 })));
   const client = new ComfyClient('http://c', { fetchImpl, sleep: noSleep });
   await assert.rejects(client.waitForCompletion('p1'), /history.*500/);
+  assert.equal(calls.length, 4);
+});
+
+test('waitForCompletion fails immediately on a 4xx history response', async () => {
+  const { fetchImpl, calls } = fakeFetch([new Response('nope', { status: 404 })]);
+  const client = new ComfyClient('http://c', { fetchImpl, sleep: noSleep });
+  await assert.rejects(client.waitForCompletion('p1'), /history.*404/);
+  assert.equal(calls.length, 1);
+});
+
+test('waitForCompletion tolerates transient network and 5xx failures', async () => {
+  const outputs = { '9': { images: [{ filename: 'a.png' }] } };
+  const { fetchImpl, calls } = fakeFetch([
+    new Error('ECONNRESET'),
+    new Response('bad gateway', { status: 502 }),
+    json({ p1: { status: { status_str: 'success' }, outputs } }),
+  ]);
+  const client = new ComfyClient('http://c', { fetchImpl, sleep: noSleep });
+  assert.deepEqual(await client.waitForCompletion('p1'), outputs);
+  assert.equal(calls.length, 3);
+});
+
+test('waitForCompletion resets the failure counter after a successful poll', async () => {
+  const outputs = {};
+  const fail = () => new Error('ECONNRESET');
+  const { fetchImpl } = fakeFetch([
+    fail(),
+    fail(),
+    fail(),
+    json({}),
+    fail(),
+    fail(),
+    fail(),
+    json({ p1: { status: { status_str: 'success' }, outputs } }),
+  ]);
+  const client = new ComfyClient('http://c', { fetchImpl, sleep: noSleep });
+  assert.deepEqual(await client.waitForCompletion('p1'), outputs);
+});
+
+test('waitForCompletion gives up after 3 consecutive failures and includes the last error', async () => {
+  const { fetchImpl, calls } = fakeFetch([
+    new Error('e1'),
+    new Error('e2'),
+    new Error('e3'),
+    new Error('last-one'),
+  ]);
+  const client = new ComfyClient('http://c', { fetchImpl, sleep: noSleep });
+  await assert.rejects(client.waitForCompletion('p1'), /last-one/);
+  assert.equal(calls.length, 4);
+});
+
+test('requests are aborted after the per-request timeout', async () => {
+  const fetchImpl = ((_url: string | URL | Request, init?: RequestInit) =>
+    new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(new Error('aborted')));
+    })) as typeof fetch;
+  const client = new ComfyClient('http://c', { fetchImpl, sleep: noSleep, requestTimeoutMs: 20 });
+  // AbortSignal.timeout timers are unref'd; keep the loop alive so the abort can fire.
+  const keepAlive = setTimeout(() => {}, 2000);
+  try {
+    await assert.rejects(client.submit({}), /unreachable.*aborted/);
+  } finally {
+    clearTimeout(keepAlive);
+  }
+});
+
+function slowFetch(delayMs: number, body: BodyInit = '{}') {
+  return ((_url: string | URL | Request, init?: RequestInit) =>
+    new Promise<Response>((resolve, reject) => {
+      const timer = setTimeout(() => resolve(new Response(body)), delayMs);
+      init?.signal?.addEventListener('abort', () => {
+        clearTimeout(timer);
+        reject(new Error('aborted'));
+      });
+    })) as typeof fetch;
+}
+
+test('download is not aborted at the short timeout but at its own transfer timeout', async () => {
+  const keepAlive = setTimeout(() => {}, 2000);
+  try {
+    const ok = new ComfyClient('http://c', { fetchImpl: slowFetch(80, 'video'), requestTimeoutMs: 20, transferTimeoutMs: 500 });
+    assert.equal((await ok.download({ filename: 'a.mp4' })).toString(), 'video');
+    const slow = new ComfyClient('http://c', { fetchImpl: slowFetch(500), requestTimeoutMs: 500, transferTimeoutMs: 20 });
+    await assert.rejects(slow.download({ filename: 'a.mp4' }), /unreachable.*aborted/);
+  } finally {
+    clearTimeout(keepAlive);
+  }
+});
+
+test('uploadImage uses the transfer timeout', async () => {
+  const keepAlive = setTimeout(() => {}, 2000);
+  try {
+    const ok = new ComfyClient('http://c', {
+      fetchImpl: slowFetch(80, JSON.stringify({ name: 'u.png' })),
+      requestTimeoutMs: 20,
+      transferTimeoutMs: 500,
+    });
+    assert.equal(await ok.uploadImage(Buffer.from([1]), 'u.png'), 'u.png');
+    const slow = new ComfyClient('http://c', { fetchImpl: slowFetch(500), requestTimeoutMs: 500, transferTimeoutMs: 20 });
+    await assert.rejects(slow.uploadImage(Buffer.from([1]), 'u.png'), /unreachable.*aborted/);
+  } finally {
+    clearTimeout(keepAlive);
+  }
+});
+
+test('submit, poll and interrupt still abort at the short timeout', async () => {
+  const keepAlive = setTimeout(() => {}, 2000);
+  try {
+    const mk = () => new ComfyClient('http://c', { fetchImpl: slowFetch(500), sleep: noSleep, requestTimeoutMs: 20, transferTimeoutMs: 500 });
+    await assert.rejects(mk().submit({}), /unreachable.*aborted/);
+    await assert.rejects(mk().interrupt(), /unreachable.*aborted/);
+    await assert.rejects(mk().waitForCompletion('p', { timeoutMs: 1 }), /unreachable.*aborted|timed out/);
+  } finally {
+    clearTimeout(keepAlive);
+  }
+});
+
+test('default transfer timeouts are longer than the short default', () => {
+  const c = new ComfyClient('http://c') as unknown as { requestTimeoutMs: number; uploadTimeoutMs: number; downloadTimeoutMs: number };
+  assert.equal(c.requestTimeoutMs, 30_000);
+  assert.equal(c.uploadTimeoutMs, 120_000);
+  assert.equal(c.downloadTimeoutMs, 600_000);
 });
 
 test('uploadImage posts multipart with image and overwrite, returns name', async () => {

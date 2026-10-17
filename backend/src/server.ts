@@ -3,12 +3,15 @@ import { dirname } from 'node:path';
 import { buildApp } from './app';
 import { parsePort, resolveDbPath } from './config/runtime';
 import { openDatabase } from './db/connection';
+import type { JobRunner } from './jobs/runner';
 
 function main(): void {
   const dbPath = resolveDbPath(process.env.DB_PATH);
   const port = parsePort(process.env.PORT, 3001);
   mkdirSync(dirname(dbPath), { recursive: true });
-  buildApp({ db: openDatabase(dbPath) }).listen(port, () => {
+  const app = buildApp({ db: openDatabase(dbPath) });
+  (app.locals.jobRunner as JobRunner).start();
+  app.listen(port, () => {
     console.log(`video-studio backend listening on :${port}`);
   });
 }

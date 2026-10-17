@@ -8,8 +8,15 @@ import { DatabaseSync } from 'node:sqlite';
 function migrateKokoroHostToPiperHost(db: DatabaseSync): void {
   const columns = (db.prepare('PRAGMA table_info(server_settings)').all() as { name: string }[]).map((c) => c.name);
   if (columns.includes('kokoro_host') && !columns.includes('piper_host')) {
-    db.exec('ALTER TABLE server_settings RENAME COLUMN kokoro_host TO piper_host');
-    db.exec("UPDATE server_settings SET piper_host = ''");
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      db.exec('ALTER TABLE server_settings RENAME COLUMN kokoro_host TO piper_host');
+      db.exec("UPDATE server_settings SET piper_host = ''");
+      db.exec('COMMIT');
+    } catch (e) {
+      db.exec('ROLLBACK');
+      throw e;
+    }
   }
 }
 

@@ -11,6 +11,10 @@ export type ComfyOutputs = Record<string, unknown>;
 export interface ComfyClientOptions {
   fetchImpl?: typeof fetch;
   sleep?: (ms: number) => Promise<void>;
+  /** Timeout for short calls (submit, poll, interrupt). Default 30 s. */
+  requestTimeoutMs?: number;
+  /** Timeout for uploadImage and download. Defaults: 120 s upload, 600 s download. */
+  transferTimeoutMs?: number;
 }
 
 export interface WaitOptions {
@@ -22,6 +26,8 @@ interface HistoryEntry {
   outputs?: ComfyOutputs;
   status?: { status_str?: string; messages?: Array<[string, unknown]> };
 }
+
+const MAX_POLL_FAILURES = 3;
 
 const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -59,9 +65,14 @@ function executionError(entry: HistoryEntry): string | undefined {
   return undefined;
 }
 
+class TransientPollError extends Error {}
+
 export class ComfyClient {
   private readonly fetchImpl: typeof fetch;
   private readonly sleep: (ms: number) => Promise<void>;
+  private readonly requestTimeoutMs: number;
+  private readonly uploadTimeoutMs: number;
+  private readonly downloadTimeoutMs: number;
 
   constructor(
     readonly host: string,
@@ -69,15 +80,18 @@ export class ComfyClient {
   ) {
     this.fetchImpl = opts.fetchImpl ?? fetch;
     this.sleep = opts.sleep ?? defaultSleep;
+    this.requestTimeoutMs = opts.requestTimeoutMs ?? 30_000;
+    this.uploadTimeoutMs = opts.transferTimeoutMs ?? 120_000;
+    this.downloadTimeoutMs = opts.transferTimeoutMs ?? 600_000;
   }
 
   private url(path: string): string {
     return `${this.host.replace(/\/+$/, '')}${path}`;
   }
 
-  private async request(path: string, init?: RequestInit): Promise<Response> {
+  private async request(path: string, init?: RequestInit, timeoutMs: number = this.requestTimeoutMs): Promise<Response> {
     try {
-      return await this.fetchImpl(this.url(path), init);
+      return await this.fetchImpl(this.url(path), { signal: AbortSignal.timeout(timeoutMs), ...init });
     } catch (e) {
       throw new Error(`ComfyUI unreachable at ${this.host}: ${(e as Error).message}`);
     }
@@ -100,14 +114,34 @@ export class ComfyClient {
     return data.prompt_id;
   }
 
+  private async pollHistory(promptId: string): Promise<HistoryEntry | undefined> {
+    let res: Response;
+    try {
+      res = await this.request(`/history/${encodeURIComponent(promptId)}`);
+    } catch (e) {
+      throw new TransientPollError((e as Error).message);
+    }
+    if (res.status >= 500) {
+      const body = await res.text().catch(() => '');
+      throw new TransientPollError(`ComfyUI /history/${promptId} failed: ${res.status}${body ? ` ${body}` : ''}`);
+    }
+    if (!res.ok) return this.fail(`/history/${promptId}`, res);
+    const history = (await res.json()) as Record<string, HistoryEntry | undefined>;
+    return history[promptId];
+  }
+
   async waitForCompletion(promptId: string, opts: WaitOptions = {}): Promise<ComfyOutputs> {
     const { intervalMs = 2000, timeoutMs = 3_600_000 } = opts;
     let elapsed = 0;
+    let failures = 0;
     for (;;) {
-      const res = await this.request(`/history/${encodeURIComponent(promptId)}`);
-      if (!res.ok) return this.fail(`/history/${promptId}`, res);
-      const history = (await res.json()) as Record<string, HistoryEntry | undefined>;
-      const entry = history[promptId];
+      let entry: HistoryEntry | undefined;
+      try {
+        entry = await this.pollHistory(promptId);
+        failures = 0;
+      } catch (e) {
+        if (!(e instanceof TransientPollError) || ++failures > MAX_POLL_FAILURES) throw e;
+      }
       const status = entry?.status?.status_str;
       if (entry && status === 'error') {
         const detail = executionError(entry);
@@ -126,7 +160,7 @@ export class ComfyClient {
     const form = new FormData();
     form.append('image', new Blob([new Uint8Array(data)]), filename);
     form.append('overwrite', 'true');
-    const res = await this.request('/upload/image', { method: 'POST', body: form });
+    const res = await this.request('/upload/image', { method: 'POST', body: form }, this.uploadTimeoutMs);
     if (!res.ok) return this.fail('/upload/image', res);
     const body = (await res.json()) as { name?: string };
     if (!body.name) throw new Error('ComfyUI /upload/image response has no name');
@@ -139,7 +173,7 @@ export class ComfyClient {
       type: file.type ?? 'output',
       subfolder: file.subfolder ?? '',
     });
-    const res = await this.request(`/view?${params}`);
+    const res = await this.request(`/view?${params}`, undefined, this.downloadTimeoutMs);
     if (!res.ok) return this.fail('/view', res);
     return Buffer.from(await res.arrayBuffer());
   }

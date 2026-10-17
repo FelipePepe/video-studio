@@ -37,6 +37,7 @@ interface CommonOptions {
   numFrames?: number;
   steps?: number;
   filenamePrefix?: string;
+  pingpong?: boolean;
 }
 
 export type T2VOptions = CommonOptions;
@@ -81,6 +82,7 @@ function buildBase(model: string, o: CommonOptions, b: Builder) {
     offload_txt_emb: false,
   });
   const setSwap = b.add('WanVideoSetBlockSwap', { model: [loader, 0], block_swap_args: [swapArgs, 0] });
+  // No LoRAs are applied, but the Atlas note's chain makes this node mandatory (the sampler takes its output).
   const loras = b.add('WanVideoSetLoRAs', { model: [setSwap, 0] });
   const vae = b.add('WanVideoVAELoader', { model_name: WAN_VAE, precision: 'bf16' });
   return { text, loras, vae };
@@ -123,7 +125,8 @@ function buildTail(
     crf: 19,
     save_metadata: false,
     trim_to_audio: false,
-    pingpong: true,
+    // The Atlas note's chain default plays the clip forward then back; I2V transitions and stills turn it off.
+    pingpong: o.pingpong ?? true,
     save_output: true,
   });
   return b.nodes;
