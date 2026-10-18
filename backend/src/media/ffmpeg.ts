@@ -56,7 +56,7 @@ export function kenBurnsArgs(o: KenBurnsOptions): string[] {
   return [
     '-loop', '1', '-framerate', String(fps), '-i', image,
     '-vf', vf,
-    '-t', num(durationSec), '-c:v', 'libx264', '-pix_fmt', 'yuv420p', out,
+    '-t', num(durationSec), '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p', out,
   ];
 }
 
@@ -192,5 +192,5 @@ export function normalizeClipArgs(o: NormalizeClipOptions): string[] {
   const vf =
     `scale=${width}:${height}:force_original_aspect_ratio=decrease,` +
     `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,fps=${fps},setsar=1,format=yuv420p`;
-  return ['-i', input, '-vf', vf, '-an', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', out];
+  return ['-i', input, '-vf', vf, '-an', '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p', out];
 }
