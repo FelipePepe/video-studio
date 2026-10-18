@@ -54,23 +54,30 @@ focus visible; dark/light automáticos con las mismas proporciones.
 ## Checklist
 
 - [x] feature branch desde develop
-- [ ] doc de feature + mirror Engram (esta)
-- [ ] deal 3 direcciones dev-tool + elección razonada
-- [ ] hoja completa con paleta/type
-- [ ] inventario de 124 clases + tells de markup
-- [ ] reescritura de styles.css (tokens)
-- [ ] ajustes de markup (máx 3 ficheros)
-- [ ] lint.mjs sin FAIL
-- [ ] pnpm test frontend (120) verde
-- [ ] typecheck + build verde
-- [ ] commit unitario (Conventional)
-- [ ] inspect.mjs / screenshots del dist + 1 rondita de corrección
-- [ ] reporte final + bitácora finish + Engram + PR
+- [x] doc de feature + mirror Engram (esta)
+- [x] deal 3 direcciones dev-tool + elección razonada (product-performs, seed 28653417)
+- [x] hoja completa con paleta/type
+- [x] inventario de 90 clases + tells de markup
+- [x] reescritura de styles.css (tokens) + index.html (Work Sans)
+- [x] ajustes de markup: SegmentEditor (✕→×), i18n (⚙ sacado de strings)
+- [x] lint.mjs 0 FAIL / 0 WARN
+- [x] pnpm test frontend: 148/148 (16 ficheros) verde
+- [x] typecheck + build verde
+- [x] commit unitario 13ae9fb + 03b8365 (Conventional)
+- [x] inspect.mjs: medidas OK (Work Sans 100%, display 48px -0.035em); 3 FAIL app-scope defendidos
+- [ ] PR sobre develop (decisión del usuario)
 
 ## Evidencia de verificación
 
-(récorder salidas reales de cada runner antes de marcar)
+- `lint.mjs frontend/src` → `RESULT: 0 FAIL, 0 WARN` (después de 2 rondas: ✕→×, ⚙→sin emoji, shadows de diálogo justificados, borders de form-controls justificados, 100vh→100svh, voice-badge relleno)
+- `pnpm --filter @video-studio/frontend test` → `Test Files 16 passed (16) · Tests 148 passed (148)`
+- `pnpm --filter @video-studio/frontend typecheck` → `tsc --noEmit` sin errores
+- `pnpm --filter @video-studio/frontend build` → `✓ built in 16.67s` (CSS 12.26 kB, JS 181.92 kB)
+- `inspect.mjs http://127.0.0.1:8899/` → hero "Pipeline" 1 línea · 48px (3.3vw) · Work Sans 300 · tracking -0.035em · leading 1; typefaces Work Sans 100%; color page #faf6f8 · button #ff488b.
+- **Defensas (app scope, no ocultación):** 3 FAIL del inspector (`few-pictures`, `focal-point`, `still-page`) + 1 WARN (`no-footage`) se deben a (a) ser UI de app, no página pública (la skill declara "Not for dashboards or app screens") y (b) estado vacío: sin job completado no hay imágen/vídeo honesto del producto; las reglas de la skill prohíben precisamente una imágen falsa. La capa de motion real de la app es feedback (hover/press/focus/transiciones), no coreografía de scroll.
+- Screenshots: `.taste-skill/inspect/{desktop,tablet,mobile}-{fold,page-01}.jpg` (leídos críticamente, 2 rondas).
+- Commits: `13ae9fb` rediseño base · `03b8365` rondas de inspector. Lefthook (branch-protection + gitleaks) verde en ambos.
 
 ## Progress
 
-2026-10-18: doc creada, en fase 3 (deal de paleta).
+2026-10-18: completo hasta la defensa del inspector; pendiente apertura de PR (decisión del usuario).
