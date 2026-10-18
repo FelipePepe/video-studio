@@ -37,8 +37,12 @@ The pipeline is split at a human gate:
 A human gate on the script is the cheapest quality control in the system; it also means the expensive
 phase only runs on content that is already right.
 **Consequence:** drafts are first-class persisted rows (not transient request state); approve is
-**one-shot per draft** — re-approving an already-approved draft is rejected (test: *"approve returns
-404 for an unknown draft and 409 when already approved"*), so a draft can never silently re-render.
+one-shot **except an explicit retry**: re-approving is allowed only when the draft's latest job is
+`failed` or `cancelled` (a new job is created), and rejected 404/409 otherwise — an already-finished
+or in-flight draft can never re-render accidentally (`routes/pipeline.ts`, test *"approve returns
+404 for an unknown draft and 409 when already approved"*).
+The UI now exposes that retry first-class: on failure the editor reopens (fix the script, then
+approve), and the Jobs list offers *Reintentar trabajo* on failed/cancelled jobs only.
 
 ### D2 — Static, stage-sequenced orchestrator (chosen)
 

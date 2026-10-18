@@ -30,13 +30,14 @@ Hacer **corregir + relanzar** un flujo de primera clase:
 
 - [ ] feature branch
 - [ ] doc + mirror Engram (esta)
-- [ ] TESTS RED: PipelinePage failed→editor visible, approve relanza; JobsPage retry failed/cancelled (y que NO aparezca en done/active/queued/running)
-- [ ] PipelinePage: condicional de ReviewPanel + error passthrough
-- [ ] JobsPage: botón Reintentar + estado "reintentando" + i18n ES/EN
-- [ ] App.tsx: wire approveDraft
-- [ ] tests GREEN (148 + nuevos), typecheck, build, lint skill
-- [ ] ADR D1 corregido (repo + cbm)
-- [ ] commit (work unit), PR
+- [x] TESTS RED: PipelinePage failed→editor visible, approve relanza; JobsPage retry failed/cancelled (y que NO aparezca en done/active)
+- [x] PipelinePage: condicional de ReviewPanel + error passthrough
+- [x] JobsPage: botón Reintentar + estado "reintentando" + i18n ES/EN
+- [x] App.tsx: wire approveDraft
+- [x] tests GREEN (152/152), typecheck, build, lint skill 0/0
+- [x] ADR D1 corregido (repo + cbm)
+- [x] commit (work unit) `1e7398e`, rebase sobre feature/ui-house-redesign
+- [x] PR (apilada sobre #12)
 - [ ] reporte + logbook + Engram
 
 ## Evidencia de verificación
@@ -45,4 +46,20 @@ Hacer **corregir + relanzar** un flujo de primera clase:
 
 ## Progress
 
-explorado; plan aprobado; RED en curso. Decisión UX: en `failed` el ReviewPanel reemplaza el grid (el Reintentar de VideoPanel pasa al "Aprobar y generar" del panel, con opción de corregir antes).
+Fase 5-6 en curso: ADR D1 corregido (cláusula retry), cbm sync, push + PR.
+
+## Evidencia de verificación (base feature/ui-house-redesign)
+
+- `pnpm --filter @video-studio/frontend test` → **152 passed (152)**, 16 ficheros
+- `pnpm --filter @video-studio/frontend typecheck` → 0 errores
+- `pnpm --filter @video-studio/frontend build` → OK (182.64 kB JS)
+- `lint.mjs frontend/src` → **0 FAIL, 0 WARN**
+- Lefthook (branch-protection + gitleaks) verde en el commit
+- Commits: `1e7398e` (feat) sobre `8d39a6b` de feature/ui-house-redesign
+
+## Aclaración de semántica (importante)
+
+- El retry NO es "reaprobar sin mirar": el backend exige latest job failed/cancelled; la UI ahora da el editor primero.
+- JobsPage espera **el primer evento SSE** (queued+jobId = aceptación del servidor) con timeout 6 s; el resto del stream queda huérfano y el poller vigila el job. Sin hang silencioso.
+- 'jobs.retryJob' / 'jobs.retrying' / 'jobs.retryFailed' nuevos para el botón por job; 'jobs.retry' queda reservado al error de lista (sin ambigüedad de etiqueta).
+- Decision #7: la branch se apila sobre feature/ui-house-redesign (PR cadena sobre develop, práctica del repo) porque el lint del CSS del diseño vive en esa rama; el alcance de esta PR no toca CSS.
