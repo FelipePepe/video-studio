@@ -10,6 +10,7 @@ import { voicesRouter } from './routes/voices';
 import { musicRouter } from './routes/music';
 import { EventHub } from './jobs/eventHub';
 import { JobRunner } from './jobs/runner';
+import { makeTokenAuth } from './config/auth';
 import type { ExecuteFn } from './jobs/types';
 import { createExecute, type FfmpegFn } from './pipeline/orchestrator';
 import { ComfyClient } from './clients/comfy';
@@ -26,6 +27,7 @@ export interface AppOptions {
   ffmpeg?: FfmpegFn;
   /** Music library directory (background music picker). Defaults to the MUSIC_DIR env var; empty = disabled. */
   musicDir?: string;
+  apiKey?: string;
   jobs?: { workDir?: string; execute?: ExecuteFn; autoStart?: boolean; heartbeatMs?: number; cacheDir?: string };
 }
 
@@ -52,6 +54,8 @@ export function buildApp(opts: AppOptions = {}): Express {
 
   const app = express();
   app.use(express.json());
+  // Shared-token guard for state-changing routes (PATCH/POST/PUT/DELETE). No-op if unset.
+  app.use(makeTokenAuth(opts.apiKey ?? process.env.API_TOKEN));
 
   const resolvers: AppResolvers = {
     resolveComfy: () => opts.comfy ?? new ComfyClient(effective().comfyHost),
@@ -89,6 +93,7 @@ export function buildApp(opts: AppOptions = {}): Express {
       runner: jobRunner,
       hub: eventHub,
       heartbeatMs: opts.jobs?.heartbeatMs,
+      musicDir: () => opts.musicDir ?? process.env.MUSIC_DIR ?? '',
     }),
   );
   app.use('/api/jobs', jobsRouter({ db, runner: jobRunner, hub: eventHub, heartbeatMs: opts.jobs?.heartbeatMs }));

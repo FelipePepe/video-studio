@@ -1,4 +1,5 @@
-import { existsSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
+import { isAbsolute, relative, resolve } from 'node:path';
 import { Router } from 'express';
 import type { DatabaseSync } from 'node:sqlite';
 import type { OllamaClient } from '../clients/ollama';
@@ -18,11 +19,13 @@ export interface PipelineDeps {
   runner: JobRunner;
   hub: EventHub;
   heartbeatMs?: number;
+  /** Music library root — music paths at approve must live inside this dir. Empty = library disabled. */
+  musicDir?: () => string;
 }
 
 class ApproveOptionsError extends Error {}
 
-function parseApproveOptions(body: unknown): ApproveOptions | null {
+function parseApproveOptions(body: unknown, musicDir?: string): ApproveOptions | null {
   if (body === undefined || body === null) return null;
   if (typeof body !== 'object' || Array.isArray(body)) throw new ApproveOptionsError('Body must be a JSON object');
   const o = body as Record<string, unknown>;
@@ -33,8 +36,16 @@ function parseApproveOptions(body: unknown): ApproveOptions | null {
   const opts: ApproveOptions = {};
   if (o.music !== undefined) {
     if (typeof o.music !== 'string' || o.music.length === 0) throw new ApproveOptionsError('music must be a non-empty path');
-    if (!existsSync(o.music)) throw new ApproveOptionsError(`Music file not found: ${o.music}`);
-    opts.music = o.music;
+    const dir = (musicDir ?? '').trim();
+    if (!dir) throw new ApproveOptionsError('music must come from a configured library (set MUSIC_DIR)');
+    const allowedRoot = realpathSync(resolve(dir));
+    const musicFile = resolve(o.music);
+    const rel = relative(allowedRoot, musicFile);
+    if (rel.startsWith('..') || isAbsolute(rel)) {
+      throw new ApproveOptionsError('music path escapes the configured music library directory');
+    }
+    if (!existsSync(musicFile)) throw new ApproveOptionsError(`Music file not found: ${o.music}`);
+    opts.music = musicFile;
   }
   if (o.musicVolume !== undefined) {
     if (typeof o.musicVolume !== 'number' || !Number.isFinite(o.musicVolume) || o.musicVolume <= 0 || o.musicVolume > 1) {
@@ -117,7 +128,7 @@ export function pipelineRouter(deps: PipelineDeps): Router {
   router.post('/draft/:id/approve', (req, res) => {
     let opts: ApproveOptions | null;
     try {
-      opts = parseApproveOptions(req.body);
+      opts = parseApproveOptions(req.body, deps.musicDir?.());
     } catch (e) {
       res.status(400).json({ error: e instanceof Error ? e.message : 'Invalid approve options' });
       return;
