@@ -48,6 +48,9 @@ const RANGES: Record<Stage, [number, number]> = {
   assemble: [0.85, 1],
 };
 const KEN_BURNS_ZOOM = 1.08;
+// libass force_style for the 9:16 (720x1280) vertical variant: sized to the frame, centered,
+// with margins that keep text inside the portrait frame (vs. the default 16:9 sizing).
+const VERTICAL_SUB_STYLE = 'PlayResX=720,PlayResY=1280,FontSize=13,Alignment=2,MarginV=60,Outline=1';
 const pad = (i: number) => String(i).padStart(2, '0');
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
@@ -273,36 +276,50 @@ async function executeAssemble(s: Shared, tts: TTSResult, stills: StillsResult, 
   await run(concatArgs({ listFile: audioList, out: narration }));
 
   const subtitlesOn = job.options?.subtitles !== false;
+  const baseName = subtitlesOn ? 'muxed.mp4' : 'final.mp4';
+  const basePath = join(workDir, baseName);
+  const coverPath = join(workDir, 'cover.jpg');
+  const totalSec = durations.reduce((a, b) => a + b, 0) + transitions.filter((t) => t !== undefined).length * transitionSec;
+
+  const music = job.options?.music;
+  if (music && !existsSync(music)) throw new Error(`Music file not found: ${music}`);
+
+  // A) Subtitle-free base with the narration (and optional ducked music).
+  if (music) {
+    await run(musicMixArgs({ video, audio: narration, music, musicVolume: job.options?.musicVolume ?? DEFAULT_MUSIC_VOLUME, out: basePath }));
+  } else {
+    await run(muxAudioArgs({ video, audio: narration, out: basePath }));
+  }
+
+  // B) 16:9 master: subtitles burned onto the base (if requested). Always the default deliverable.
+  let deliverable = basePath;
   if (subtitlesOn) {
     const srtPath = join(workDir, 'subtitles.srt');
     const present = durations.slice(0, -1).map((_, i) => transitions[i] !== undefined);
     writeFileSync(srtPath, buildSrt(sceneCues(durations, transitionSec, escaleta.map((sc) => sc.narration), present)));
-    if (job.options?.music) {
-      const music = job.options.music;
-      if (!existsSync(music)) throw new Error(`Music file not found: ${music}`);
-      const muxed = join(workDir, 'muxed.mp4');
-      await run(musicMixArgs({ video, audio: narration, music, musicVolume: job.options.musicVolume ?? DEFAULT_MUSIC_VOLUME, out: muxed }));
-      await run(burnSubtitlesArgs({ input: muxed, srt: srtPath, out: finalPath }));
-    } else {
-      const muxed = join(workDir, 'muxed.mp4');
-      await run(muxAudioArgs({ video, audio: narration, out: muxed }));
-      await run(burnSubtitlesArgs({ input: muxed, srt: srtPath, out: finalPath }));
-    }
-  } else if (job.options?.music) {
-    const music = job.options.music;
-    if (!existsSync(music)) throw new Error(`Music file not found: ${music}`);
-    await run(musicMixArgs({ video, audio: narration, music, musicVolume: job.options.musicVolume ?? DEFAULT_MUSIC_VOLUME, out: finalPath }));
-  } else {
-    await run(muxAudioArgs({ video, audio: narration, out: finalPath }));
+    await run(burnSubtitlesArgs({ input: basePath, srt: srtPath, out: finalPath }));
+    deliverable = finalPath;
   }
 
-  // E3: optional 9:16 crop of the final film, and always a cover frame at the midpoint.
-  const totalSec = durations.reduce((a, b) => a + b, 0) + transitions.filter((t) => t !== undefined).length * transitionSec;
+  // C) Vertical 9:16 variant: crop the SUBTITLE-FREE base first, then (only if subtitles are
+  //    on) burn them in a 9:16-appropriate style. The crop therefore never clips the subtitles
+  //    because they are applied to the already-cropped portrait frame. (fix: vertical subs)
   if (job.options?.vertical) {
-    await run(verticalCropArgs({ input: finalPath, out: join(workDir, 'final_v.mp4') }));
+    const finalV = join(workDir, 'final_v.mp4');
+    if (subtitlesOn) {
+      const baseV = join(workDir, 'base_v.mp4');
+      await run(verticalCropArgs({ input: basePath, out: baseV }));
+      await run(burnSubtitlesArgs({ input: baseV, srt: join(workDir, 'subtitles.srt'), out: finalV, style: VERTICAL_SUB_STYLE }));
+    } else {
+      await run(verticalCropArgs({ input: basePath, out: finalV }));
+    }
   }
-  await run(coverArgs({ input: finalPath, atSec: totalSec / 2, out: join(workDir, 'cover.jpg') }));
-  return { outputPath: finalPath };
+
+  // D) Cover frame at the film midpoint — taken from the subtitle-free base so it never shows
+  //    burned subtitles. (Choosing a specific still is a separate improvement.)
+  await run(coverArgs({ input: basePath, atSec: totalSec / 2, out: coverPath }));
+
+  return { outputPath: deliverable };
 }
 
 export function createExecute(deps: OrchestratorDeps): ExecuteFn {
