@@ -1,0 +1,19 @@
+{
+  "name": "video-studio",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Generate videos from articles: Ollama script, Kokoro TTS, ComfyUI Wan2.2 and ffmpeg assembly",
+  "packageManager": "pnpm@12.14.0",
+  "engines": {
+    "node": ">=22.5"
+  },
+  "scripts": {
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
+    "prepare": "lefthook install"
+  },
+  "devDependencies": {
+    "lefthook": "^1.11.0",
+    "typescript": "^5.7.0"
+  }
+}

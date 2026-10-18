@@ -1,0 +1,524 @@
+/*
+ * Video Studio — UI tokens & components.
+ *
+ * System: "The product performs" (design-taste-frontend, dev-tool, seed 28653417).
+ * Plum-black & pink. House rules applied to an app context:
+ *   - one ground, one ink, one accent; accent only on actions / active states
+ *   - surfaces separated by a tone step, never a hairline (form fields may keep a line)
+ *   - one corner radius (4px); pill kept only where a control is literally a pill (switch track)
+ *   - flat buttons, ink on accent; elevation only on floating surfaces (dialogs)
+ *   - body text full ink; muted is for secondary notes only
+ *   - monospace only for real code (job id is not code → text face)
+ *   - type: Work Sans 300/400/500; display tracking -0.035em; body 16px, leading ~1.55
+ *   - no gradients, no glass, no glass-adjacent blur, no decorative shapes
+ *
+ * Token roles (both themes keep the same proportions):
+ *   --bg        ground            --toned       tone step (sidebar, inset stages)
+ *   --surface   panels            --toned-2     deeper step (active items, pressed)
+ *   --ink       text              --muted       secondary notes (never body)
+ *   --accent    actions only      --accent-ink  text on accent
+ *   --stage     flat colour field --stage-ink   text on stage
+ *   --track     control track     --input       control fill
+ */
+
+:root {
+  /* light */
+  --bg: #faf6f8;
+  --surface: #ffffff;
+  --toned: #f1e9ee;
+  --toned-2: #e7dbe3;
+  --ink: #241019;
+  --muted: #6f5f68;
+  --accent: #ff488b;
+  --accent-ink: #1a0710;
+  --danger: #b42318;
+  --danger-ink: #ffffff;
+  --stage: #f3e0ea;
+  --stage-ink: #5c4a55;
+  --track: #d9c8d3;
+  --input: #ffffff;
+  --backdrop: rgba(26, 7, 16, 0.5);
+
+  --radius: 4px;
+
+  /* type steps (Work Sans: 300 display · 400 body · 500 emphasis) */
+  --font-sans: 'Work Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --step-display: clamp(2rem, 1.45rem + 2vw, 3rem);
+  --step-h2: 1.0625rem;
+  --step-body: 1rem;
+  --step-ui: 0.875rem;      /* 14px — controls & labels (never below 13px) */
+  --step-small: 0.8125rem;  /* 13px floor — ids, counts */
+
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.55;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0d060b;
+    --surface: #1b0e17;
+    --toned: #241321;
+    --toned-2: #2c1729;
+    --ink: #ffffff;
+    --muted: #9a8f97;
+    --accent: #ff488b;
+    --accent-ink: #1a0710;
+    --danger: #ff6b6b;
+    --danger-ink: #241019;
+    --stage: #470c35;
+    --stage-ink: #d9cfd6;
+    --track: #3a1f33;
+    --input: #120a10;
+    --backdrop: rgba(4, 2, 4, 0.62);
+    color-scheme: dark;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+::selection { background: var(--accent); color: var(--accent-ink); }
+
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Shell ------------------------------------------------------------- */
+
+.app-shell {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  min-height: 100svh;
+}
+
+.app-main { padding: 24px; min-width: 0; }
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 20px 16px;
+  background: var(--toned); /* tone step separates it from the ground — no rule */
+}
+
+.sidebar__brand {
+  margin: 0;
+  padding: 0 10px;
+  font-size: 1.375rem;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+}
+
+.sidebar__nav ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.sidebar__footer { margin-top: auto; display: grid; gap: 12px; }
+
+.nav-item {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--step-ui);
+  font-weight: 500;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+.nav-item:hover { background: var(--toned-2); }
+.nav-item--active { background: var(--surface); }
+.nav-item[aria-current='page'] { font-weight: 500; }
+
+.lang-switch { display: flex; gap: 4px; }
+.lang-switch__btn {
+  flex: 1;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--step-ui);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+.lang-switch__btn:hover { background: var(--toned-2); }
+.lang-switch__btn[aria-pressed='true'] { background: var(--accent); color: var(--accent-ink); }
+
+/* Buttons ----------------------------------------------------------- */
+
+.btn {
+  padding: 8px 14px;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--toned);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--step-ui);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.12s ease, transform 0.05s ease;
+}
+.btn:hover:not(:disabled) { background: var(--toned-2); }
+.btn:active:not(:disabled) { transform: translateY(1px); }
+.btn:disabled { opacity: 1; cursor: not-allowed; color: var(--muted); background: var(--toned-2); }
+.btn--primary:disabled { background: var(--toned-2); color: var(--muted); } /* a dead CTA is neutral, not a faded accent */
+
+.btn--ghost { background: transparent; }
+.btn--ghost:hover:not(:disabled) { background: var(--toned-2); }
+
+.btn--primary { background: var(--accent); color: var(--accent-ink); }
+.btn--primary:hover:not(:disabled) { background: var(--accent); }
+
+.btn--icon { padding: 5px 9px; line-height: 1; }
+
+/* Panels & cards ----------------------------------------------------- */
+
+.panel {
+  padding: 22px;
+  background: var(--surface);
+  border: 0;
+  border-radius: var(--radius);
+}
+.panel h2 {
+  margin: 0 0 14px;
+  font-size: var(--step-h2);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+.card {
+  padding: 12px;
+  background: var(--toned);
+  border: 0;
+  border-radius: var(--radius);
+}
+.card p { margin: 6px 0 0; color: var(--muted); font-size: var(--step-ui); }
+.editor .card { background: var(--toned); }
+
+.placeholder { color: var(--muted); }
+
+/* Dialogs (floating → the one honest elevation in the app) -------------- */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: var(--backdrop);
+}
+.modal {
+  width: min(480px, 100%);
+  padding: 24px;
+  background: var(--surface);
+  border: 0;
+  border-radius: var(--radius);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35); /* taste-skill-ignore: floating dialog — legitimate overlay */
+}
+.modal h2 { margin: 0 0 16px; font-size: 1.25rem; font-weight: 500; letter-spacing: -0.02em; }
+.modal:focus { outline: none; }
+.modal__actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+
+/* Forms --------------------------------------------------------------- */
+
+.field { display: grid; gap: 5px; margin-bottom: 14px; }
+.field label { font-size: var(--step-ui); font-weight: 500; color: var(--ink); }
+
+.field input,
+.field select,
+.field textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--track); /* taste-skill-ignore: real form controls keep a line */
+  border-radius: var(--radius);
+  background: var(--input);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--step-ui);
+  transition: background-color 0.12s ease;
+}
+.field input::placeholder,
+.field textarea::placeholder { color: var(--muted); font-size: var(--step-ui); }
+.field textarea { resize: vertical; }
+.field--inline { min-width: 160px; }
+.field [aria-invalid='true'] { border-color: var(--danger); }
+
+.form-error { margin: 8px 0 0; color: var(--danger); font-size: var(--step-ui); }
+
+.form { display: grid; gap: 4px; }
+.form__voices { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: end; margin-bottom: 14px; }
+.form__voices .field { margin-bottom: 0; }
+
+/* Segmented control --------------------------------------------------- */
+
+.segmented { display: flex; gap: 2px; margin-bottom: 14px; padding: 4px; background: var(--toned); border-radius: var(--radius); }
+.segmented__btn {
+  flex: 1;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--step-ui);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+.segmented__btn:hover { background: var(--toned-2); }
+.segmented__btn[aria-pressed='true'] { background: var(--accent); color: var(--accent-ink); }
+
+.toggle[aria-pressed='true'] { background: var(--accent); color: var(--accent-ink); }
+
+/* Pipeline page --------------------------------------------------------- */
+
+.pipeline { display: grid; gap: 16px; }
+.pipeline__title {
+  margin: 0;
+  font-size: var(--step-display);
+  font-weight: 300;
+  letter-spacing: -0.035em;
+  line-height: 1.0;
+}
+
+.pipeline__grid {
+  display: grid;
+  grid-template-columns: 420px minmax(0, 1fr);
+  grid-template-areas:
+    'form video'
+    'escaleta escaleta';
+  gap: 16px;
+  align-items: start;
+}
+.pipeline__form { grid-area: form; display: grid; gap: 16px; min-width: 0; }
+.pipeline__video { grid-area: video; min-width: 0; }
+.pipeline__escaleta { grid-area: escaleta; min-width: 0; }
+
+.guide ol { margin: 0; padding-left: 20px; display: grid; gap: 6px; color: var(--ink); font-size: var(--step-ui); }
+
+/* Progress & stages ------------------------------------------ */
+
+.progress { display: grid; gap: 12px; }
+.progress h2, .progress h3 { margin: 0; }
+.progress__bar { height: 6px; background: var(--track); border-radius: var(--radius); overflow: hidden; }
+.progress__fill { height: 100%; background: var(--accent); transition: width 0.2s ease; }
+
+.stages { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.stages__item {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: var(--radius);
+  color: var(--muted);
+  font-size: var(--step-ui);
+}
+.stages__item[data-state='active'] { background: var(--toned-2); color: var(--ink); font-weight: 500; }
+.stages__item[data-state='done'] { color: var(--ink); }
+.stages__item[data-state='failed'] { color: var(--danger); font-weight: 500; }
+
+.warnings ul { margin: 4px 0 0; padding-left: 20px; font-size: var(--step-ui); color: var(--ink); }
+
+/* Video panel -------------------------------------------------------- */
+
+.video { display: grid; gap: 12px; }
+.video__placeholder {
+  aspect-ratio: 16 / 9;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  padding: 16px;
+  background: var(--stage);
+  color: var(--stage-ink);
+  border-radius: var(--radius);
+  font-size: var(--step-body); /* body text at body size — not a tiny caption */
+  font-weight: 400;
+}
+.video__player { width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: var(--radius); }
+.video a.btn { justify-self: start; text-decoration: none; }
+.video__failed { display: grid; gap: 8px; justify-items: start; }
+
+/* Escaleta cards ------------------------------------------------------ */
+
+.escaleta__list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+.escaleta h2 { margin: 0 0 12px; }
+
+.scene-card { display: grid; gap: 8px; }
+.scene-card__head { display: flex; align-items: center; gap: 8px; }
+.scene-card__title { flex: 1; min-width: 0; overflow-wrap: anywhere; font-weight: 500; }
+.scene-card__tools { display: flex; gap: 4px; margin-left: auto; }
+.scene-card__foot { display: flex; justify-content: space-between; align-items: end; gap: 8px; flex-wrap: wrap; }
+.scene-card--readonly p { margin: 0; }
+
+.scene-badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 1.8em;
+  padding: 1px 6px;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 500;
+  font-size: var(--step-ui);
+}
+
+.voice-badge {
+  padding: 2px 8px;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--toned);
+  font-size: var(--step-small);
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+/* Segment editor ------------------------------------------------------ */
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+.editor__list { list-style: none; margin: 16px 0 0; padding: 0; display: grid; gap: 12px; }
+.editor .field { margin-bottom: 0; }
+
+.field__meta { display: flex; justify-content: space-between; gap: 8px; font-size: var(--step-small); min-height: 1.2em; }
+.field__error { color: var(--danger); }
+.field__count { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; }
+.field__count--over { color: var(--danger); font-weight: 500; }
+
+/* Review panel --------------------------------------------------------- */
+
+.review__count { margin: 0 0 14px; color: var(--muted); font-size: var(--step-ui); }
+.review__toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.review__spacer { flex: 1; }
+.review__dirty { font-size: var(--step-ui); color: var(--muted); }
+
+.render-options {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 18px;
+  padding: 14px 16px;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--toned); /* inset tone step replaces the old outlined box */
+}
+.render-options legend {
+  padding: 0 2px;
+  font-size: var(--step-ui);
+  font-weight: 500;
+  color: var(--ink); /* was tiny tracked uppercase — now a plain label */
+}
+.render-options__row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.render-options__row .switch { font-size: var(--step-ui); color: var(--ink); }
+.render-options__music { display: grid; gap: 8px; }
+
+/* Accessible switch (form control → the one pill in the app) ---------- */
+
+.switch { position: relative; cursor: pointer; user-select: none; }
+.switch__input {
+  appearance: none;
+  width: 40px;
+  height: 22px;
+  margin: 0;
+  border: 1px solid var(--track); /* taste-skill-ignore: real form control track */
+  border-radius: 999px;
+  background: var(--input);
+  position: relative;
+  transition: background-color 0.12s ease, border-color 0.12s ease;
+  flex: none;
+}
+.switch__input::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--ink);
+  transition: transform 0.12s ease, background-color 0.12s ease;
+}
+.switch__input:checked { background: var(--accent); border-color: var(--accent); }
+.switch__input:checked::after { transform: translateX(18px); background: var(--surface); }
+
+/* Spinner --------------------------------------------------------------- */
+
+.spinner {
+  display: inline-block; width: 0.9em; height: 0.9em; margin-right: 8px; vertical-align: -0.1em;
+  border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation-duration: 3s; }
+  .btn, .nav-item, .segmented__btn, .lang-switch__btn, .switch__input, .field input, .field select, .field textarea {
+    transition: none;
+  }
+  .progress__fill { transition: none; }
+}
+
+/* Jobs (Trabajos) ------------------------------------------------------ */
+
+.jobs { display: grid; gap: 16px; }
+.jobs__head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.jobs__title {
+  margin: 0;
+  font-size: var(--step-display);
+  font-weight: 300;
+  letter-spacing: -0.035em;
+  line-height: 1.0;
+}
+.jobs__controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.jobs__alert { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; color: var(--danger); }
+.jobs__list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+
+.job { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.job__main { display: grid; gap: 6px; min-width: 0; flex: 1; }
+.job__row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+.job__status {
+  padding: 2px 10px;
+  border: 0;
+  border-radius: var(--radius);
+  font-size: var(--step-small);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.job__status[data-status='queued'] { background: var(--toned); color: var(--ink); }
+.job__status[data-status='running'] { background: var(--accent); color: var(--accent-ink); }
+.job__status[data-status='done'] { background: var(--accent); color: var(--accent-ink); }
+.job__status[data-status='failed'] { background: var(--danger); color: var(--danger-ink); }
+.job__status[data-status='cancelled'] { background: var(--toned); color: var(--muted); }
+
+.job__id { font-size: var(--step-small); color: var(--muted); } /* text face, not mono: it is an id, not code */
+.job__created { font-size: var(--step-small); color: var(--muted); }
+.job__progress { display: flex; align-items: center; gap: 8px; width: 100%; }
+.job__progress .progress__bar { flex: 1; }
+.job__pct { font-size: var(--step-small); color: var(--muted); min-width: 2.5em; text-align: right; font-variant-numeric: tabular-nums; }
+.job__stage { font-size: var(--step-small); color: var(--muted); min-width: 6em; overflow: hidden; text-overflow: ellipsis; }
+.job__error { margin: 0; color: var(--danger); font-size: var(--step-ui); }
+.job__actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* Responsive ------------------------------------------------------------ */
+
+@media (max-width: 1100px) {
+  .app-shell { grid-template-columns: 1fr; }
+  .sidebar { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 16px; }
+  .sidebar__footer { margin-top: 0; }
+  .pipeline__grid {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: 'form' 'video' 'escaleta';
+  }
+}
