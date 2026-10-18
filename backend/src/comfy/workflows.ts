@@ -11,7 +11,9 @@ export type Workflow = Record<string, WorkflowNode>;
 
 export const WAN_VAE = 'wan_2.1_vae.safetensors';
 export const T2V_MODEL = 'wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors';
+export const T2V_LOW_MODEL = 'wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors';
 export const I2V_MODEL = 'wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors';
+export const I2V_LOW_MODEL = 'wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors';
 export const T5_ENCODER = 'umt5-xxl-enc-fp8_e4m3fn-fixed.safetensors';
 
 export const DEFAULTS = {
@@ -19,6 +21,10 @@ export const DEFAULTS = {
   height: 720,
   numFrames: 81,
   steps: 50,
+  // Step at which control passes from the high-noise expert to the low-noise expert, out of
+  // `steps` total. Wan 2.2 is a MoE: the high-noise expert settles structure/motion in the first
+  // steps, the low-noise expert refines detail in the last. 42/50 ≈ 84 % high / 16 % low.
+  switchStep: 42,
   cfg: 6.0,
   shift: 5.0,
   scheduler: 'unipc',
@@ -36,6 +42,7 @@ interface CommonOptions {
   height?: number;
   numFrames?: number;
   steps?: number;
+  switchStep?: number;
   filenamePrefix?: string;
   pingpong?: boolean;
 }
@@ -58,7 +65,13 @@ class Builder {
   }
 }
 
-function buildBase(model: string, o: CommonOptions, b: Builder) {
+interface SharedNodes {
+  text: string;
+  vae: string;
+}
+
+/** Text embedding and VAE are identical for both experts, so they are built once and shared. */
+function buildShared(o: CommonOptions, b: Builder): SharedNodes {
   const t5 = b.add('LoadWanVideoT5TextEncoder', {
     model_name: T5_ENCODER,
     precision: 'fp32',
@@ -70,6 +83,18 @@ function buildBase(model: string, o: CommonOptions, b: Builder) {
     t5: [t5, 0],
     force_offload: true,
   });
+  const vae = b.add('WanVideoVAELoader', { model_name: WAN_VAE, precision: 'bf16' });
+  return { text, vae };
+}
+
+interface ModelChain {
+  loader: string;
+  setSwap: string;
+  loras: string;
+}
+
+/** Per-expert chain: model loader -> block swap config -> set block swap -> set LoRAs (mandatory). */
+function buildModelChain(model: string, b: Builder): ModelChain {
   const loader = b.add('WanVideoModelLoader', {
     model,
     base_precision: 'fp16_fast',
@@ -82,23 +107,25 @@ function buildBase(model: string, o: CommonOptions, b: Builder) {
     offload_txt_emb: false,
   });
   const setSwap = b.add('WanVideoSetBlockSwap', { model: [loader, 0], block_swap_args: [swapArgs, 0] });
-  // No LoRAs are applied, but the Atlas note's chain makes this node mandatory (the sampler takes its output).
   const loras = b.add('WanVideoSetLoRAs', { model: [setSwap, 0] });
-  const vae = b.add('WanVideoVAELoader', { model_name: WAN_VAE, precision: 'bf16' });
-  return { text, loras, vae };
+  return { loader, setSwap, loras };
 }
 
 function buildTail(
   b: Builder,
   o: CommonOptions,
-  base: { text: string; loras: string; vae: string },
+  shared: SharedNodes,
+  high: ModelChain,
+  low: ModelChain,
   embeds: string,
 ): Workflow {
-  const sampler = b.add('WanVideoSampler', {
-    model: [base.loras, 0],
+  const steps = o.steps ?? DEFAULTS.steps;
+  const switchStep = o.switchStep ?? DEFAULTS.switchStep;
+  const samplerInputs = (model: string): Record<string, NodeInput> => ({
+    model: [model, 0],
     image_embeds: [embeds, 0],
-    text_embeds: [base.text, 0],
-    steps: o.steps ?? DEFAULTS.steps,
+    text_embeds: [shared.text, 0],
+    steps,
     cfg: DEFAULTS.cfg,
     shift: DEFAULTS.shift,
     seed: o.seed,
@@ -106,9 +133,18 @@ function buildTail(
     scheduler: DEFAULTS.scheduler,
     riflex_freq_index: 0,
   });
+  // Expert 1 (high noise) opens the step range from pure noise and emits a part-denoised latent.
+  const sampler1 = b.add('WanVideoSampler', { ...samplerInputs(high.loras), start_step: 0, end_step: switchStep });
+  // Expert 2 (low noise) continues from that latent for the remaining steps; no re-noising.
+  const sampler2 = b.add('WanVideoSampler', {
+    ...samplerInputs(low.loras),
+    samples: [sampler1, 0],
+    start_step: switchStep,
+    end_step: -1,
+  });
   const decode = b.add('WanVideoDecode', {
-    vae: [base.vae, 0],
-    samples: [sampler, 0],
+    vae: [shared.vae, 0],
+    samples: [sampler2, 0],
     enable_vae_tiling: false,
     tile_x: 272,
     tile_y: 272,
@@ -125,7 +161,6 @@ function buildTail(
     crf: 19,
     save_metadata: false,
     trim_to_audio: false,
-    // The Atlas note's chain default plays the clip forward then back; I2V transitions and stills turn it off.
     pingpong: o.pingpong ?? true,
     save_output: true,
   });
@@ -134,18 +169,22 @@ function buildTail(
 
 export function buildT2VWorkflow(o: T2VOptions): Workflow {
   const b = new Builder();
-  const base = buildBase(T2V_MODEL, o, b);
+  const shared = buildShared(o, b);
+  const high = buildModelChain(T2V_MODEL, b);
+  const low = buildModelChain(T2V_LOW_MODEL, b);
   const embeds = b.add('WanVideoEmptyEmbeds', {
     width: o.width ?? DEFAULTS.width,
     height: o.height ?? DEFAULTS.height,
     num_frames: o.numFrames ?? DEFAULTS.numFrames,
   });
-  return buildTail(b, o, base, embeds);
+  return buildTail(b, o, shared, high, low, embeds);
 }
 
 export function buildI2VWorkflow(o: I2VOptions): Workflow {
   const b = new Builder();
-  const base = buildBase(I2V_MODEL, o, b);
+  const shared = buildShared(o, b);
+  const high = buildModelChain(I2V_MODEL, b);
+  const low = buildModelChain(I2V_LOW_MODEL, b);
   const width = o.width ?? DEFAULTS.width;
   const height = o.height ?? DEFAULTS.height;
 
@@ -169,10 +208,10 @@ export function buildI2VWorkflow(o: I2VOptions): Workflow {
     start_latent_strength: 1.0,
     end_latent_strength: 1.0,
     force_offload: true,
-    vae: [base.vae, 0],
+    vae: [shared.vae, 0],
     start_image: [start, 0],
   };
   if (end) encodeInputs.end_image = [end, 0];
   const embeds = b.add('WanVideoImageToVideoEncode', encodeInputs);
-  return buildTail(b, o, base, embeds);
+  return buildTail(b, o, shared, high, low, embeds);
 }
