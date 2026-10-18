@@ -4,8 +4,8 @@ import type { Job, JobStatus } from '../api/types';
 import { useI18n, type MessageKey } from '../i18n';
 
 export interface JobsPageProps {
-  /** `listJobs` to load the table, `cancelJob` to stop queued/running jobs. */
-  api: Pick<ApiClient, 'listJobs' | 'cancelJob'>;
+  /** `listJobs` to load the table, `cancelJob` to stop queued/running jobs, `approveDraft` to retry failed/cancelled ones. */
+  api: Pick<ApiClient, 'listJobs' | 'cancelJob' | 'approveDraft'>;
 }
 
 type Filter = 'all' | 'active' | 'done' | 'failed' | 'cancelled';
@@ -38,6 +38,7 @@ export function JobsPage({ api }: JobsPageProps) {
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>('all');
   const [canceling, setCanceling] = useState<string | null>(null);
+  const [retrying, setRetrying] = useState<string | null>(null);
   const generation = useRef(0);
 
   const load = useCallback(async () => {
@@ -71,6 +72,36 @@ export function JobsPage({ api }: JobsPageProps) {
       await api.cancelJob(id);
     } finally {
       setCanceling(null);
+    }
+    await load();
+  }
+
+  /**
+   * Retry a failed/cancelled job by re-approving its draft (the server allows exactly this).
+   * The first SSE event (`queued` + `jobId`) is the server's acceptance; the rest of the
+   * stream is left to run, and the list poller then observes the new job.
+   */
+  async function retryJob(jobId: string, draftId: string) {
+    setRetrying(jobId);
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const to = setTimeout(() => reject(new Error('retry timeout')), 6000);
+        void api
+          .approveDraft(draftId, {
+            onEvent: () => {
+              clearTimeout(to);
+              resolve();
+            },
+          })
+          .catch((e) => {
+            clearTimeout(to);
+            reject(e);
+          });
+      });
+    } catch {
+      setError(t('jobs.retryFailed'));
+    } finally {
+      setRetrying(null);
     }
     await load();
   }
@@ -155,6 +186,16 @@ export function JobsPage({ api }: JobsPageProps) {
                   {j.error && <p className="job__error">{j.error}</p>}
                 </div>
                 <div className="job__actions">
+                  {(j.status === 'failed' || j.status === 'cancelled') && (
+                    <button
+                      type="button"
+                      className="btn"
+                      disabled={retrying === j.id}
+                      onClick={() => void retryJob(j.id, j.draftId)}
+                    >
+                      {retrying === j.id ? t('jobs.retrying') : t('jobs.retryJob')}
+                    </button>
+                  )}
                   {j.status === 'done' && (
                     <>
                       <a className="btn btn--primary" href={`/api/jobs/${encodeURIComponent(j.id)}/output`}>

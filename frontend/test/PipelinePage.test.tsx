@@ -101,16 +101,31 @@ describe('PipelinePage', () => {
     expect(fake.api.approveDraft).not.toHaveBeenCalled();
   });
 
-  it('failure shows the error and Retry approves again', async () => {
+  it('failure returns to the editor with the error; approving retries the render', async () => {
     const { fake, view, user } = setup();
     await generate(user);
     await user.click(screen.getByRole('button', { name: 'Aprobar y generar' }));
     act(() => fake.emit({ type: 'stage', stage: 'images', progress: 0.3 }));
     act(() => fake.emit({ type: 'error', message: 'ComfyUI exploded' }));
     expect(screen.getByRole('alert')).toHaveTextContent('ComfyUI exploded');
-    await user.click(screen.getByRole('button', { name: 'Reintentar' }));
+    // The editor is back so the script can be corrected before relaunching:
+    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('Revisión de la escaleta');
+    await user.click(screen.getByRole('button', { name: 'Aprobar y generar' }));
     expect(fake.api.approveDraft).toHaveBeenCalledTimes(2);
     act(() => fake.emit({ type: 'done', outputUrl: '/api/jobs/j2/output' }));
     expect(view.container.querySelector('video')).toHaveAttribute('src', '/api/jobs/j2/output');
+    // After a successful render the review panel is gone: the done view stands.
+    expect(screen.queryByText('Revisión de la escaleta')).not.toBeInTheDocument();
+  });
+
+  it('failure: fix a scene in the editor, then approve saves the fix and relaunches', async () => {
+    const { fake, user } = setup();
+    await generate(user);
+    await user.click(screen.getByRole('button', { name: 'Aprobar y generar' }));
+    act(() => fake.emit({ type: 'error', message: 'Piper timeout' }));
+    await user.type(within(screen.getByRole('listitem', { name: 'Escena 1' })).getByLabelText('Narración'), ' corregida');
+    await user.click(screen.getByRole('button', { name: 'Aprobar y generar' }));
+    expect(fake.api.putSegments).toHaveBeenCalled(); // the fix is saved before relaunch
+    expect(fake.api.approveDraft).toHaveBeenCalledTimes(2);
   });
 });
