@@ -24,6 +24,7 @@ import { parseWav, type PcmFormat, wavDurationSec, wavSilence } from '../media/w
 import { getDraft } from './draftRepository';
 import { buildSrt, sceneCues } from './subtitles';
 import { DEFAULT_MUSIC_VOLUME, type Escaleta } from './types';
+import { ContentCache, TTS_CACHE_VERSION, WORKFLOW_VERSION } from './contentCache';
 
 export type FfmpegFn = (args: string[], opts?: { signal?: AbortSignal }) => Promise<void>;
 
@@ -34,6 +35,8 @@ export interface OrchestratorDeps {
   ffmpeg?: FfmpegFn;
   /** Frames rendered per I2V transition. Default 33. */
   framesPerTransition?: number;
+  /** Directory for the content cache of rendered artifacts; off when omitted. App default: data/cache. */
+  cacheDir?: string;
 }
 
 export type Stage = 'tts' | 'images' | 'transitions' | 'assemble';
@@ -48,7 +51,6 @@ const KEN_BURNS_ZOOM = 1.08;
 const pad = (i: number) => String(i).padStart(2, '0');
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-class MixedWavFormatError extends Error {}
 const sameFormat = (a: PcmFormat, b: PcmFormat) => a.rate === b.rate && a.width === b.width && a.channels === b.channels;
 const describeFormat = (f: PcmFormat) => `${f.rate} Hz, ${f.width * 8}-bit, ${f.channels} ch`;
 
@@ -62,8 +64,8 @@ function abortError(): Error {
   return e;
 }
 
-// Output contracts for each stage. Named so a content-cache and a resume layer (both on the roadmap)
-// can index and skip a stage by keying on its inputs rather than re-running the whole job.
+// Output contracts for each stage. Named (and exported via Shared) so a content cache and a
+// resume layer can treat a stage as a reusable, keyable/skippable unit of work.
 interface TTSResult {
   wavPaths: string[];
   durations: number[];
@@ -87,6 +89,7 @@ interface Shared {
   piper: PiperClient;
   ffmpeg: FfmpegFn;
   frames: number;
+  cache?: ContentCache;
   audioDir: string;
   stillsDir: string;
   transDir: string;
@@ -102,28 +105,34 @@ interface Shared {
 }
 
 // Stage 1 — TTS per scene. All scene WAVs must share one format; a drift is a hard error.
+// Cache key: (TTS_CACHE_VERSION, narration, voice).
 async function executeTTS(s: Shared): Promise<TTSResult> {
-  const { n, escaleta, piper, guard, fail, run, sceneFile, audioDir } = s;
+  const { n, escaleta, piper, guard, fail, sceneFile, audioDir } = s;
   const wavPaths: string[] = [];
   const durations: number[] = [];
   let format: PcmFormat | undefined;
   s.begin('tts');
   for (let i = 0; i < n; i++) {
     guard();
+    const key = s.cache?.key(TTS_CACHE_VERSION, escaleta[i].narration, escaleta[i].voice);
     let wav: Buffer;
-    try {
-      wav = await piper.synthesize({ text: escaleta[i].narration, voice: escaleta[i].voice });
-      durations.push(wavDurationSec(wav));
-      const sceneFormat = parseWav(wav).format;
-      format ??= sceneFormat;
-      if (!sameFormat(format, sceneFormat)) {
-        throw new MixedWavFormatError(
-          `scene ${i + 1} is ${describeFormat(sceneFormat)} but scene 1 is ${describeFormat(format)}; all scenes must share one WAV format`,
-        );
+    if (s.cache && key && s.cache.has(key)) {
+      wav = s.cache.read(key);
+    } else {
+      try {
+        wav = await piper.synthesize({ text: escaleta[i].narration, voice: escaleta[i].voice });
+      } catch (e) {
+        return fail('tts', `scene ${i + 1}`, e);
       }
-    } catch (e) {
-      if (e instanceof MixedWavFormatError) throw new Error(`tts failed: ${e.message}`);
-      return fail('tts', `scene ${i + 1}`, e);
+      if (s.cache && key) s.cache.store(key, wav);
+    }
+    durations.push(wavDurationSec(wav));
+    const sceneFormat = parseWav(wav).format;
+    format ??= sceneFormat;
+    if (!sameFormat(format, sceneFormat)) {
+      throw new Error(
+        `tts failed: scene ${i + 1} is ${describeFormat(sceneFormat)} but scene 1 is ${describeFormat(format)}; all scenes must share one WAV format`,
+      );
     }
     const path = sceneFile(audioDir, 'scene', i, 'wav');
     writeFileSync(path, wav);
@@ -134,68 +143,86 @@ async function executeTTS(s: Shared): Promise<TTSResult> {
 }
 
 // Stage 2 — single-frame T2V still per scene (a 1-frame ComfyUI video, then ffmpeg -> PNG).
+// Cache key: (WORKFLOW_VERSION, 't2v', visualPrompt, seed, width, height, 1frame).
 async function executeStills(s: Shared): Promise<StillsResult> {
   const { n, escaleta, comfy, guard, fail, run, sceneFile, stillsDir, prefix } = s;
   const pngs: string[] = [];
   s.begin('images');
   for (let i = 0; i < n; i++) {
     guard();
-    try {
-      const id = await comfy.submit(
-        buildT2VWorkflow({
-          prompt: escaleta[i].visualPrompt,
-          seed: seedFor(s.job.draftId, i),
-          numFrames: 1,
-          pingpong: false,
-          filenamePrefix: `${prefix}_still_${pad(i)}`,
-        }),
-      );
-      const file = extractVideoOutput(await comfy.waitForCompletion(id));
-      if (!file) throw new Error('ComfyUI returned no video output');
-      const mp4 = sceneFile(stillsDir, 'scene', i, 'mp4');
-      writeFileSync(mp4, await comfy.download(file));
-      const png = sceneFile(stillsDir, 'scene', i, 'png');
-      await run(extractFrameArgs({ video: mp4, out: png }));
-      pngs.push(png);
-    } catch (e) {
-      return fail('images', `scene ${i + 1}`, e);
+    const seed = seedFor(s.job.draftId, i);
+    const png = sceneFile(stillsDir, 'scene', i, 'png');
+    const key = s.cache?.key(WORKFLOW_VERSION, 't2v', escaleta[i].visualPrompt, seed, DEFAULTS.width, DEFAULTS.height, 1);
+    if (s.cache && key && s.cache.has(key)) {
+      writeFileSync(png, s.cache.read(key));
+    } else {
+      try {
+        const id = await comfy.submit(
+          buildT2VWorkflow({
+            prompt: escaleta[i].visualPrompt,
+            seed,
+            numFrames: 1,
+            pingpong: false,
+            filenamePrefix: `${prefix}_still_${pad(i)}`,
+          }),
+        );
+        const file = extractVideoOutput(await comfy.waitForCompletion(id));
+        if (!file) throw new Error('ComfyUI returned no video output');
+        const mp4 = sceneFile(stillsDir, 'scene', i, 'mp4');
+        writeFileSync(mp4, await comfy.download(file));
+        await run(extractFrameArgs({ video: mp4, out: png }));
+        if (s.cache && key) s.cache.store(key, readFileSync(png));
+      } catch (e) {
+        return fail('images', `scene ${i + 1}`, e);
+      }
     }
+    pngs.push(png);
     s.step('images', i + 1, n);
   }
   return { pngs };
 }
 
 // Stage 3 — I2V transitions between consecutive stills. A failed transition degrades to a hard
-// cut (an undefined slot) with a stage-event message; the job still completes with a hard cut there.
+// cut (an undefined slot) with a stage-event message. Cache key:
+// (WORKFLOW_VERSION, 'i2v', startPrompt, targetPrompt, seed, frames).
 async function executeTransitions(s: Shared, stills: StillsResult): Promise<TransitionMap> {
-  const { n, escaleta, comfy, guard, run, sceneFile, transDir, prefix, frames } = s;
+  const { n, escaleta, comfy, guard, sceneFile, transDir, prefix, frames } = s;
   const transitions: TransitionMap = [];
   s.begin('transitions');
   for (let i = 0; i < n - 1; i++) {
     guard();
-    try {
-      const start = await comfy.uploadImage(readFileSync(stills.pngs[i]), `${prefix}_scene_${pad(i)}.png`);
-      const end = await comfy.uploadImage(readFileSync(stills.pngs[i + 1]), `${prefix}_scene_${pad(i + 1)}.png`);
-      const id = await comfy.submit(
-        buildI2VWorkflow({
-          startImage: start,
-          endImage: end,
-          prompt: escaleta[i + 1].visualPrompt,
-          seed: seedFor(s.job.draftId, 1000 + i),
-          numFrames: frames,
-          pingpong: false,
-          filenamePrefix: `${prefix}_trans_${pad(i)}`,
-        }),
-      );
-      const file = extractVideoOutput(await comfy.waitForCompletion(id));
-      if (!file) throw new Error('ComfyUI returned no video output');
+    const seed = seedFor(s.job.draftId, 1000 + i);
+    const key = s.cache?.key(WORKFLOW_VERSION, 'i2v', escaleta[i].visualPrompt, escaleta[i + 1].visualPrompt, seed, frames);
+    if (s.cache && key && s.cache.has(key)) {
       const out = sceneFile(transDir, 'trans', i, 'mp4');
-      writeFileSync(out, await comfy.download(file));
+      writeFileSync(out, s.cache.read(key));
       transitions.push(out);
-    } catch (e) {
-      guard();
-      transitions.push(undefined);
-      s.begin('transitions', `transition ${i} failed, using a hard cut: ${message(e)}`);
+    } else {
+      try {
+        const start = await comfy.uploadImage(readFileSync(stills.pngs[i]), `${prefix}_scene_${pad(i)}.png`);
+        const end = await comfy.uploadImage(readFileSync(stills.pngs[i + 1]), `${prefix}_scene_${pad(i + 1)}.png`);
+        const id = await comfy.submit(
+          buildI2VWorkflow({
+            startImage: start,
+            endImage: end,
+            prompt: escaleta[i + 1].visualPrompt,
+            seed,
+            numFrames: frames,
+            pingpong: false,
+            filenamePrefix: `${prefix}_trans_${pad(i)}`,
+          }),
+        );
+        const file = extractVideoOutput(await comfy.waitForCompletion(id));
+        if (!file) throw new Error('ComfyUI returned no video output');
+        const out = sceneFile(transDir, 'trans', i, 'mp4');
+        writeFileSync(out, await comfy.download(file));
+        transitions.push(out);
+        if (s.cache && key) s.cache.store(key, readFileSync(out));
+      } catch (e) {
+        guard();
+        transitions.push(undefined);
+        s.begin('transitions', `transition ${i} failed, using a hard cut: ${message(e)}`);
+      }
     }
     s.step('transitions', i + 1, n - 1);
   }
@@ -206,6 +233,7 @@ async function executeTransitions(s: Shared, stills: StillsResult): Promise<Tran
 // mux (optional music, ducked) -> burn subtitles (if on) -> 9:16 crop (if on) -> cover frame.
 // The four music x subtitle branches are kept as-is in this pass; deduplicating them is the
 // separate "final del montaje" improvement and depends on the vertical/subtitle bug fix.
+// Not cached: it is cheap ffmpeg over already-cached inputs.
 async function executeAssemble(s: Shared, tts: TTSResult, stills: StillsResult, transitions: TransitionMap): Promise<AssembleResult> {
   const { n, escaleta, job, guard, run, sceneFile, clipsDir, audioDir, workDir, frames } = s;
   const { wavPaths, durations, format } = tts;
@@ -280,6 +308,7 @@ async function executeAssemble(s: Shared, tts: TTSResult, stills: StillsResult, 
 export function createExecute(deps: OrchestratorDeps): ExecuteFn {
   const ffmpeg: FfmpegFn = deps.ffmpeg ?? runFfmpeg;
   const frames = deps.framesPerTransition ?? 33;
+  const cache = deps.cacheDir ? new ContentCache(deps.cacheDir) : undefined;
 
   return async (job, ctx: JobContext) => {
     const { signal, workDir, emit } = ctx;
@@ -342,6 +371,7 @@ export function createExecute(deps: OrchestratorDeps): ExecuteFn {
       piper,
       ffmpeg,
       frames,
+      cache,
       audioDir,
       stillsDir,
       transDir,

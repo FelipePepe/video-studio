@@ -26,7 +26,7 @@ export interface AppOptions {
   ffmpeg?: FfmpegFn;
   /** Music library directory (background music picker). Defaults to the MUSIC_DIR env var; empty = disabled. */
   musicDir?: string;
-  jobs?: { workDir?: string; execute?: ExecuteFn; autoStart?: boolean; heartbeatMs?: number };
+  jobs?: { workDir?: string; execute?: ExecuteFn; autoStart?: boolean; heartbeatMs?: number; cacheDir?: string };
 }
 
 export interface AppResolvers {
@@ -69,6 +69,7 @@ export function buildApp(opts: AppOptions = {}): Express {
         resolveComfy: resolvers.resolveComfy,
         resolvePiper: resolvers.resolvePiper,
         ffmpeg: opts.ffmpeg,
+        cacheDir: opts.jobs?.cacheDir ?? 'data/cache',
       }),
     workDir: opts.jobs?.workDir ?? 'data/jobs',
   });

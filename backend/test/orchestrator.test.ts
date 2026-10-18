@@ -37,6 +37,7 @@ interface Opts {
   failT2V?: number;
   failTts?: number;
   abortAfterTts?: number;
+  cacheDir?: string;
 }
 
 function harness(opts: Opts = {}) {
@@ -106,6 +107,7 @@ function harness(opts: Opts = {}) {
     resolveComfy: () => comfy as unknown as ComfyClient,
     resolvePiper: () => piper as unknown as PiperClient,
     ffmpeg,
+    cacheDir: opts.cacheDir,
   });
   const list = (name: string) =>
     readFileSync(join(workDir, name), 'utf8')
@@ -298,4 +300,21 @@ test('fails clearly when scene WAVs have different formats', async () => {
   );
   assert.equal(h.comfy.uploads.length, 0);
   assert.equal(h.workflows.length, 0);
+});
+
+test('with a cacheDir, a second run reuses TTS/stills/transitions without new client work', async () => {
+  const cacheDir = mkdtempSync(join(tmpdir(), 'vs-cache-hit-'));
+  dirs.push(cacheDir);
+  const h = harness({ cacheDir });
+  await h.execute(h.job, h.ctx);
+  const tts1 = h.ttsInputs.length;
+  const stills1 = h.workflows.filter((w) => Object.values(w).some((n) => n.class_type === 'WanVideoEmptyEmbeds')).length;
+  const uploads1 = h.comfy.uploads.length;
+  assert.ok(tts1 >= 3, 'run produced >= 3 TTS items');
+  assert.ok(stills1 >= 3, 'run rendered >= 3 stills');
+  assert.ok(uploads1 >= 4, 'run uploaded >= 2 pairs of stills for transitions');
+  await h.execute(h.job, h.ctx);
+  assert.equal(h.ttsInputs.length, tts1, 'TTS cached: no new synthesize on the 2nd run');
+  assert.equal(h.workflows.filter((w) => Object.values(w).some((n) => n.class_type === 'WanVideoEmptyEmbeds')).length, stills1, 'still cached: no new T2V on the 2nd run');
+  assert.equal(h.comfy.uploads.length, uploads1, 'transitions cached: no new uploads on the 2nd run');
 });
