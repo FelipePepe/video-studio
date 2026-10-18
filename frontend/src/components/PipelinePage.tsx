@@ -22,7 +22,7 @@ export function PipelinePage({ api }: PipelinePageProps) {
     <div className="pipeline">
       <h1 className="pipeline__title">{t('pipeline.title')}</h1>
 
-      {p.state === 'review' && p.draft ? (
+      {((p.state === 'review' || p.state === 'failed') && p.draft) ? (
         <ReviewPanel draft={p.draft} api={api} error={p.error} onSave={p.saveSegments} onApprove={(body) => void p.approve({ body })} onBack={p.reset} />
       ) : (
         <div className="pipeline__grid">

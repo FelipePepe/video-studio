@@ -2,7 +2,7 @@ import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { JobsPage } from '../src/components/JobsPage';
-import type { Job } from '../src/api/types';
+import type { Job, JobEvent } from '../src/api/types';
 import { I18nProvider } from '../src/i18n';
 
 const job = (over: Partial<Job> = {}): Job => ({
@@ -21,19 +21,52 @@ const job = (over: Partial<Job> = {}): Job => ({
 });
 
 function makeApi(jobs: Job[]) {
+  const approveDraft = vi.fn(async (_id: string, options?: { onEvent?: (e: JobEvent) => void }) => {
+    // Emulate the server contract: first SSE event is `queued` with the jobId.
+    options?.onEvent?.({ type: 'stage', stage: 'queued', jobId: 'jr1', progress: 0, at: new Date().toISOString() } as JobEvent);
+    return undefined;
+  });
   return {
     listJobs: vi.fn(async () => jobs),
     cancelJob: vi.fn(async () => ({ cancelled: true })),
+    approveDraft,
   };
 }
 
-function renderJobs(api: ReturnType<typeof makeApi>) {
-  return render(
+const renderJobs = (api: ReturnType<typeof makeApi>) => render(
     <I18nProvider>
       <JobsPage api={api} />
     </I18nProvider>,
   );
-}
+
+describe('JobsPage retry', () => {
+  it('offers a retry on a failed job and relaunches it through the draft', async () => {
+    const api = makeApi([job({ id: 'jf', draftId: 'd9', status: 'failed', stage: 'images', progress: 0.3, error: 'ComfyUI OOM' })]);
+    renderJobs(api);
+    const row = (await screen.findByText('Fallido')).closest('li')!;
+    await userEvent.click(within(row).getByRole('button', { name: 'Reintentar trabajo' }));
+    expect(api.approveDraft).toHaveBeenCalledWith('d9', expect.objectContaining({ onEvent: expect.any(Function) }));
+  });
+
+  it('offers a retry on a cancelled job', async () => {
+    const api = makeApi([job({ id: 'jc', draftId: 'd8', status: 'cancelled', stage: 'tts', progress: 0.1 })]);
+    renderJobs(api);
+    const row = (await screen.findByText('Cancelada')).closest('li')!;
+    expect(within(row).getByRole('button', { name: 'Reintentar trabajo' })).toBeInTheDocument();
+  });
+
+  it('never offers a retry on done, queued or running jobs', async () => {
+    const api = makeApi([
+      job({ id: 'jd', status: 'done', progress: 1 }),
+      job({ id: 'jqa', status: 'queued', progress: 0 }),
+      job({ id: 'jr', status: 'running', progress: 0.5 }),
+    ]);
+    renderJobs(api);
+    await screen.findByText('Hecha');
+    expect(screen.queryByRole('button', { name: 'Reintentar trabajo' })).not.toBeInTheDocument();
+  });
+});
+
 
 afterEach(() => {
   vi.useRealTimers();
