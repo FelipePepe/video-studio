@@ -37,7 +37,8 @@ The pipeline is split at a human gate:
 A human gate on the script is the cheapest quality control in the system; it also means the expensive
 phase only runs on content that is already right.
 **Consequence:** drafts are first-class persisted rows (not transient request state); approve is
-idempotent-ish per draft and produces exactly one job stream.
+**one-shot per draft** — re-approving an already-approved draft is rejected (test: *"approve returns
+404 for an unknown draft and 409 when already approved"*), so a draft can never silently re-render.
 
 ### D2 — Static, stage-sequenced orchestrator (chosen)
 
@@ -50,7 +51,10 @@ tts → images (T2V per scene) → transitions (I2V between stills) → assemble
 
 Each stage is a `step()` with guard/fail/abort semantics; ffmpeg work is factored into **pure argument
 builders** in `backend/src/media/ffmpeg.ts` (`concatArgs`, `musicMixArgs`, `burnSubtitlesArgs`,
-`verticalCropArgs`, `coverArgs`, …), so the shell layer is testable without a GPU.
+`verticalCropArgs`, `coverArgs`, …), so the shell layer is testable without a GPU. Approve options
+are a **strict validated allowlist** — `music` (must be an existing server file), `musicVolume`
+∈ (0,1], booleans `subtitles`/`vertical`; unknown keys are rejected (`parseApproveOptions`,
+`ApproveOptionsError`) so the render contract cannot silently drift.
 
 **Why:** the stage set is known and small; a static sequence is deterministic, cancellable
 (`interruptOnce`), resume-observable (per-stage progress over SSE) and trivially testable (148 frontend
@@ -73,7 +77,8 @@ another box, and the config is a small auditable surface.
 ### D4 — Jobs as the source of progress and artifacts
 
 Approve creates a job row (`backend/src/jobs/jobRepository.ts`); progress and lifecycle events stream
-over **SSE** (`GET /api/jobs/:id/events`), and artifacts (final video, vertical variant, cover) are
+over **SSE** (`GET /api/jobs/:id/events`; the first event is a `queued` stage carrying the `jobId`,
+and clients can reconnect — `streamJobEvents`), and artifacts (final video, vertical variant, cover) are
 served from the job directory (`GET /api/jobs/:id/output`). The frontend polls the Jobs list while any
 job is active (`JobsPage`, 5 s interval) and keeps per-draft progress in `usePipeline`.
 
