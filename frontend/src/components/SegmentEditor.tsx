@@ -94,7 +94,7 @@ export function SegmentEditor({ scenes, onChange, voices: voiceOptions }: Segmen
                     ↓
                   </button>
                   <button type="button" className="btn btn--icon" aria-label={format(t('editor.delete'), { n })} disabled={scenes.length <= 1} onClick={() => remove(index)}>
-                    ✕
+                    ×
                   </button>
                 </div>
               </div>
