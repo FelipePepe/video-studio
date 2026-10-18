@@ -171,7 +171,8 @@ body {
 }
 .btn:hover:not(:disabled) { background: var(--toned-2); }
 .btn:active:not(:disabled) { transform: translateY(1px); }
-.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn:disabled { opacity: 1; cursor: not-allowed; color: var(--muted); background: var(--toned-2); }
+.btn--primary:disabled { background: var(--toned-2); color: var(--muted); } /* a dead CTA is neutral, not a faded accent */
 
 .btn--ghost { background: transparent; }
 .btn--ghost:hover:not(:disabled) { background: var(--toned-2); }
@@ -341,7 +342,8 @@ body {
   background: var(--stage);
   color: var(--stage-ink);
   border-radius: var(--radius);
-  font-size: var(--step-ui);
+  font-size: var(--step-body); /* body text at body size — not a tiny caption */
+  font-weight: 400;
 }
 .video__player { width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: var(--radius); }
 .video a.btn { justify-self: start; text-decoration: none; }
