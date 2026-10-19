@@ -12,9 +12,11 @@ import {
   markDone,
   markFailed,
   markRunning,
+  retentionJobs,
   updateJob,
   type Clock,
 } from './jobRepository';
+import { pruneWorkDirs, retentionConfigFromEnv } from './retention';
 import type { EmitInput, ExecuteFn, Job, JobContext, JobEvent } from './types';
 
 export interface JobRunnerOptions {
@@ -57,6 +59,13 @@ export class JobRunner {
     if (this.started) return;
     this.started = true;
     failInterruptedJobs(this.db, this.clock);
+    // doc §5.1: prune old job workDirs (best-effort, never blocks startup).
+    try {
+      const { pruned } = pruneWorkDirs(this.workDir, retentionJobs(this.db), retentionConfigFromEnv());
+      if (pruned.length) console.log(`job runner: pruned ${pruned.length} old job workdir(s)`);
+    } catch {
+      /* best-effort: a prune error must never prevent the runner from starting */
+    }
     this.kick();
   }
 
