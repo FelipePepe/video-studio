@@ -142,7 +142,8 @@ async function executeTTS(s: Shared): Promise<TTSResult> {
     wavPaths.push(path);
     s.step('tts', i + 1, n);
   }
-  return { wavPaths, durations, format: format as PcmFormat };
+  if (!format) throw new Error('tts failed: no scene produced a WAV');
+  return { wavPaths, durations, format };
 }
 
 // Stage 2 — single-frame T2V still per scene (a 1-frame ComfyUI video, then ffmpeg -> PNG).
