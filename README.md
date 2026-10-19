@@ -9,7 +9,7 @@ Pipeline, in two phases:
 
 An optional standalone **PipelineAgent** (`backend/src/pipeline/agent.ts`) is the dynamic alternative to the static workflow builder: it runs Ollama tool-calling (`submit_workflow`) with a system prompt that encodes the Wan2.2 know-how, and is not wired to the orchestrator yet.
 
-This project is a recreation of a previous repo that was lost (searched on 2026-10-04: not found); the spec comes from the Atlas note `Proyectos/video-studio`. The repo was recreated on 2026-10-04 and lives at this path; remote: `FelipePepe/video-studio` (private).
+This project is a recreation of a previous repo that was lost (searched on 2026-10-04: not found); the spec comes from the Atlas note `Proyectos/video-studio`. The repo was recreated on 2026-10-04 and lives at this path; remote: `FelipePepe/video-studio` (public).
 
 ## Stack
 

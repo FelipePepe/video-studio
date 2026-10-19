@@ -2,7 +2,7 @@
   "name": "video-studio",
   "version": "0.1.0",
   "private": true,
-  "description": "Generate videos from articles: Ollama script, Kokoro TTS, ComfyUI Wan2.2 and ffmpeg assembly",
+  "description": "Generate videos from articles: Ollama script, Piper TTS, ComfyUI Wan2.2 and ffmpeg assembly",
   "packageManager": "pnpm@12.14.0",
   "engines": {
     "node": ">=22.5"
