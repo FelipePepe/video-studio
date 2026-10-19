@@ -1,3 +1,6 @@
+import { parseHTML } from 'linkedom';
+import { Readability } from '@mozilla/readability';
+
 export interface FetchArticleOptions {
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
@@ -18,7 +21,12 @@ const ENTITIES: Array<[RegExp, string]> = [
   [/&amp;/g, '&'],
 ];
 
-export function htmlToText(html: string): string {
+// Minimal article score: Readability rejects tiny/boilerplate pages (nav, footers, cookies);
+// below this text length we fall back to the naive tag-strip so short pages and test fixtures
+// still work.
+const READABILITY_MIN_CHARS = 200;
+
+function legacyStrip(html: string): string {
   let text = html
     .replace(/<!--[\s\S]*?-->/g, ' ')
     .replace(/<(script|style|noscript)\b[\s\S]*?<\/\1\s*>/gi, ' ')
@@ -26,6 +34,21 @@ export function htmlToText(html: string): string {
   // &amp; last so "&amp;lt;" decodes to "&lt;" and not "<".
   for (const [pattern, value] of ENTITIES) text = text.replace(pattern, value);
   return text.replace(/\s+/g, ' ').trim();
+}
+
+export function htmlToText(html: string): string {
+  // Prefer Readability + linkedom: it drops navigation/footer/cookie/"related" chrome and
+  // linkedom's textContent decodes ALL named+numeric HTML entities (accents, ñ, curly quotes) —
+  // not just the 6 the legacy strip handled.
+  try {
+    const { document } = parseHTML(html);
+    const article = new Readability(document).parse();
+    const text = (article?.textContent ?? '').replace(/\s+/g, ' ').trim();
+    if (text.length >= READABILITY_MIN_CHARS) return text;
+  } catch {
+    // non-article / parser edge case: fall through to the legacy strip.
+  }
+  return legacyStrip(html);
 }
 
 function parseUrl(raw: string): URL {
