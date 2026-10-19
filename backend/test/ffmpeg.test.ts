@@ -7,12 +7,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   buildConcatList,
+  burnSubtitlesArgs,
   concatArgs,
   extractFrameArgs,
   kenBurnsArgs,
   muxAudioArgs,
   normalizeClipArgs,
   runFfmpeg,
+  verticalCropArgs,
   xfadeArgs,
 } from '../src/media/ffmpeg';
 
@@ -78,7 +80,7 @@ test('kenBurnsArgs builds a zoompan clip with defaults', () => {
     '-vf',
     "scale=2560:1440:force_original_aspect_ratio=increase,crop=2560:1440," +
       "zoompan=z='min(1+0.00125*on,1.15)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1280x720:fps=24,format=yuv420p",
-    '-t', '5', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', 'out.mp4',
+    '-t', '5', '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p', 'out.mp4',
   ]);
 });
 
@@ -151,7 +153,14 @@ test('normalizeClipArgs re-encodes to the shared stream parameters', () => {
   assert.deepEqual(args, [
     '-i', 't.mp4',
     '-vf', 'scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,fps=24,setsar=1,format=yuv420p',
-    '-an', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', 'n.mp4',
+    '-an', '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p', 'n.mp4',
   ]);
   assert.match(normalizeClipArgs({ input: 'a', out: 'b', width: 640, height: 360, fps: 30 }).join(' '), /scale=640:360.*pad=640:360.*fps=30/);
+});
+
+test('fast preset on intermediate clips, not on the quality-final encodes', () => {
+  assert.ok(kenBurnsArgs({ image: 'i', durationSec: 1, out: 'o' }).includes('veryfast'), 'kenBurns veryfast');
+  assert.ok(normalizeClipArgs({ input: 'i', out: 'o' }).includes('veryfast'), 'normalizeClip veryfast');
+  assert.ok(!burnSubtitlesArgs({ input: 'i', srt: 's.srt', out: 'o' }).includes('veryfast'), 'final burn keeps quality');
+  assert.ok(!verticalCropArgs({ input: 'i', out: 'o' }).includes('veryfast'), 'final crop keeps quality');
 });
