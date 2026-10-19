@@ -151,10 +151,13 @@ function escapeFilterPath(p: string): string {
 }
 
 /** Re-encodes the video stream to burn a subtitle track (SRT) in; audio is copied. */
-export function burnSubtitlesArgs(o: { input: string; srt: string; out: string }): string[] {
+export function burnSubtitlesArgs(o: { input: string; srt: string; out: string; style?: string }): string[] {
+  const vf = o.style
+    ? `subtitles=${escapeFilterPath(o.srt)}:force_style='${o.style.replace(/'/g, '')}'`
+    : `subtitles=${escapeFilterPath(o.srt)}`;
   return [
     '-i', o.input,
-    '-vf', `subtitles=${escapeFilterPath(o.srt)}`,
+    '-vf', vf,
     '-c:v', 'libx264', '-crf', '19', '-pix_fmt', 'yuv420p',
     '-c:a', 'copy',
     o.out,

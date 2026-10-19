@@ -207,7 +207,7 @@ test('assembles Ken Burns clips with the WAV durations, alternating with transit
   assert.ok(readFileSync(join(h.workDir, 'subtitles.srt'), 'utf8').includes('narration 0'));
 
   const cover = h.ffmpegCalls[h.ffmpegCalls.length - 1];
-  assert.equal(cover[1], join(h.workDir, 'final.mp4'));
+  assert.equal(cover[1], join(h.workDir, 'muxed.mp4'), 'cover from the subtitle-free base (no burned subs)');
   assert.equal(cover[cover.length - 1], join(h.workDir, 'cover.jpg'));
 });
 

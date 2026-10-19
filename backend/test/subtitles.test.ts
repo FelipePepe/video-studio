@@ -60,6 +60,15 @@ test('burnSubtitlesArgs re-encodes with the subtitles filter and copy audio', ()
   assert.match(args[args.indexOf('-vf') + 1], /subtitles=\/tmp\/with space\\:colon\.srt/);
 });
 
+test('burnSubtitlesArgs accepts an optional force_style for a 9:16 portrait frame', () => {
+  const style = 'PlayResX=720,PlayResY=1280,FontSize=13,Alignment=2';
+  const args = burnSubtitlesArgs({ input: 'in.mp4', srt: '/s.srt', out: 'out.mp4', style });
+  const vf = args[args.indexOf('-vf') + 1];
+  assert.match(vf, /^subtitles=\/s\.srt:force_style='/);
+  assert.ok(vf.endsWith(`'`), 'force_style value is quoted');
+  assert.match(vf, /PlayResX=720,PlayResY=1280/);
+});
+
 // ---- orchestrator flow with subtitles ----
 const fmt = { rate: 16000, width: 2, channels: 1 };
 const SCENE_SECONDS = [0.5, 0.75, 1];

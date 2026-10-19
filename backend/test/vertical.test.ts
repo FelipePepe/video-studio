@@ -100,18 +100,23 @@ test('vertical off (default) still extracts cover.jpg but never crops', async ()
   assert.ok(!h.calls.some((a) => a.includes('final_v.mp4')));
 });
 
-test('vertical + subtitles: order is burn(final) -> crop(final_v) -> cover', async () => {
+test('vertical + subtitles: 16:9 burn(final), then crop the sub-free base and burn 9:16 subs (never clipped)', async () => {
   const h = vHarness({ vertical: true });
   const ctx = { signal: new AbortController().signal, workDir: h.workDir, emit: () => {} };
   await h.execute(h.job, ctx);
-  const last3 = h.calls.slice(-3);
-  assert.match(last3[0][last3[0].indexOf('-vf') + 1], /^subtitles=/);
-  assert.equal(last3[0][last3[0].length - 1], join(h.workDir, 'final.mp4'));
-  assert.equal(last3[1][1], join(h.workDir, 'final.mp4'));
-  assert.equal(last3[1][last3[1].length - 1], join(h.workDir, 'final_v.mp4'));
-  assert.equal(last3[2][1], join(h.workDir, 'final.mp4'));
-  assert.equal(last3[2][last3[2].length - 1], join(h.workDir, 'cover.jpg'));
-  assert.equal(last3.length, 3, 'no unexpected extra steps after cover');
+  const tail = h.calls.slice(-4);
+  assert.equal(tail.length, 4, 'burn(16:9) + crop(base) + burn(9:16) + cover');
+  assert.match(tail[0][tail[0].indexOf('-vf') + 1], /^subtitles=/);
+  assert.equal(tail[0][tail[0].length - 1], join(h.workDir, 'final.mp4'), '16:9 master still final.mp4');
+  assert.equal(tail[0][1], join(h.workDir, 'muxed.mp4'), '16:9 burn reads the sub-free base');
+  assert.equal(tail[1][1], join(h.workDir, 'muxed.mp4'), 'vertical crop reads the sub-free base, NOT the burned master');
+  assert.equal(tail[1][tail[1].length - 1], join(h.workDir, 'base_v.mp4'));
+  const vsub = tail[2][tail[2].indexOf('-vf') + 1];
+  assert.match(vsub, /^subtitles=/);
+  assert.match(vsub, /force_style=/, '9:16 subtitles use a portrait-tuned force_style');
+  assert.equal(tail[2][tail[2].length - 1], join(h.workDir, 'final_v.mp4'));
+  assert.equal(tail[3][1], join(h.workDir, 'muxed.mp4'), 'cover from the sub-free base (no burned subs)');
+  assert.equal(tail[3][tail[3].length - 1], join(h.workDir, 'cover.jpg'));
 });
 
 const readBack = (p: string) => readFileSync(p, 'utf8');
