@@ -156,6 +156,17 @@ test('uses single-frame T2V stills and 33-frame I2V transitions with the next sc
   assert.deepEqual(h.comfy.uploads.map((u) => u.replace(/^vs_[^_]+_/, '')), ['scene_00.png', 'scene_01.png', 'scene_02.png']);
 });
 
+test('varies Ken Burns per scene (not all identical) for rhythmic variety', async () => {
+  const h = harness(); // 3 scenes
+  await h.execute(h.job, h.ctx);
+  const specs = h.ffmpegCalls
+    .map((args) => args[args.indexOf('-vf') + 1])
+    .filter((vf): vf is string => typeof vf === 'string' && vf.includes('zoompan'));
+  assert.equal(specs.length, 3, 'one Ken Burns per scene');
+  assert.ok(new Set(specs).size >= 2,
+    `expected >=2 distinct Ken Burns specs for variety, got ${[...new Set(specs)].length}`);
+});
+
 test('seeds are deterministic per draft and scene', async () => {
   const a = harness();
   await a.execute(a.job, a.ctx);
@@ -181,7 +192,9 @@ test('assembles Ken Burns clips with the WAV durations, alternating with transit
   const kb = h.ffmpegCalls.filter((a) => a.includes('-loop'));
   assert.equal(kb.length, 3);
   assert.deepEqual(kb.map((a) => a[a.indexOf('-t') + 1]), ['0.5', '0.75', '1']);
-  assert.ok(kb.every((a) => /zoompan=z='min\(1\+[\d.]+\*on,1\.08\)'/.test(a[a.indexOf('-vf') + 1])));
+  const isZoom = (vf: string) =>
+    /zoompan=z='min\(1\+[\d.]+\*on,[\d.]+\)'/.test(vf) || /zoompan=z='max\([\d.]+-[\d.]+\*on,1\)'/.test(vf);
+  assert.ok(kb.every((a) => isZoom(a[a.indexOf('-vf') + 1])), 'each Ken Burns uses a zoom-in or zoom-out spec');
   assert.ok(kb.every((a) => a[a.indexOf('-vf') + 1].includes('s=1280x720')));
 
   const norm = h.ffmpegCalls.filter((a) => a[1]?.includes('transitions') || a[1]?.includes('trans_'));

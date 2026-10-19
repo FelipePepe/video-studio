@@ -47,7 +47,6 @@ const RANGES: Record<Stage, [number, number]> = {
   transitions: [0.55, 0.85],
   assemble: [0.85, 1],
 };
-const KEN_BURNS_ZOOM = 1.08;
 // libass force_style for the 9:16 (720x1280) vertical variant: sized to the frame, centered,
 // with margins that keep text inside the portrait frame (vs. the default 16:9 sizing).
 const VERTICAL_SUB_STYLE = 'PlayResX=720,PlayResY=1280,FontSize=13,Alignment=2,MarginV=60,Outline=1';
@@ -59,6 +58,15 @@ const describeFormat = (f: PcmFormat) => `${f.rate} Hz, ${f.width * 8}-bit, ${f.
 
 function seedFor(draftId: string, sceneIndex: number): number {
   return createHash('sha256').update(`${draftId}:${sceneIndex}`).digest().readUInt32BE(0);
+}
+
+// doc §4 ritmo: vary the Ken Burns per scene (zoom magnitude + in/out direction) so consecutive
+// scenes don't all push in the same way. Deterministic per (visualPrompt, index) → stable re-render.
+function kenBurnsSpec(visualPrompt: string, index: number): { zoomTo: number; direction: 'zoom-in' | 'zoom-out' } {
+  const h = seedFor(`kb:${visualPrompt}`, index);
+  const direction: 'zoom-in' | 'zoom-out' = h % 2 === 0 ? 'zoom-in' : 'zoom-out';
+  const zoomTo = 1.08 + (h % 5) * 0.02; // 1.08 .. 1.16 in steps of 0.02
+  return { zoomTo, direction };
 }
 
 function abortError(): Error {
@@ -262,7 +270,8 @@ async function executeAssemble(s: Shared, tts: TTSResult, stills: StillsResult, 
   for (let i = 0; i < n; i++) {
     guard();
     const kb = sceneFile(clipsDir, 'kb', i, 'mp4');
-    await run(kenBurnsArgs({ image: pngs[i], durationSec: durations[i], out: kb, zoomTo: KEN_BURNS_ZOOM }));
+    const spec = kenBurnsSpec(escaleta[i].visualPrompt, i);
+    await run(kenBurnsArgs({ image: pngs[i], durationSec: durations[i], out: kb, zoomTo: spec.zoomTo, direction: spec.direction }));
     videoParts.push(kb);
     audioParts.push(wavPaths[i]);
     const trans = transitions[i];
