@@ -175,6 +175,22 @@ test('seeds are deterministic per draft and scene', async () => {
   assert.deepEqual(seedsOf(a.workflows), seeds);
 });
 
+test('global style injects into every visual prompt (still + transition target)', async () => {
+  const h = harness(); // 3 stills + 2 transition targets
+  h.job.options = { style: 'cinematic, consistent warm lighting, 35mm grain' };
+  await h.execute(h.job, h.ctx);
+  const all = JSON.stringify(h.workflows);
+  const count = (all.match(/cinematic, consistent warm lighting, 35mm grain/g) ?? []).length;
+  assert.equal(count, 5, `style applied to all 3 stills + 2 transition targets; got ${count}`);
+});
+
+test('without a style set the prompts are the raw visualPrompt (backward compat)', async () => {
+  const h = harness();
+  await h.execute(h.job, h.ctx);
+  const all = JSON.stringify(h.workflows);
+  assert.ok(!all.includes('cinematic, consistent warm lighting'), 'no injected style without the option');
+});
+
 test('assembles Ken Burns clips with the WAV durations, alternating with transitions', async () => {
   const h = harness();
   await h.execute(h.job, h.ctx);
