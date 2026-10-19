@@ -192,6 +192,17 @@ async function executeTransitions(s: Shared, stills: StillsResult): Promise<Tran
   const { n, escaleta, comfy, guard, sceneFile, transDir, prefix, frames } = s;
   const transitions: TransitionMap = [];
   s.begin('transitions');
+  // Each still is uploaded to ComfyUI at most once per run (transitions share a still
+  // as end/i+1 and start/i+2); we just reference the name on subsequent transitions.
+  const uploaded = new Set<string>();
+  const uploadStill = async (i: number): Promise<string> => {
+    const name = `${prefix}_scene_${pad(i)}.png`;
+    if (!uploaded.has(name)) {
+      await comfy.uploadImage(readFileSync(stills.pngs[i]), name);
+      uploaded.add(name);
+    }
+    return name;
+  };
   for (let i = 0; i < n - 1; i++) {
     guard();
     const seed = seedFor(s.job.draftId, 1000 + i);
@@ -202,8 +213,8 @@ async function executeTransitions(s: Shared, stills: StillsResult): Promise<Tran
       transitions.push(out);
     } else {
       try {
-        const start = await comfy.uploadImage(readFileSync(stills.pngs[i]), `${prefix}_scene_${pad(i)}.png`);
-        const end = await comfy.uploadImage(readFileSync(stills.pngs[i + 1]), `${prefix}_scene_${pad(i + 1)}.png`);
+        const start = await uploadStill(i);
+        const end = await uploadStill(i + 1);
         const id = await comfy.submit(
           buildI2VWorkflow({
             startImage: start,

@@ -153,7 +153,7 @@ test('uses single-frame T2V stills and 33-frame I2V transitions with the next sc
   assert.equal(prompt(h.workflows[0]), 'visual 0');
   assert.equal(prompt(h.workflows[3]), 'visual 1');
   assert.equal(prompt(h.workflows[4]), 'visual 2');
-  assert.deepEqual(h.comfy.uploads.map((u) => u.replace(/^vs_[^_]+_/, '')), ['scene_00.png', 'scene_01.png', 'scene_01.png', 'scene_02.png']);
+  assert.deepEqual(h.comfy.uploads.map((u) => u.replace(/^vs_[^_]+_/, '')), ['scene_00.png', 'scene_01.png', 'scene_02.png']);
 });
 
 test('seeds are deterministic per draft and scene', async () => {
@@ -312,7 +312,7 @@ test('with a cacheDir, a second run reuses TTS/stills/transitions without new cl
   const uploads1 = h.comfy.uploads.length;
   assert.ok(tts1 >= 3, 'run produced >= 3 TTS items');
   assert.ok(stills1 >= 3, 'run rendered >= 3 stills');
-  assert.ok(uploads1 >= 4, 'run uploaded >= 2 pairs of stills for transitions');
+  assert.ok(uploads1 >= 3, `run uploaded the still set once (got ${uploads1})`);
   await h.execute(h.job, h.ctx);
   assert.equal(h.ttsInputs.length, tts1, 'TTS cached: no new synthesize on the 2nd run');
   assert.equal(h.workflows.filter((w) => Object.values(w).some((n) => n.class_type === 'WanVideoEmptyEmbeds')).length, stills1, 'still cached: no new T2V on the 2nd run');
