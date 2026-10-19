@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { createWriteStream } from 'node:fs';
 
 export interface ComfyFile {
   filename: string;
@@ -176,6 +177,49 @@ export class ComfyClient {
     const res = await this.request(`/view?${params}`, undefined, this.downloadTimeoutMs);
     if (!res.ok) return this.fail('/view', res);
     return Buffer.from(await res.arrayBuffer());
+  }
+
+  /**
+   * Stream the file at `file` straight to `dest` by reading the HTTP body in chunks and writing
+   * them to the write stream. Avoids the `arrayBuffer()` path which retains the whole MP4 (or any
+   * large asset) in RAM, and avoids a blocking `writeFileSync`, both of which stall the event loop
+   * and the SSE progress stream while the payload is written. Caller is responsible for ensuring
+   * the parent directory exists.
+   */
+  async downloadToFile(file: ComfyFile, dest: string): Promise<void> {
+    const params = new URLSearchParams({
+      filename: file.filename,
+      type: file.type ?? 'output',
+      subfolder: file.subfolder ?? '',
+    });
+    const res = await this.request(`/view?${params}`, undefined, this.downloadTimeoutMs);
+    if (!res.ok) return this.fail('/view', res);
+    if (!res.body) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`ComfyUI /view failed: no body${text ? ` ${text.slice(0, 200)}` : ''}`);
+    }
+    const writer = createWriteStream(dest);
+    const reader = res.body.getReader();
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value && !writer.write(value)) {
+          await new Promise<void>((resolve) => writer.once('drain', resolve));
+        }
+      }
+      writer.end();
+      await new Promise<void>((resolve, reject) => {
+        writer.once('finish', resolve);
+        writer.once('error', reject);
+      });
+    } catch (err) {
+      // Close the writer on any failure (reader already released on the finally path).
+      writer.destroy();
+      throw err;
+    } finally {
+      reader.releaseLock();
+    }
   }
 
   async interrupt(): Promise<void> {

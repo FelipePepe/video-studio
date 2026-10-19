@@ -100,6 +100,7 @@ function subsHarness(opts: { subtitles?: boolean; music?: string } = {}) {
     submit: async () => 'p1',
     waitForCompletion: async () => ({ '9': { gifs: [{ filename: 'o.mp4' }] } }),
     download: async () => Buffer.from('video'),
+    downloadToFile: async (_f: unknown, dest: string) => { writeFileSync(dest, 'video'); },
     uploadImage: async (_d: Buffer, name: string) => name,
     interrupt: async () => {},
   } as unknown as ComfyClient;

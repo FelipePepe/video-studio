@@ -77,6 +77,9 @@ function harness(opts: Opts = {}) {
     },
     waitForCompletion: async (id: string) => ({ '9': { gifs: [{ filename: `${id}.mp4`, subfolder: 's', type: 'output' }] } }),
     download: async (file: { filename: string }) => Buffer.from(`bytes:${file.filename}`),
+    downloadToFile: async (file: { filename: string }, dest: string) => {
+      writeFileSync(dest, Buffer.from(`bytes:${file.filename}`));
+    },
     uploadImage: async (_data: Buffer, name: string) => {
       comfy.uploads.push(name);
       return `up_${name}`;
