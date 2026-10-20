@@ -157,7 +157,7 @@ async function executeStills(s: Shared): Promise<StillsResult> {
     guard();
     const seed = seedFor(s.job.draftId, i);
     const png = sceneFile(stillsDir, 'scene', i, 'png');
-    const key = s.cache?.key(WORKFLOW_VERSION, 't2v', escaleta[i].visualPrompt, seed, DEFAULTS.width, DEFAULTS.height, 1);
+    const key = s.cache?.key(WORKFLOW_VERSION, 't2v', escaleta[i].visualPrompt, seed, DEFAULTS.width, DEFAULTS.height, 1, s.job.options?.useLightx2v);
     if (s.cache && key && s.cache.has(key)) {
       writeFileSync(png, s.cache.read(key));
     } else {
@@ -169,6 +169,7 @@ async function executeStills(s: Shared): Promise<StillsResult> {
             numFrames: 1,
             pingpong: false,
             filenamePrefix: `${prefix}_still_${pad(i)}`,
+            useLightx2v: s.job.options?.useLightx2v,
           }),
         );
         const outputs = await comfy.waitForCompletion(id, { onProgress: (info) => s.comfyStep('images', info) });
@@ -209,7 +210,7 @@ async function executeTransitions(s: Shared, stills: StillsResult): Promise<Tran
   for (let i = 0; i < n - 1; i++) {
     guard();
     const seed = seedFor(s.job.draftId, 1000 + i);
-    const key = s.cache?.key(WORKFLOW_VERSION, 'i2v', escaleta[i].visualPrompt, escaleta[i + 1].visualPrompt, seed, frames);
+    const key = s.cache?.key(WORKFLOW_VERSION, 'i2v', escaleta[i].visualPrompt, escaleta[i + 1].visualPrompt, seed, frames, s.job.options?.useLightx2v);
     if (s.cache && key && s.cache.has(key)) {
       const out = sceneFile(transDir, 'trans', i, 'mp4');
       writeFileSync(out, s.cache.read(key));
@@ -224,6 +225,7 @@ async function executeTransitions(s: Shared, stills: StillsResult): Promise<Tran
             endImage: end,
             prompt: escaleta[i + 1].visualPrompt,
             seed,
+            useLightx2v: s.job.options?.useLightx2v,
             numFrames: frames,
             pingpong: false,
             filenamePrefix: `${prefix}_trans_${pad(i)}`,
