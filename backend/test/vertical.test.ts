@@ -58,6 +58,7 @@ function vHarness(opts?: { vertical?: boolean; subtitles?: boolean }) {
     submit: async () => 'p1',
     waitForCompletion: async () => ({ '9': { images: [{ filename: 'o.png' }], gifs: [{ filename: 'o.mp4' }] } }),
     download: async () => Buffer.from('video'),
+    downloadToFile: async (_f: unknown, dest: string) => { writeFileSync(dest, 'video'); },
     uploadImage: async (_d: Buffer, name: string) => name,
     interrupt: async () => {},
   } as unknown as ComfyClient;

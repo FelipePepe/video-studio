@@ -10,6 +10,11 @@ export interface ApproveOptions {
   subtitles?: boolean;
   /** Also produce a 9:16 vertical crop (`final_v.mp4`). Default false. */
   vertical?: boolean;
+  /**
+   * doc §1 — attach the lightx2v 4-step LoRA (high + low) to both experts of the dual-expert pipeline.
+   * Cuts the denoise from 50 to 4 steps (~10× faster, same quality). Default false.
+   */
+  useLightx2v?: boolean;
 }
 
 export const DEFAULT_MUSIC_VOLUME = 0.25;

@@ -16,6 +16,15 @@ export const I2V_MODEL = 'wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors';
 export const I2V_LOW_MODEL = 'wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors';
 export const T5_ENCODER = 'umt5-xxl-enc-fp8_e4m3fn-fixed.safetensors';
 
+// lightx2v 4-step LoRAs (high/low) — dramatically reduce denoising steps while keeping quality.
+// doc §1: 10× faster renders with near-identical output.
+export const LORA = {
+  t2v_high: 'wan2.2_t2v_lightx2v_4steps_lora_v1.1_high_noise.safetensors',
+  t2v_low: 'wan2.2_t2v_lightx2v_4steps_lora_v1.1_low_noise.safetensors',
+  i2v_high: 'wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors',
+  i2v_low: 'wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors',
+} as const;
+
 export const DEFAULTS = {
   width: 1280,
   height: 720,
@@ -47,6 +56,8 @@ interface CommonOptions {
   pingpong?: boolean;
   /** When true, save the decoded frame with SaveImage (image) rather than VHS_VideoCombine (mp4). */
   saveImage?: boolean;
+  /** doc §1: attach the lightx2v 4-step LoRA (high/low) to the dual-expert and drop to 4 total steps. ~10× faster, same quality. */
+  useLightx2v?: boolean;
 }
 
 export type T2VOptions = CommonOptions;
@@ -95,8 +106,8 @@ interface ModelChain {
   loras: string;
 }
 
-/** Per-expert chain: model loader -> block swap config -> set block swap -> set LoRAs (mandatory). */
-function buildModelChain(model: string, b: Builder): ModelChain {
+/** Per-expert chain: model loader -> block swap config -> set block swap -> set LoRAs. */
+function buildModelChain(model: string, b: Builder, loraName?: string): ModelChain {
   const loader = b.add('WanVideoModelLoader', {
     model,
     base_precision: 'fp16_fast',
@@ -109,8 +120,14 @@ function buildModelChain(model: string, b: Builder): ModelChain {
     offload_txt_emb: false,
   });
   const setSwap = b.add('WanVideoSetBlockSwap', { model: [loader, 0], block_swap_args: [swapArgs, 0] });
-  const loras = b.add('WanVideoSetLoRAs', { model: [setSwap, 0] });
-  return { loader, setSwap, loras };
+  const setLoras = b.add('WanVideoSetLoRAs', { model: [setSwap, 0] });
+  if (loraName) {
+    // fp8_scaled models can't bake LoRAs in, so load them on the fly (merge_loras off).
+    const lora = b.add('WanVideoLoraSelect', { lora: loraName, strength: 1.0, merge_loras: false });
+    // Re-point the SetLoRAs node to include the LoRA.
+    b.nodes[setLoras].inputs.lora = [lora, 0];
+  }
+  return { loader, setSwap, loras: setLoras };
 }
 
 function buildTail(
@@ -179,21 +196,27 @@ function buildTail(
 export function buildT2VWorkflow(o: T2VOptions): Workflow {
   const b = new Builder();
   const shared = buildShared(o, b);
-  const high = buildModelChain(T2V_MODEL, b);
-  const low = buildModelChain(T2V_LOW_MODEL, b);
+  const high = buildModelChain(T2V_MODEL, b, o.useLightx2v ? LORA.t2v_high : undefined);
+  const low = buildModelChain(T2V_LOW_MODEL, b, o.useLightx2v ? LORA.t2v_low : undefined);
   const embeds = b.add('WanVideoEmptyEmbeds', {
     width: o.width ?? DEFAULTS.width,
     height: o.height ?? DEFAULTS.height,
     num_frames: o.numFrames ?? DEFAULTS.numFrames,
   });
-  return buildTail(b, o, shared, high, low, embeds);
+  return buildTail(b, withLightx2v(o), shared, high, low, embeds);
+}
+
+// lightx2v: 4 total steps split 3 (high) / 1 (low) across the dual expert.
+function withLightx2v(o: CommonOptions): CommonOptions {
+  if (!o.useLightx2v) return o;
+  return { ...o, steps: o.steps ?? 4, switchStep: o.switchStep ?? 3 };
 }
 
 export function buildI2VWorkflow(o: I2VOptions): Workflow {
   const b = new Builder();
   const shared = buildShared(o, b);
-  const high = buildModelChain(I2V_MODEL, b);
-  const low = buildModelChain(I2V_LOW_MODEL, b);
+  const high = buildModelChain(I2V_MODEL, b, o.useLightx2v ? LORA.i2v_high : undefined);
+  const low = buildModelChain(I2V_LOW_MODEL, b, o.useLightx2v ? LORA.i2v_low : undefined);
   const width = o.width ?? DEFAULTS.width;
   const height = o.height ?? DEFAULTS.height;
 
@@ -222,5 +245,5 @@ export function buildI2VWorkflow(o: I2VOptions): Workflow {
   };
   if (end) encodeInputs.end_image = [end, 0];
   const embeds = b.add('WanVideoImageToVideoEncode', encodeInputs);
-  return buildTail(b, o, shared, high, low, embeds);
+  return buildTail(b, withLightx2v(o), shared, high, low, embeds);
 }
