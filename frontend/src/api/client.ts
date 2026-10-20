@@ -2,8 +2,7 @@ import type {
   ApproveBody,
   Draft,
   DraftCreated,
-  DraftRequest,
-  Escaleta,
+  DraftRequest,  Escaleta,
   Job,
   JobEvent,
   JobStatus,
@@ -11,6 +10,7 @@ import type {
   Settings,
   VoiceOption,
 } from './types';
+import { log } from '../lib/logger';
 
 export type { ApproveBody };
 
@@ -118,6 +118,7 @@ async function toApiError(res: Response): Promise<ApiError> {
 
 export function createApiClient(options: ApiClientOptions = {}): ApiClient {
   const baseUrl = options.baseUrl ?? '';
+  const apiLog = log.child('api');
   // Resolved lazily so a late-installed global fetch (or a test fake) is honoured.
   const doFetch: typeof fetch = (input, init) => (options.fetchImpl ?? globalThis.fetch)(input, init);
 
@@ -128,7 +129,11 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
       init.body = JSON.stringify(body);
     }
     const res = await doFetch(`${baseUrl}${path}`, init);
-    if (!res.ok) throw await toApiError(res);
+    if (!res.ok) {
+      const error = await toApiError(res);
+      apiLog.warn('request failed', { method, path, status: res.status, message: error.message });
+      throw error;
+    }
     return (await res.json()) as T;
   }
 
