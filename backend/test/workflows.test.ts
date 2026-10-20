@@ -157,6 +157,19 @@ test('T2V: seed, prompt, size, frames land in the right inputs with defaults', (
   assert.equal(byType(wf, 'LoadImage').length, 0);
 });
 
+test('saveImage: still mode uses SaveImage and drops VHS_VideoCombine', () => {
+  const wf = buildT2VWorkflow({ prompt: 'a cat', seed: 42, numFrames: 1, saveImage: true, filenamePrefix: 's_0' });
+  const save = one(wf, 'SaveImage');
+  assert.equal(byType(wf, 'VHS_VideoCombine').length, 0);
+  const decode = one(wf, 'WanVideoDecode');
+  assert.deepEqual(save.inputs.images, [decode.id, 0]);
+  assert.equal(save.inputs.filename_prefix, 's_0');
+
+  const regular = buildT2VWorkflow({ prompt: 'a cat', seed: 42 });
+  assert.equal(byType(regular, 'SaveImage').length, 0);
+  assert.equal(byType(regular, 'VHS_VideoCombine').length, 1);
+});
+
 test('T2V: overrides apply and each model chain is wired correctly', () => {
   const wf = buildT2VWorkflow({
     prompt: 'x', seed: 7, width: 832, height: 480, numFrames: 49, steps: 20, switchStep: 12, filenamePrefix: 'seg_1',

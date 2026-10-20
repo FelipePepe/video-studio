@@ -37,7 +37,7 @@ const fakeOllama = {
 
 const fakeComfy = {
   submit: async () => 'p1',
-  waitForCompletion: async () => ({ '9': { gifs: [{ filename: 'o.mp4' }] } }),
+  waitForCompletion: async () => ({ '9': { images: [{ filename: 'o.png' }], gifs: [{ filename: 'o.mp4' }] } }),
   download: async () => Buffer.from('video'),
   uploadImage: async (_d: Buffer, name: string) => name,
   interrupt: async () => {},

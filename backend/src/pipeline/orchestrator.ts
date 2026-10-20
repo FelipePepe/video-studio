@@ -3,14 +3,13 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { ComfyClient } from '../clients/comfy';
-import { extractVideoOutput } from '../clients/comfy';
+import { extractVideoOutput, extractOutputFile } from '../clients/comfy';
 import type { PiperClient } from '../clients/piper';
 import { buildI2VWorkflow, buildT2VWorkflow, DEFAULTS } from '../comfy/workflows';
 import type { EmitInput, ExecuteFn, Job, JobContext } from '../jobs/types';
 import {
   buildConcatList,
   concatArgs,
-  extractFrameArgs,
   kenBurnsArgs,
   musicMixArgs,
   muxAudioArgs,
@@ -167,14 +166,13 @@ async function executeStills(s: Shared): Promise<StillsResult> {
             seed,
             numFrames: 1,
             pingpong: false,
+            saveImage: true,
             filenamePrefix: `${prefix}_still_${pad(i)}`,
           }),
         );
-        const file = extractVideoOutput(await comfy.waitForCompletion(id));
-        if (!file) throw new Error('ComfyUI returned no video output');
-        const mp4 = sceneFile(stillsDir, 'scene', i, 'mp4');
-        writeFileSync(mp4, await comfy.download(file));
-        await run(extractFrameArgs({ video: mp4, out: png }));
+        const file = extractOutputFile(await comfy.waitForCompletion(id));
+        if (!file) throw new Error('ComfyUI returned no image output');
+        writeFileSync(png, await comfy.download(file));
         if (s.cache && key) s.cache.store(key, readFileSync(png));
       } catch (e) {
         return fail('images', `scene ${i + 1}`, e);
