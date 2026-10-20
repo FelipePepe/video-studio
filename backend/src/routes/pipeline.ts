@@ -5,6 +5,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { OllamaClient } from '../clients/ollama';
 import { DraftInputError, DraftValidationError, generateDraft, validateEscaleta } from '../pipeline/draft';
 import { createDraft, DraftLockedError, getDraft, markApproved, updateEscaleta } from '../pipeline/draftRepository';
+import { generatePublishMetadata, PublishInputError } from '../pipeline/publish';
 import { getLatestJobForDraft } from '../jobs/jobRepository';
 import type { ApproveOptions } from '../pipeline/types';
 import type { Job, JobEvent } from '../jobs/types';
@@ -30,7 +31,7 @@ function parseApproveOptions(body: unknown, musicDir?: string): ApproveOptions |
   if (typeof body !== 'object' || Array.isArray(body)) throw new ApproveOptionsError('Body must be a JSON object');
   const o = body as Record<string, unknown>;
   for (const key of Object.keys(o)) {
-    if (key !== 'music' && key !== 'musicVolume' && key !== 'subtitles' && key !== 'vertical' && key !== 'style') throw new ApproveOptionsError(`Unknown approve option: ${key}`);
+    if (key !== 'music' && key !== 'musicVolume' && key !== 'subtitles' && key !== 'vertical' && key !== 'style' && key !== 'useLightx2v') throw new ApproveOptionsError(`Unknown approve option: ${key}`);
   }
   if (Object.keys(o).length === 0) return null;
   const opts: ApproveOptions = {};
@@ -64,6 +65,10 @@ function parseApproveOptions(body: unknown, musicDir?: string): ApproveOptions |
   if (o.style !== undefined) {
     if (typeof o.style !== 'string' || o.style.trim().length === 0) throw new ApproveOptionsError('style must be a non-empty string');
     opts.style = o.style.trim();
+  }
+  if (o.useLightx2v !== undefined) {
+    if (typeof o.useLightx2v !== 'boolean') throw new ApproveOptionsError('useLightx2v must be a boolean');
+    opts.useLightx2v = o.useLightx2v;
   }
   return opts;
 }
@@ -101,6 +106,28 @@ export function pipelineRouter(deps: PipelineDeps): Router {
       return;
     }
     res.json(draft);
+  });
+
+  // doc §7 — publication metadata (title/description/tags/hashtags + hook + cta) for the draft's video.
+  router.get('/draft/:id/publish', async (req, res) => {
+    const draft = getDraft(deps.db, req.params.id);
+    if (!draft) {
+      res.status(404).json({ error: 'Draft not found' });
+      return;
+    }
+    try {
+      const meta = await generatePublishMetadata(
+        { language: draft.language, escaleta: draft.escaleta },
+        { ollama: deps.resolveOllama() },
+      );
+      res.json(meta);
+    } catch (e) {
+      if (e instanceof PublishInputError) {
+        res.status(422).json({ error: e.message });
+        return;
+      }
+      res.status(502).json({ error: 'publish metadata generation failed' });
+    }
   });
 
   router.put('/draft/:id/segments', (req, res) => {
