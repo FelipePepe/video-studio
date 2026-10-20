@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiError, type ApiClient, type ApproveBody } from '../api/client';
 import type { DraftCreated, DraftRequest, JobEvent, Scene } from '../api/types';
+import { log } from '../lib/logger';
 import { useI18n } from '../i18n';
 
 export type PipelineApi = Pick<
@@ -41,6 +42,8 @@ function isStageId(value: unknown): value is StageId {
 }
 
 export function usePipeline(api: PipelineApi): UsePipeline {
+  const jobsLog = log.child('jobs');
+
   const { t } = useI18n();
   const [state, setStateRaw] = useState<PipelineState>('idle');
   const [draft, setDraft] = useState<DraftCreated | null>(null);
@@ -93,9 +96,11 @@ export function usePipeline(api: PipelineApi): UsePipeline {
         if (!mounted.current) return;
         draftRef.current = created;
         setDraft(created);
+        jobsLog.info('draft created', { draftId: created.id });
         setState('review');
       } catch (e) {
         if (!mounted.current) return;
+        jobsLog.error('draft creation failed', { err: e as Error });
         setError(errorMessage(e));
         setState('idle');
       }
@@ -114,13 +119,17 @@ export function usePipeline(api: PipelineApi): UsePipeline {
       setError(null);
       try {
         const saved = await api.putSegments(current.id, escaleta);
+        jobsLog.info('segments saved', { draftId: current.id, scenes: escaleta.length });
         if (!mounted.current || draftRef.current?.id !== current.id) return false;
         const next = { ...current, escaleta: saved.escaleta };
         draftRef.current = next;
         setDraft(next);
         return true;
       } catch (e) {
-        if (mounted.current) setError(errorMessage(e));
+        if (mounted.current) {
+          jobsLog.warn('saving segments failed', { draftId: current.id, err: e as Error });
+          setError(errorMessage(e));
+        }
         return false;
       }
     },
@@ -129,6 +138,9 @@ export function usePipeline(api: PipelineApi): UsePipeline {
   );
 
   const applyEvent = useCallback((event: JobEvent) => {
+    if (event.type === 'done') jobsLog.info('job done', { jobId: event.jobId, outputUrl: event.outputUrl });
+    else if (event.type === 'error') jobsLog.error('job error event', { jobId: event.jobId, stage: event.stage, message: event.message });
+    else if (event.type === 'cancelled') jobsLog.warn('job cancelled', { jobId: event.jobId });
     if (!mounted.current || terminal.current) return;
     if (event.jobId) {
       jobIdRef.current = event.jobId;
@@ -204,12 +216,14 @@ export function usePipeline(api: PipelineApi): UsePipeline {
         signal: ctrl.signal,
         body: options?.body,
       });
+      jobsLog.info('draft approved / stream ended', { draftId: current.id });
       if (!mounted.current || isStale() || ctrl.signal.aborted || terminal.current) return;
       terminal.current = true;
       setError(tRef.current('error.streamEnded'));
       setState('failed');
     } catch (e) {
       if (!mounted.current || isStale() || ctrl.signal.aborted || terminal.current) return;
+      jobsLog.error('approve failed', { draftId: current.id, conflict: e instanceof ApiError && e.status === 409, err: e as Error });
       terminal.current = true;
       setError(e instanceof ApiError && e.status === 409 ? tRef.current('error.conflict') : errorMessage(e));
       setState('failed');
@@ -223,7 +237,10 @@ export function usePipeline(api: PipelineApi): UsePipeline {
     try {
       await api.cancelJob(id);
     } catch (e) {
-      if (mounted.current) setError(errorMessage(e));
+      if (mounted.current) {
+        jobsLog.warn('cancel failed', { jobId: id, err: e as Error });
+        setError(errorMessage(e));
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [api]);

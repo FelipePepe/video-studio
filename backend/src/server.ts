@@ -3,7 +3,10 @@ import { dirname } from 'node:path';
 import { buildApp } from './app';
 import { parsePort, resolveDbPath } from './config/runtime';
 import { openDatabase } from './db/connection';
+import { logger } from './lib/logger';
 import type { JobRunner } from './jobs/runner';
+
+const log = logger.child('server');
 
 function main(): void {
   const dbPath = resolveDbPath(process.env.DB_PATH);
@@ -15,13 +18,18 @@ function main(): void {
   const app = buildApp({ db: openDatabase(dbPath) });
   (app.locals.jobRunner as JobRunner).start();
   app.listen(port, host, () => {
-    console.log(`video-studio backend listening on ${host}:${port}`);
+    log.info(`backend listening on ${host}:${port}`);
   });
 }
 
 try {
   main();
 } catch (err) {
-  console.error(err instanceof Error ? err.message : err);
+  log.error('failed to start', { err });
   process.exit(1);
 }
+
+// A process-level error that escaped a request/job must be visible, not silent.
+process.on('unhandledRejection', (reason) => {
+  log.error('unhandledRejection', { err: reason instanceof Error ? reason : new Error(String(reason)) });
+});

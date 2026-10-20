@@ -1,4 +1,7 @@
 import type { JobEvent } from './types';
+import { logger } from '../lib/logger';
+
+const log = logger.child('events');
 
 export type JobListener = (event: JobEvent) => void;
 
@@ -30,7 +33,7 @@ export class EventHub {
       try {
         listener(event);
       } catch (e) {
-        console.error('event listener failed', e);
+        log.error('event listener failed', { jobId: event.jobId, err: e });
       }
     }
   }

@@ -17,6 +17,9 @@ import { createExecute, type FfmpegFn } from './pipeline/orchestrator';
 import { ComfyClient } from './clients/comfy';
 import { OllamaClient } from './clients/ollama';
 import { PiperClient } from './clients/piper';
+import { logger } from './lib/logger';
+
+const httpLog = logger.child('http');
 
 export interface AppOptions {
   db?: DatabaseSync;
@@ -38,13 +41,14 @@ export interface AppResolvers {
   resolvePiper: () => PiperClient;
 }
 
-const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
+const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
   const e = err as { type?: string; status?: number; expose?: boolean } | null;
   if (e?.type === 'entity.parse.failed' || (e?.status === 400 && e.expose)) {
     res.status(400).json({ error: 'Invalid JSON body' });
     return;
   }
-  console.error(err);
+  // originalUrl is never rewritten by sub-router mounting; req.path can already be stripped here.
+  httpLog.error('unhandled error → 500', { method: req.method, path: req.originalUrl, err });
   res.status(500).json({ error: 'Internal server error' });
 };
 
@@ -54,6 +58,17 @@ export function buildApp(opts: AppOptions = {}): Express {
   const effective = () => resolveEffectiveConfig(db, envDefaults);
 
   const app = express();
+  app.use((req, res, next) => {
+    // Capture identity upfront: Express rewrites req.url while sub-routers run,
+    // so reading req.path later (e.g. on res 'finish') would show the stripped path.
+    const startedAt = Date.now();
+    const method = req.method;
+    const path = req.path;
+    res.once('finish', () =>
+      httpLog.info('request', { method, path, status: res.statusCode, ms: Date.now() - startedAt }),
+    );
+    next();
+  });
   app.use(express.json());
   // Shared-token guard for state-changing routes (PATCH/POST/PUT/DELETE). No-op if unset.
   app.use(makeTokenAuth(opts.apiKey ?? process.env.API_TOKEN));

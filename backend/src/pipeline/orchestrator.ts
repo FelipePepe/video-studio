@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { ComfyClient, ProgressInfo } from '../clients/comfy';
 import { extractVideoOutput, extractOutputFile } from '../clients/comfy';
+import { logger } from '../lib/logger';
 import type { PiperClient } from '../clients/piper';
 import { buildI2VWorkflow, buildT2VWorkflow, DEFAULTS } from '../comfy/workflows';
 import type { EmitInput, ExecuteFn, Job, JobContext } from '../jobs/types';
@@ -369,6 +370,8 @@ export function createExecute(deps: OrchestratorDeps): ExecuteFn {
 
   return async (job, ctx: JobContext) => {
     const { signal, workDir, emit } = ctx;
+    const log = logger.child('pipeline');
+    const jobMeta = { jobId: job.id, draftId: job.draftId };
     if (signal.aborted) throw abortError();
     const draft = getDraft(deps.db, job.draftId);
     if (!draft) throw new Error(`Draft ${job.draftId} not found`);
@@ -455,10 +458,23 @@ export function createExecute(deps: OrchestratorDeps): ExecuteFn {
     };
 
     try {
-      const tts = await executeTTS(shared);
-      const stills = await executeStills(shared);
-      const transitions = await executeTransitions(shared, stills);
-      return await executeAssemble(shared, tts, stills, transitions);
+      // Each pipeline stage is timed and logged so a failure names the step, not just the symptom.
+      const timed = async <T>(stage: string, fn: () => Promise<T>): Promise<T> => {
+        const t0 = Date.now();
+        log.info('stage start', { stage, ...jobMeta });
+        try {
+          const result = await fn();
+          log.info('stage done', { stage, ms: Date.now() - t0, ...jobMeta });
+          return result;
+        } catch (e) {
+          log.error('stage failed', { stage, ms: Date.now() - t0, ...jobMeta, err: e });
+          throw e;
+        }
+      };
+      const tts = await timed('tts', () => executeTTS(shared));
+      const stills = await timed('stills', () => executeStills(shared));
+      const transitions = await timed('transitions', () => executeTransitions(shared, stills));
+      return await timed('assemble', () => executeAssemble(shared, tts, stills, transitions));
     } finally {
       signal.removeEventListener('abort', interruptOnce);
     }
