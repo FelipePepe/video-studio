@@ -24,6 +24,7 @@ import { getDraft } from './draftRepository';
 import { buildSrt, sceneCues } from './subtitles';
 import { DEFAULT_MUSIC_VOLUME, type Escaleta } from './types';
 import { ContentCache, TTS_CACHE_VERSION, WORKFLOW_VERSION } from './contentCache';
+import { buildChapters, type Chapter } from './chapters';
 
 export type FfmpegFn = (args: string[], opts?: { signal?: AbortSignal }) => Promise<void>;
 
@@ -94,6 +95,8 @@ interface StillsResult {
 type TransitionMap = Array<string | undefined>;
 interface AssembleResult {
   outputPath: string;
+  chaptersPath: string;
+  chapters: Chapter[];
 }
 
 interface Shared {
@@ -313,6 +316,11 @@ async function executeAssemble(s: Shared, tts: TTSResult, stills: StillsResult, 
   const coverPath = join(workDir, 'cover.jpg');
   const totalSec = durations.reduce((a, b) => a + b, 0) + transitions.filter((t) => t !== undefined).length * transitionSec;
 
+  // Chapter markers aligned to the muxed timeline (narration + short I2V transitions).
+  const chaptersPath = join(workDir, 'chapters.json');
+  const chapters = buildChapters(escaleta, durations, transitionSec, (i) => i < n - 1 && Boolean(transitions[i]));
+  writeFileSync(chaptersPath, JSON.stringify(chapters, null, 2));
+
   const music = job.options?.music;
   if (music && !existsSync(music)) throw new Error(`Music file not found: ${music}`);
 
@@ -351,7 +359,7 @@ async function executeAssemble(s: Shared, tts: TTSResult, stills: StillsResult, 
   //    burned subtitles. (Choosing a specific still is a separate improvement.)
   await run(coverArgs({ input: basePath, atSec: totalSec / 2, out: coverPath }));
 
-  return { outputPath: deliverable };
+  return { outputPath: deliverable, chaptersPath, chapters };
 }
 
 export function createExecute(deps: OrchestratorDeps): ExecuteFn {
