@@ -1,6 +1,6 @@
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { openDatabase } from '../src/db/connection';
@@ -300,6 +300,21 @@ test('fails clearly when scene WAVs have different formats', async () => {
   );
   assert.equal(h.comfy.uploads.length, 0);
   assert.equal(h.workflows.length, 0);
+});
+
+test('chapters: writes a chapters.json aligned to the narration timeline', async () => {
+  const h = harness();
+  const res = await h.execute(h.job, h.ctx);
+  assert.ok(res.chaptersPath);
+  assert.ok(existsSync(res.chaptersPath));
+  const chs = JSON.parse(readFileSync(res.chaptersPath, 'utf8')) as Array<{ index: number; title: string; startSec: number; durationSec: number }>;
+  const scenes = h.draft.escaleta.length;
+  assert.equal(chs.length, scenes);
+  assert.equal(chs[0].startSec, 0);
+  assert.deepEqual(chs.map((c) => c.index), Array.from({ length: scenes }, (_, i) => i));
+  assert.ok(chs.every((c) => c.durationSec > 0 && Number.isFinite(c.startSec)));
+  assert.ok(Array.isArray(res.chapters));
+  assert.equal(res.chapters!.length, scenes);
 });
 
 test('with a cacheDir, a second run reuses TTS/stills/transitions without new client work', async () => {

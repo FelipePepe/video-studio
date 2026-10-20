@@ -39,7 +39,19 @@ export interface JobContext {
   workDir: string;
   emit(partial: EmitInput): void;
 }
+/**
+ * The pipeline result. `outputPath` is guaranteed; the chapter fields are
+ * present when the assembler produced a deliverable (kept structurally
+ * generic here to avoid a circular import of the pipeline's `Chapter`).
+ */
+export interface ExecuteResult {
+  outputPath: string;
+  /** Absolute path to `chapters.json` (chapter markers aligned to the timeline). */
+  chaptersPath?: string;
+  /** Chapter markers (index, title, startSec, durationSec). */
+  chapters?: Array<{ index: number; title: string; startSec: number; durationSec: number }>;
+}
 
-export type ExecuteFn = (job: Job, ctx: JobContext) => Promise<{ outputPath: string }>;
+export type ExecuteFn = (job: Job, ctx: JobContext) => Promise<ExecuteResult>;
 
 export const TERMINAL_EVENT_TYPES: ReadonlySet<JobEvent['type']> = new Set(['done', 'error', 'cancelled']);
