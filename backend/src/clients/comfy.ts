@@ -9,6 +9,26 @@ export interface ComfyFile {
 
 export type ComfyOutputs = Record<string, unknown>;
 
+export interface ProgressInfo {
+  /** ComfyUI node id currently executing. */
+  node?: string;
+  /** Sampler step progress (0..max), when the server reports it. */
+  value?: number;
+  max?: number;
+  /** Terminal tick (execution finished for this prompt). */
+  done?: boolean;
+}
+
+/**
+ * Minimal WebSocket surface the client needs (compatible with the global undici `WebSocket` and with
+ * test fakes). Only 'message'/'close'/'error' are listened to.
+ */
+export interface WebSocketLike {
+  close(): void;
+  addEventListener(type: 'message' | 'close' | 'error', listener: (event: { data?: unknown }) => void): void;
+  removeEventListener?(type: string, listener: (event: { data?: unknown }) => void): void;
+}
+
 export interface ComfyClientOptions {
   fetchImpl?: typeof fetch;
   sleep?: (ms: number) => Promise<void>;
@@ -16,11 +36,19 @@ export interface ComfyClientOptions {
   requestTimeoutMs?: number;
   /** Timeout for uploadImage and download. Defaults: 120 s upload, 600 s download. */
   transferTimeoutMs?: number;
+  /** How to open the progress WebSocket. May throw → client falls back to polling-only. */
+  wsFactory?: (url: string) => WebSocketLike;
 }
 
 export interface WaitOptions {
   intervalMs?: number;
   timeoutMs?: number;
+  /**
+   * When provided, ComfyUI's per-step progress is streamed over the WebSocket to this callback
+   * (executing:{node,progress:{value,max}} / progress / execution_success|error). Completion and
+   * output extraction still use the robust /history polling — the socket only adds live progress.
+   */
+  onProgress?: (info: ProgressInfo) => void;
 }
 
 interface HistoryEntry {
@@ -31,6 +59,13 @@ interface HistoryEntry {
 const MAX_POLL_FAILURES = 3;
 
 const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/** Opens a live WebSocket using the runtime global (undici). Throws if unavailable (client falls back to polling-only). */
+function defaultWsFactory(url: string): WebSocketLike {
+  const W = (globalThis as { WebSocket?: new (url: string) => WebSocketLike }).WebSocket;
+  if (typeof W !== 'function') throw new Error('WebSocket is not available in this runtime');
+  return new W(url);
+}
 
 function firstFile(node: unknown, keys: string[]): ComfyFile | null {
   const n = node as Record<string, ComfyFile[] | undefined> | null;
@@ -74,6 +109,9 @@ export class ComfyClient {
   private readonly requestTimeoutMs: number;
   private readonly uploadTimeoutMs: number;
   private readonly downloadTimeoutMs: number;
+  private readonly wsFactory: (url: string) => WebSocketLike;
+  /** Stable client identity shared by the /prompt POST (client_id) and the progress WebSocket. */
+  readonly clientId = randomUUID();
 
   constructor(
     readonly host: string,
@@ -84,6 +122,7 @@ export class ComfyClient {
     this.requestTimeoutMs = opts.requestTimeoutMs ?? 30_000;
     this.uploadTimeoutMs = opts.transferTimeoutMs ?? 120_000;
     this.downloadTimeoutMs = opts.transferTimeoutMs ?? 600_000;
+    this.wsFactory = opts.wsFactory ?? defaultWsFactory;
   }
 
   private url(path: string): string {
@@ -107,7 +146,7 @@ export class ComfyClient {
     const res = await this.request('/prompt', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt: workflow, client_id: randomUUID() }),
+      body: JSON.stringify({ prompt: workflow, client_id: this.clientId }),
     });
     if (!res.ok) return this.fail('/prompt', res);
     const data = (await res.json()) as { prompt_id?: string };
@@ -131,29 +170,98 @@ export class ComfyClient {
     return history[promptId];
   }
 
+  /** ComfyUI's WebSocket endpoint (ws(s)://host/ws?clientId=\<id\>). */
+  private wsUrl(): string {
+    const u = new URL(this.host);
+    u.protocol = u.protocol === 'https:' ? 'wss:' : 'ws:';
+    u.pathname = '/ws';
+    u.searchParams.set('clientId', this.clientId);
+    return u.toString();
+  }
+
+  /**
+   * Opens the ComfyUI progress WebSocket (if available) and streams per-step progress for `promptId`
+   * to `onProgress`. Returns a disposer (closes the socket) or `null` when no socket could be opened
+   * (the client then relies on /history polling alone). Never throws.
+   */
+  private openProgressSocket(promptId: string, onProgress: (info: ProgressInfo) => void): (() => void) | null {
+    let ws: WebSocketLike;
+    try {
+      ws = this.wsFactory(this.wsUrl());
+    } catch {
+      return null;
+    }
+    const close = (): void => {
+      try {
+        ws.close();
+      } catch {
+        /* already closed */
+      }
+    };
+    const handleMessage = (ev: { data?: unknown }): void => {
+      let msg: { type?: string; data?: Record<string, unknown> };
+      try {
+        const raw = ev.data;
+        msg = typeof raw === 'string' ? (JSON.parse(raw) as typeof msg) : (raw as typeof msg);
+      } catch {
+        return;
+      }
+      const data = msg.data ?? {};
+      if (msg.type === 'executing') {
+        if (data.prompt_id !== promptId) return;
+        if (data.node == null) {
+          onProgress({ done: true });
+          close();
+          return;
+        }
+        const pr = (data.progress ?? {}) as { value?: number; max?: number };
+        onProgress({ node: String(data.node), value: pr.value ?? 0, max: pr.max ?? 0 });
+      } else if (msg.type === 'progress') {
+        if (data.prompt_id !== promptId) return;
+        onProgress({ value: (data.value as number) ?? 0, max: (data.max as number) ?? 0 });
+      } else if ((msg.type === 'execution_success' || msg.type === 'execution_error') && data.prompt_id === promptId) {
+        onProgress({ done: true });
+        close();
+      }
+    };
+    try {
+      ws.addEventListener('message', handleMessage);
+      ws.addEventListener('close', () => {});
+      ws.addEventListener('error', () => {});
+    } catch {
+      return null;
+    }
+    return close;
+  }
+
   async waitForCompletion(promptId: string, opts: WaitOptions = {}): Promise<ComfyOutputs> {
     const { intervalMs = 2000, timeoutMs = 3_600_000 } = opts;
     let elapsed = 0;
     let failures = 0;
-    for (;;) {
-      let entry: HistoryEntry | undefined;
-      try {
-        entry = await this.pollHistory(promptId);
-        failures = 0;
-      } catch (e) {
-        if (!(e instanceof TransientPollError) || ++failures > MAX_POLL_FAILURES) throw e;
+    const progress = opts.onProgress ? this.openProgressSocket(promptId, opts.onProgress) : null;
+    try {
+      for (;;) {
+        let entry: HistoryEntry | undefined;
+        try {
+          entry = await this.pollHistory(promptId);
+          failures = 0;
+        } catch (e) {
+          if (!(e instanceof TransientPollError) || ++failures > MAX_POLL_FAILURES) throw e;
+        }
+        const status = entry?.status?.status_str;
+        if (entry && status === 'error') {
+          const detail = executionError(entry);
+          throw new Error(`ComfyUI prompt ${promptId} failed${detail ? `: ${detail}` : ''}`);
+        }
+        if (entry && status === 'success') return entry.outputs ?? {};
+        if (elapsed + intervalMs > timeoutMs) {
+          throw new Error(`ComfyUI prompt ${promptId} timed out after ${timeoutMs}ms`);
+        }
+        await this.sleep(intervalMs);
+        elapsed += intervalMs;
       }
-      const status = entry?.status?.status_str;
-      if (entry && status === 'error') {
-        const detail = executionError(entry);
-        throw new Error(`ComfyUI prompt ${promptId} failed${detail ? `: ${detail}` : ''}`);
-      }
-      if (entry && status === 'success') return entry.outputs ?? {};
-      if (elapsed + intervalMs > timeoutMs) {
-        throw new Error(`ComfyUI prompt ${promptId} timed out after ${timeoutMs}ms`);
-      }
-      await this.sleep(intervalMs);
-      elapsed += intervalMs;
+    } finally {
+      progress?.();
     }
   }
 
