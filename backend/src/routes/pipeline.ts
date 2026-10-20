@@ -5,6 +5,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { OllamaClient } from '../clients/ollama';
 import { DraftInputError, DraftValidationError, generateDraft, validateEscaleta } from '../pipeline/draft';
 import { createDraft, DraftLockedError, getDraft, markApproved, updateEscaleta } from '../pipeline/draftRepository';
+import { generatePublishMetadata, PublishInputError } from '../pipeline/publish';
 import { getLatestJobForDraft } from '../jobs/jobRepository';
 import type { ApproveOptions } from '../pipeline/types';
 import type { Job, JobEvent } from '../jobs/types';
@@ -101,6 +102,28 @@ export function pipelineRouter(deps: PipelineDeps): Router {
       return;
     }
     res.json(draft);
+  });
+
+  // doc §7 — publication metadata (title/description/tags/hashtags + hook + cta) for the draft's video.
+  router.get('/draft/:id/publish', async (req, res) => {
+    const draft = getDraft(deps.db, req.params.id);
+    if (!draft) {
+      res.status(404).json({ error: 'Draft not found' });
+      return;
+    }
+    try {
+      const meta = await generatePublishMetadata(
+        { language: draft.language, escaleta: draft.escaleta },
+        { ollama: deps.resolveOllama() },
+      );
+      res.json(meta);
+    } catch (e) {
+      if (e instanceof PublishInputError) {
+        res.status(422).json({ error: e.message });
+        return;
+      }
+      res.status(502).json({ error: 'publish metadata generation failed' });
+    }
   });
 
   router.put('/draft/:id/segments', (req, res) => {
