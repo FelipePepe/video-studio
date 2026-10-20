@@ -1,5 +1,6 @@
 import express, { type ErrorRequestHandler, type Express } from 'express';
 import type { DatabaseSync } from 'node:sqlite';
+import { resolve as resolvePath } from 'node:path';
 import { openDatabase } from './db/connection';
 import { loadEnvDefaults, resolveEffectiveConfig, type EnvDefaults } from './config/settings';
 import { configRouter } from './routes/config';
@@ -73,9 +74,9 @@ export function buildApp(opts: AppOptions = {}): Express {
         resolveComfy: resolvers.resolveComfy,
         resolvePiper: resolvers.resolvePiper,
         ffmpeg: opts.ffmpeg,
-        cacheDir: opts.jobs?.cacheDir ?? 'data/cache',
+        cacheDir: resolvePath(opts.jobs?.cacheDir ?? 'data/cache'),
       }),
-    workDir: opts.jobs?.workDir ?? 'data/jobs',
+    workDir: resolvePath(opts.jobs?.workDir ?? 'data/jobs'),
   });
   if (opts.jobs?.autoStart) jobRunner.start();
   Object.assign(app.locals, resolvers, { db, eventHub, jobRunner });
