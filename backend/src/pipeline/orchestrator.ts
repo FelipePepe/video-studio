@@ -2,15 +2,14 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import type { ComfyClient } from '../clients/comfy';
-import { extractVideoOutput } from '../clients/comfy';
+import type { ComfyClient, ProgressInfo } from '../clients/comfy';
+import { extractVideoOutput, extractOutputFile } from '../clients/comfy';
 import type { PiperClient } from '../clients/piper';
 import { buildI2VWorkflow, buildT2VWorkflow, DEFAULTS } from '../comfy/workflows';
 import type { EmitInput, ExecuteFn, Job, JobContext } from '../jobs/types';
 import {
   buildConcatList,
   concatArgs,
-  extractFrameArgs,
   kenBurnsArgs,
   musicMixArgs,
   muxAudioArgs,
@@ -69,6 +68,13 @@ function kenBurnsSpec(visualPrompt: string, index: number): { zoomTo: number; di
   return { zoomTo, direction };
 }
 
+// doc §1: a global style (lighting/palette/realism) applied to every scene's visual prompt for
+// consistency across the video — applied at render time and included in the cache key.
+function stylePrompt(style: string | undefined, visualPrompt: string): string {
+  const s = (style ?? '').trim();
+  return s ? `${s}. ${visualPrompt}` : visualPrompt;
+}
+
 function abortError(): Error {
   const e = new Error('Job cancelled');
   e.name = 'AbortError';
@@ -112,6 +118,7 @@ interface Shared {
   emit: (partial: EmitInput) => void;
   begin: (stage: Stage, msg?: string) => void;
   step: (stage: Stage, done: number, total: number) => void;
+  comfyStep: (stage: Stage, info: ProgressInfo) => void;
   sceneFile: (dir: string, name: string, i: number, ext: string) => string;
 }
 
@@ -164,25 +171,27 @@ async function executeStills(s: Shared): Promise<StillsResult> {
     guard();
     const seed = seedFor(s.job.draftId, i);
     const png = sceneFile(stillsDir, 'scene', i, 'png');
-    const key = s.cache?.key(WORKFLOW_VERSION, 't2v', escaleta[i].visualPrompt, seed, DEFAULTS.width, DEFAULTS.height, 1);
+    const prompt = stylePrompt(s.job.options?.style, escaleta[i].visualPrompt);
+    const key = s.cache?.key(WORKFLOW_VERSION, 't2v', prompt, seed, DEFAULTS.width, DEFAULTS.height, 1, s.job.options?.useLightx2v);
     if (s.cache && key && s.cache.has(key)) {
       writeFileSync(png, s.cache.read(key));
     } else {
       try {
         const id = await comfy.submit(
           buildT2VWorkflow({
-            prompt: escaleta[i].visualPrompt,
+            prompt,
             seed,
             numFrames: 1,
             pingpong: false,
+            saveImage: true,
             filenamePrefix: `${prefix}_still_${pad(i)}`,
+            useLightx2v: s.job.options?.useLightx2v,
           }),
         );
-        const file = extractVideoOutput(await comfy.waitForCompletion(id));
-        if (!file) throw new Error('ComfyUI returned no video output');
-        const mp4 = sceneFile(stillsDir, 'scene', i, 'mp4');
-        writeFileSync(mp4, await comfy.download(file));
-        await run(extractFrameArgs({ video: mp4, out: png }));
+        const outputs = await comfy.waitForCompletion(id, { onProgress: (info) => s.comfyStep('images', info) });
+        const file = extractOutputFile(outputs);
+        if (!file) throw new Error('ComfyUI returned no image output');
+        writeFileSync(png, await comfy.download(file));
         if (s.cache && key) s.cache.store(key, readFileSync(png));
       } catch (e) {
         return fail('images', `scene ${i + 1}`, e);
@@ -215,7 +224,7 @@ async function executeTransitions(s: Shared, stills: StillsResult): Promise<Tran
   for (let i = 0; i < n - 1; i++) {
     guard();
     const seed = seedFor(s.job.draftId, 1000 + i);
-    const key = s.cache?.key(WORKFLOW_VERSION, 'i2v', escaleta[i].visualPrompt, escaleta[i + 1].visualPrompt, seed, frames);
+    const key = s.cache?.key(WORKFLOW_VERSION, 'i2v', stylePrompt(s.job.options?.style, escaleta[i].visualPrompt), stylePrompt(s.job.options?.style, escaleta[i + 1].visualPrompt), seed, frames, s.job.options?.useLightx2v);
     if (s.cache && key && s.cache.has(key)) {
       const out = sceneFile(transDir, 'trans', i, 'mp4');
       writeFileSync(out, s.cache.read(key));
@@ -228,17 +237,19 @@ async function executeTransitions(s: Shared, stills: StillsResult): Promise<Tran
           buildI2VWorkflow({
             startImage: start,
             endImage: end,
-            prompt: escaleta[i + 1].visualPrompt,
+            prompt: stylePrompt(s.job.options?.style, escaleta[i + 1].visualPrompt),
             seed,
+            useLightx2v: s.job.options?.useLightx2v,
             numFrames: frames,
             pingpong: false,
             filenamePrefix: `${prefix}_trans_${pad(i)}`,
           }),
         );
-        const file = extractVideoOutput(await comfy.waitForCompletion(id));
+        const outputs = await comfy.waitForCompletion(id, { onProgress: (info) => s.comfyStep('transitions', info) });
+        const file = extractVideoOutput(outputs);
         if (!file) throw new Error('ComfyUI returned no video output');
         const out = sceneFile(transDir, 'trans', i, 'mp4');
-        writeFileSync(out, await comfy.download(file));
+        await comfy.downloadToFile(file, out);
         transitions.push(out);
         if (s.cache && key) s.cache.store(key, readFileSync(out));
       } catch (e) {
@@ -383,6 +394,16 @@ export function createExecute(deps: OrchestratorDeps): ExecuteFn {
       const [lo, hi] = RANGES[stage];
       emit({ type: 'progress', stage, progress: advance(lo + ((hi - lo) * done) / total) });
     };
+    const comfyStep = (stage: Stage, info: ProgressInfo): void => {
+      if (info.done) return;
+      const text =
+        typeof info.max === 'number' && info.max > 0
+          ? `comfy: paso ${info.value ?? 0}/${info.max}`
+          : info.node
+            ? `comfy: nodo ${info.node}`
+            : undefined;
+      if (text) emit({ type: 'progress', stage, progress: emitted, message: text });
+    };
     const run = async (args: string[]) => {
       guard();
       try {
@@ -421,6 +442,7 @@ export function createExecute(deps: OrchestratorDeps): ExecuteFn {
       emit,
       begin,
       step,
+      comfyStep,
       sceneFile: (dir, name, i, ext) => join(dir, `${name}_${pad(i)}.${ext}`),
     };
 

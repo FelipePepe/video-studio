@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ComfyClient, extractOutputFile, extractVideoOutput } from '../src/clients/comfy';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { ComfyClient, extractOutputFile, extractVideoOutput, type ProgressInfo } from '../src/clients/comfy';
 
 type Call = { url: string; init?: RequestInit };
 
@@ -105,6 +108,72 @@ test('waitForCompletion throws after repeated 5xx history responses', async () =
   const client = new ComfyClient('http://c', { fetchImpl, sleep: noSleep });
   await assert.rejects(client.waitForCompletion('p1'), /history.*500/);
   assert.equal(calls.length, 4);
+});
+
+class FakeWS {
+  static instances: FakeWS[] = [];
+  closed = false;
+  readonly url: string;
+  private handlers: Record<string, Array<(ev: { data?: unknown }) => void>> = {};
+  constructor(url: string) {
+    this.url = url;
+    FakeWS.instances.push(this);
+  }
+  addEventListener(type: string, cb: (ev: { data?: unknown }) => void): void {
+    (this.handlers[type] ??= []).push(cb);
+  }
+  removeEventListener(): void {}
+  close(): void {
+    if (this.closed) return;
+    this.closed = true;
+    (this.handlers['close'] ?? []).forEach((cb) => cb({}));
+  }
+  /** Test helper: push a WS payload. */
+  send(payload: unknown): void {
+    const data = typeof payload === 'string' ? payload : JSON.stringify(payload);
+    (this.handlers['message'] ?? []).forEach((cb) => cb({ data }));
+  }
+}
+
+test('waitForCompletion streams per-step progress over the WebSocket and closes it', async () => {
+  const outputs = { '9': { gifs: [{ filename: 'c.mp4' }] } };
+  const { fetchImpl } = fakeFetch([json({ p1: { status: { status_str: 'success' }, outputs } })]);
+  const client = new ComfyClient('http://c', {
+    fetchImpl,
+    sleep: noSleep,
+    wsFactory: (url) => {
+      assert.match(url, /^ws:\/\//);
+      assert.match(url, /clientId=/);
+      return new FakeWS(url);
+    },
+  });
+  const events: ProgressInfo[] = [];
+  const promise = client.waitForCompletion('p1', { onProgress: (info) => void events.push(info) });
+  const ws = FakeWS.instances.at(-1)!;
+  ws.send({ type: 'executing', data: { prompt_id: 'p1', node: '5', progress: { value: 7, max: 30 } } });
+  ws.send({ type: 'executing', data: { prompt_id: 'OTHER', node: '9' } }); // ignored: not our prompt
+  ws.send({ type: 'executing', data: { prompt_id: 'p1', node: null } }); // terminal
+  const out = await promise;
+  assert.deepEqual(out, outputs);
+  assert.equal(ws.closed, true);
+  assert.deepEqual(events.filter((e) => e.node === '5'), [{ node: '5', value: 7, max: 30 }]);
+  assert.ok(events.some((e) => e.done === true));
+});
+
+test('waitForCompletion still resolves via polling when the WebSocket is unavailable', async () => {
+  const outputs = { '9': { gifs: [{ filename: 'c.mp4' }] } };
+  const { fetchImpl } = fakeFetch([json({ p1: { status: { status_str: 'success' }, outputs } })]);
+  const events: ProgressInfo[] = [];
+  const client = new ComfyClient('http://c', {
+    fetchImpl,
+    sleep: noSleep,
+    wsFactory: () => {
+      throw new Error('no ws in this env');
+    },
+  });
+  const out = await client.waitForCompletion('p1', { onProgress: (info) => void events.push(info) });
+  assert.deepEqual(out, outputs);
+  assert.equal(events.length, 0);
 });
 
 test('waitForCompletion fails immediately on a 4xx history response', async () => {
@@ -302,4 +371,24 @@ test('extractVideoOutput finds images, gifs or videos', () => {
   assert.equal(extractVideoOutput({ '1': { videos: [{ filename: 'w.mp4' }] } })?.filename, 'w.mp4');
   assert.equal(extractVideoOutput({ '1': { images: [{ filename: 'i.png' }] } })?.filename, 'i.png');
   assert.equal(extractVideoOutput({ '1': { gifs: [] } }), null);
+});
+
+test('downloadToFile streams the body to disk (full payload, not a truncated buffer)', async () => {
+  // A sizable payload to make a truncation bug obvious if the stream were read partially.
+  const payload = Buffer.alloc(200_000, 7);
+  const { fetchImpl } = fakeFetch([new Response(payload, { status: 200 })]);
+  const client = new ComfyClient('http://c', { fetchImpl });
+  const dir = mkdtempSync(join(tmpdir(), 'vs-dl-'));
+  const dest = join(dir, 'scene.mp4');
+  const result = await client.downloadToFile({ filename: 'scene.mp4' }, dest);
+  assert.equal(result, undefined, 'downloadToFile resolves to void, not a Buffer');
+  assert.ok(readFileSync(dest).length >= payload.length, 'full payload landed on disk');
+  assert.deepEqual(readFileSync(dest).subarray(0, 64), payload.subarray(0, 64), 'bytes are intact');
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('downloadToFile surfaces an HTTP failure', async () => {
+  const { fetchImpl } = fakeFetch([new Response('nope', { status: 404 })]);
+  const client = new ComfyClient('http://c', { fetchImpl });
+  await assert.rejects(client.downloadToFile({ filename: 'x' }, '/tmp/vs-dl-bad.bin'), /404/);
 });

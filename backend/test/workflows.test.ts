@@ -4,6 +4,7 @@ import {
   DEFAULTS,
   I2V_LOW_MODEL,
   I2V_MODEL,
+  LORA,
   T2V_LOW_MODEL,
   T2V_MODEL,
   T5_ENCODER,
@@ -157,6 +158,19 @@ test('T2V: seed, prompt, size, frames land in the right inputs with defaults', (
   assert.equal(byType(wf, 'LoadImage').length, 0);
 });
 
+test('saveImage: still mode uses SaveImage and drops VHS_VideoCombine', () => {
+  const wf = buildT2VWorkflow({ prompt: 'a cat', seed: 42, numFrames: 1, saveImage: true, filenamePrefix: 's_0' });
+  const save = one(wf, 'SaveImage');
+  assert.equal(byType(wf, 'VHS_VideoCombine').length, 0);
+  const decode = one(wf, 'WanVideoDecode');
+  assert.deepEqual(save.inputs.images, [decode.id, 0]);
+  assert.equal(save.inputs.filename_prefix, 's_0');
+
+  const regular = buildT2VWorkflow({ prompt: 'a cat', seed: 42 });
+  assert.equal(byType(regular, 'SaveImage').length, 0);
+  assert.equal(byType(regular, 'VHS_VideoCombine').length, 1);
+});
+
 test('T2V: overrides apply and each model chain is wired correctly', () => {
   const wf = buildT2VWorkflow({
     prompt: 'x', seed: 7, width: 832, height: 480, numFrames: 49, steps: 20, switchStep: 12, filenamePrefix: 'seg_1',
@@ -239,4 +253,53 @@ test('pingpong defaults to true and can be disabled for T2V and I2V', () => {
   assert.equal(one(buildI2VWorkflow(i2v), 'VHS_VideoCombine').inputs.pingpong, true);
   assert.equal(one(buildT2VWorkflow({ ...t2v, pingpong: false }), 'VHS_VideoCombine').inputs.pingpong, false);
   assert.equal(one(buildI2VWorkflow({ ...i2v, pingpong: false }), 'VHS_VideoCombine').inputs.pingpong, false);
+});
+
+test('lightx2v attaches high+low LoRAs to both experts and drops to 4 steps', () => {
+  const wf = buildT2VWorkflow({ prompt: 'p', seed: 1, useLightx2v: true });
+  const selects = byType(wf, 'WanVideoLoraSelect');
+  assert.equal(selects.length, 2, 'high + low LoLA selected');
+  assert.deepEqual(
+    selects.map((s) => s.inputs.lora).sort(),
+    [LORA.t2v_high, LORA.t2v_low].sort(),
+  );
+  // Every WanVideoSetLoRAs must now be wired to one of those LoRA selectors.
+  const setLoras = byType(wf, 'WanVideoSetLoRAs');
+  assert.equal(setLoras.length, 2);
+  for (const n of setLoras) {
+    assert.ok(Array.isArray(n.inputs.lora), 'SetLoRAs wired to a LoRA');
+    const sel = wf[(n.inputs.lora as [string, number])[0]];
+    assert.equal(sel.class_type, 'WanVideoLoraSelect');
+    // fp8_scaled models can't bake LoRAs in — merge_loras must be off or the run fails.
+    assert.equal(sel.inputs.merge_loras, false);
+  }
+  // Step range: high 0->3, low 3->end, 4 total steps (lightx2v intent).
+  const { high, low } = samplerPair(wf);
+  assert.equal(high.inputs.start_step, 0);
+  assert.equal(high.inputs.end_step, 3);
+  assert.equal(low.inputs.start_step, 3);
+  assert.equal(low.inputs.end_step, -1);
+  assert.equal(high.inputs.steps, 4);
+  assert.equal(low.inputs.steps, 4);
+  assertConnectionsValid(wf);
+});
+
+test('without useLightx2v there is no LoLA and steps stay at 50/42', () => {
+  const wf = buildT2VWorkflow({ prompt: 'p', seed: 1 });
+  assert.equal(byType(wf, 'WanVideoLoraSelect').length, 0, 'no LoLA selected');
+  for (const n of byType(wf, 'WanVideoSetLoRAs')) assert.ok(!n.inputs.lora, 'SetLoRAs has no LoLA by default');
+  const { high } = samplerPair(wf);
+  assert.equal(high.inputs.start_step, 0);
+  assert.equal(high.inputs.end_step, DEFAULTS.switchStep);
+  assert.equal(high.inputs.steps, DEFAULTS.steps);
+});
+
+test('I2V lightx2v uses the i2v LoRAs', () => {
+  const wf = buildI2VWorkflow({ prompt: 'p', seed: 1, startImage: 'a.png', useLightx2v: true });
+  assert.deepEqual(
+    byType(wf, 'WanVideoLoraSelect').map((s) => s.inputs.lora).sort(),
+    [LORA.i2v_high, LORA.i2v_low].sort(),
+  );
+  const { high } = samplerPair(wf);
+  assert.equal(high.inputs.steps, 4);
 });

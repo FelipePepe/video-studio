@@ -75,8 +75,11 @@ function harness(opts: Opts = {}) {
       pending.set(id, isI2V);
       return id;
     },
-    waitForCompletion: async (id: string) => ({ '9': { gifs: [{ filename: `${id}.mp4`, subfolder: 's', type: 'output' }] } }),
+    waitForCompletion: async (id: string) => ({ '9': { images: [{ filename: `${id}.png`, subfolder: 's', type: 'output' }], gifs: [{ filename: `${id}.mp4`, subfolder: 's', type: 'output' }] } }),
     download: async (file: { filename: string }) => Buffer.from(`bytes:${file.filename}`),
+    downloadToFile: async (file: { filename: string }, dest: string) => {
+      writeFileSync(dest, Buffer.from(`bytes:${file.filename}`));
+    },
     uploadImage: async (_data: Buffer, name: string) => {
       comfy.uploads.push(name);
       return `up_${name}`;
@@ -186,6 +189,22 @@ test('seeds are deterministic per draft and scene', async () => {
   assert.deepEqual(seedsOf(a.workflows), seeds);
 });
 
+test('global style injects into every visual prompt (still + transition target)', async () => {
+  const h = harness(); // 3 stills + 2 transition targets
+  h.job.options = { style: 'cinematic, consistent warm lighting, 35mm grain' };
+  await h.execute(h.job, h.ctx);
+  const all = JSON.stringify(h.workflows);
+  const count = (all.match(/cinematic, consistent warm lighting, 35mm grain/g) ?? []).length;
+  assert.equal(count, 5, `style applied to all 3 stills + 2 transition targets; got ${count}`);
+});
+
+test('without a style set the prompts are the raw visualPrompt (backward compat)', async () => {
+  const h = harness();
+  await h.execute(h.job, h.ctx);
+  const all = JSON.stringify(h.workflows);
+  assert.ok(!all.includes('cinematic, consistent warm lighting'), 'no injected style without the option');
+});
+
 test('assembles Ken Burns clips with the WAV durations, alternating with transitions', async () => {
   const h = harness();
   await h.execute(h.job, h.ctx);
@@ -284,10 +303,16 @@ test('disables pingpong in every submitted workflow so clips keep numFrames / 16
   const h = harness();
   await h.execute(h.job, h.ctx);
   assert.equal(h.workflows.length, 5);
+  // Stills save via SaveImage; transitions render video (VHS_VideoCombine) — any video node must have pingpong off.
+  let sawVideo = false;
   for (const w of h.workflows) {
-    const combine = Object.values(w).find((n) => n.class_type === 'VHS_VideoCombine')!;
-    assert.equal(combine.inputs.pingpong, false);
+    const combine = Object.values(w).find((n) => n.class_type === 'VHS_VideoCombine');
+    if (combine) {
+      sawVideo = true;
+      assert.equal(combine.inputs.pingpong, false);
+    }
   }
+  assert.ok(sawVideo);
 });
 
 test('progress never decreases when a transition fails', async () => {
