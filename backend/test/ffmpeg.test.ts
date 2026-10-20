@@ -93,6 +93,13 @@ test('kenBurnsArgs honors size, fps and zoom and validates input', () => {
   assert.throws(() => kenBurnsArgs({ image: 'i', durationSec: 1, out: 'o', zoomTo: 0.9 }), /zoomTo/);
 });
 
+test('kenBurnsArgs supports zoom-out (starts at zoomTo, ends at 1×)', () => {
+  const args = kenBurnsArgs({ image: 'i', durationSec: 10, out: 'o', zoomTo: 1.2, direction: 'zoom-out' });
+  const filter = args[args.indexOf('-vf') + 1];
+  assert.match(filter, /max\(1\.2-[\d.]+\*on,1\)/, `got: ${filter}`);
+  assert.match(filter, /zoompan/);
+});
+
 test('xfadeArgs chains xfade filters with cumulative offsets', () => {
   const args = xfadeArgs({ clips: ['a.mp4', 'b.mp4', 'c.mp4'], durationsSec: [5, 4, 6], transitionSec: 1, out: 'o.mp4' });
   assert.deepEqual(args, [
