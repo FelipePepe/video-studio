@@ -1,5 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { ComfyClient, extractOutputFile, extractVideoOutput } from '../src/clients/comfy';
 
 type Call = { url: string; init?: RequestInit };
@@ -302,4 +305,24 @@ test('extractVideoOutput finds images, gifs or videos', () => {
   assert.equal(extractVideoOutput({ '1': { videos: [{ filename: 'w.mp4' }] } })?.filename, 'w.mp4');
   assert.equal(extractVideoOutput({ '1': { images: [{ filename: 'i.png' }] } })?.filename, 'i.png');
   assert.equal(extractVideoOutput({ '1': { gifs: [] } }), null);
+});
+
+test('downloadToFile streams the body to disk (full payload, not a truncated buffer)', async () => {
+  // A sizable payload to make a truncation bug obvious if the stream were read partially.
+  const payload = Buffer.alloc(200_000, 7);
+  const { fetchImpl } = fakeFetch([new Response(payload, { status: 200 })]);
+  const client = new ComfyClient('http://c', { fetchImpl });
+  const dir = mkdtempSync(join(tmpdir(), 'vs-dl-'));
+  const dest = join(dir, 'scene.mp4');
+  const result = await client.downloadToFile({ filename: 'scene.mp4' }, dest);
+  assert.equal(result, undefined, 'downloadToFile resolves to void, not a Buffer');
+  assert.ok(readFileSync(dest).length >= payload.length, 'full payload landed on disk');
+  assert.deepEqual(readFileSync(dest).subarray(0, 64), payload.subarray(0, 64), 'bytes are intact');
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('downloadToFile surfaces an HTTP failure', async () => {
+  const { fetchImpl } = fakeFetch([new Response('nope', { status: 404 })]);
+  const client = new ComfyClient('http://c', { fetchImpl });
+  await assert.rejects(client.downloadToFile({ filename: 'x' }, '/tmp/vs-dl-bad.bin'), /404/);
 });
