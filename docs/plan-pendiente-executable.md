@@ -1,8 +1,8 @@
 {
   "meta": {
     "plan": "video-studio — Plan de mejoras: ESTADO FINAL (consolidado en develop)",
-    "base": "develop @ 1f0c531 (313 tests, 0 fail, typecheck clean)",
-    "estado": "COMPLETADO salvo §6 (bloqueado por espiga). Todos los PRs mergeados en develop."
+    "base": "develop @ 96625ee (313 tests, 0 fail, typecheck clean)",
+    "estado": "COMPLETADO salvo §6 (bloqueado: decisión de producto; requiere InfiniteTalk+Qwen-Image-Edit en babybeast). Todos los PRs mergeados en develop."
   },
   "completed": [
     {
@@ -130,8 +130,8 @@
     {
       "id": "§6",
       "title": "Documental con títeres (espiga: rig de títeres + música + voz)",
-      "why_blocked": "espiga (192.168.1.61) no es reachable (curl timeout). El doc dice 'empieza con una espiga sobre babybeast' pero babybeast es el host de producción (Wan2.2). Hay que subir espiga ANTES de poder prototipar el rig de títeres.",
-      "exit_criterion": "espiga.casa o espiga:8188 responde a /object_info con un nodo de títeres/rig funcional"
+      "why_blocked": "El spike de §6 se hace en babybeast (192.168.1.60:8188, reachable). Falta verificar/provisar que tenga instalados los nodos InfiniteTalk (WanInfiniteTalkToVideo) y Qwen-Image-Edit-2509. Es una decisión de producto (nuevo caso de usar), no una mejora incremental.",
+      "exit_criterion": "babybeast:8188/object_info responde con los nodos WanInfiniteTalkToVideo y Qwen-Image-Edit-2509 instalados. A partir de ahí se puede hacer el spike de lip-sync + rig de títere en babybeast."
     }
   ],
   "summary": {
@@ -140,6 +140,6 @@
     "test_count": 313,
     "fail": 0,
     "typecheck": "clean",
-    "blocked": "§6 espiga"
+    "blocked": "§6 (InfiniteTalk + Qwen-Image-Edit en babybeast)"
   }
 }
