@@ -75,7 +75,7 @@ function harness(opts: Opts = {}) {
       pending.set(id, isI2V);
       return id;
     },
-    waitForCompletion: async (id: string) => ({ '9': { gifs: [{ filename: `${id}.mp4`, subfolder: 's', type: 'output' }] } }),
+    waitForCompletion: async (id: string) => ({ '9': { images: [{ filename: `${id}.png`, subfolder: 's', type: 'output' }], gifs: [{ filename: `${id}.mp4`, subfolder: 's', type: 'output' }] } }),
     download: async (file: { filename: string }) => Buffer.from(`bytes:${file.filename}`),
     downloadToFile: async (file: { filename: string }, dest: string) => {
       writeFileSync(dest, Buffer.from(`bytes:${file.filename}`));
@@ -274,10 +274,16 @@ test('disables pingpong in every submitted workflow so clips keep numFrames / 16
   const h = harness();
   await h.execute(h.job, h.ctx);
   assert.equal(h.workflows.length, 5);
+  // Stills save via SaveImage; transitions render video (VHS_VideoCombine) — any video node must have pingpong off.
+  let sawVideo = false;
   for (const w of h.workflows) {
-    const combine = Object.values(w).find((n) => n.class_type === 'VHS_VideoCombine')!;
-    assert.equal(combine.inputs.pingpong, false);
+    const combine = Object.values(w).find((n) => n.class_type === 'VHS_VideoCombine');
+    if (combine) {
+      sawVideo = true;
+      assert.equal(combine.inputs.pingpong, false);
+    }
   }
+  assert.ok(sawVideo);
 });
 
 test('progress never decreases when a transition fails', async () => {

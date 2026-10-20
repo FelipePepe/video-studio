@@ -54,6 +54,8 @@ interface CommonOptions {
   switchStep?: number;
   filenamePrefix?: string;
   pingpong?: boolean;
+  /** When true, save the decoded frame with SaveImage (image) rather than VHS_VideoCombine (mp4). */
+  saveImage?: boolean;
   /** doc §1: attach the lightx2v 4-step LoRA (high/low) to the dual-expert and drop to 4 total steps. ~10× faster, same quality. */
   useLightx2v?: boolean;
 }
@@ -168,19 +170,26 @@ function buildTail(
     tile_stride_x: 144,
     tile_stride_y: 144,
   });
-  b.add('VHS_VideoCombine', {
-    images: [decode, 0],
-    frame_rate: DEFAULTS.fps,
-    loop_count: 0,
-    filename_prefix: o.filenamePrefix ?? 'video_studio',
-    format: 'video/h264-mp4',
-    pix_fmt: 'yuv420p',
-    crf: 19,
-    save_metadata: false,
-    trim_to_audio: false,
-    pingpong: o.pingpong ?? true,
-    save_output: true,
-  });
+  if (o.saveImage) {
+    b.add('SaveImage', {
+      images: [decode, 0],
+      filename_prefix: o.filenamePrefix ?? 'video_studio',
+    });
+  } else {
+    b.add('VHS_VideoCombine', {
+      images: [decode, 0],
+      frame_rate: DEFAULTS.fps,
+      loop_count: 0,
+      filename_prefix: o.filenamePrefix ?? 'video_studio',
+      format: 'video/h264-mp4',
+      pix_fmt: 'yuv420p',
+      crf: 19,
+      save_metadata: false,
+      trim_to_audio: false,
+      pingpong: o.pingpong ?? true,
+      save_output: true,
+    });
+  }
   return b.nodes;
 }
 
