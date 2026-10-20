@@ -16,6 +16,10 @@ export const I2V_MODEL = 'wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors';
 export const I2V_LOW_MODEL = 'wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors';
 export const T5_ENCODER = 'umt5-xxl-enc-fp8_e4m3fn-fixed.safetensors';
 
+// ACE-Step 1.5 (doc §7): the checkpoint on the target box is v1.5, so we use the *1.5* node
+// family (TextEncodeAceStepAudio1.5 + EmptyAceStep1.5LatentAudio). Mixing the 1.3.5b nodes with
+// the v1.5 checkpoint is what broke VAEDecodeAudio validation on the shared server.
+export const ACE_STEP_CHECKPOINT = 'ace_step_v1_5.safetensors';
 // lightx2v 4-step LoRAs (high/low) — dramatically reduce denoising steps while keeping quality.
 // doc §1: 10× faster renders with near-identical output.
 export const LORA = {
@@ -246,4 +250,83 @@ export function buildI2VWorkflow(o: I2VOptions): Workflow {
   if (end) encodeInputs.end_image = [end, 0];
   const embeds = b.add('WanVideoImageToVideoEncode', encodeInputs);
   return buildTail(b, withLightx2v(o), shared, high, low, embeds);
+}
+
+export interface ACEStepMusicOptions {
+  /** Style / mood / instrumentation tags (drives the character of the track). */
+  tags?: string;
+  /** Optional lyrics. Empty string leaves the track instrumental. */
+  lyrics?: string;
+  /** Duration in seconds. */
+  seconds?: number;
+  /** Tempo in BPM. */
+  bpm?: number;
+  /** Beats per bar (2, 3, 4, 6). */
+  timesignature?: '2' | '3' | '4' | '6';
+  /** Language code for any vocals (e.g. 'es'); 'unknown' for instrumental. */
+  language?: string;
+  /** Musical key (e.g. 'C minor', 'A minor'). */
+  keyscale?: string;
+  seed?: number;
+  /** Output filename prefix shown in the ComfyUI output folder. */
+  filenamePrefix?: string;
+}
+
+function randomSeed(): number {
+  return Math.floor(Math.random() * 0xffffffff);
+}
+
+/**
+ * ACE-Step 1.5 text-to-music workflow: CheckpointLoaderSimple → ModelSamplingSD3 (flow-matching
+ * shift) → TextEncodeAceStepAudio1.5 → KSampler → VAEDecodeAudio → SaveAudio.
+ *
+ * NOTE (doc §7): the 1.5 node family is used to match the v1.5 checkpoint on the target box (using
+ * the 1.3.5b nodes against the v1.5 checkpoint is what broke VAEDecodeAudio validation on the
+ * shared babybeast box). KSampler params follow the official ACE-Step reference (shift ≈ 4,
+ * euler/sgm_uniform, denoise 1). E2E still needs validation against a server where the ACE-Step
+ * 1.5 nodes + checkpoint actually produce audio — see the PR notes.
+ */
+export function buildACEStepMusicWorkflow(o: ACEStepMusicOptions = {}): Workflow {
+  const b = new Builder();
+  const seed = o.seed ?? randomSeed();
+  const seconds = o.seconds ?? 120;
+
+  const checkpoint = b.add('CheckpointLoaderSimple', { ckpt_name: ACE_STEP_CHECKPOINT });
+  // ACE-Step 1.5 is flow-matching: the checkpoint model is routed through ModelSamplingSD3, which
+  // sets the shift the sampler uses (≈ 4 per the official reference).
+  const sampledModel = b.add('ModelSamplingSD3', { model: [checkpoint, 0], shift: 4.0 });
+  const encoder = b.add('TextEncodeAceStepAudio1.5', {
+    clip: [checkpoint, 1],
+    tags: o.tags ?? 'cinematic ambient, warm strings, gentle piano, soft, sparse, instrumental',
+    lyrics: o.lyrics ?? '',
+    seed,
+    bpm: o.bpm ?? 90,
+    duration: seconds,
+    timesignature: o.timesignature ?? '4',
+    language: o.language ?? 'unknown',
+    keyscale: o.keyscale ?? 'C minor',
+    generate_audio_codes: false,
+    cfg_scale: 2.0,
+    temperature: 0.85,
+    top_p: 0.9,
+    top_k: 0,
+    min_p: 0.0,
+  });
+  const latent = b.add('EmptyAceStep1.5LatentAudio', { seconds, batch_size: 1 });
+  const negative = b.add('ConditioningZeroOut', { conditioning: [encoder, 0] });
+  const sampler = b.add('KSampler', {
+    model: [sampledModel, 0],
+    seed,
+    steps: 30,
+    cfg: 6.0,
+    sampler_name: 'euler',
+    scheduler: 'sgm_uniform',
+    positive: [encoder, 0],
+    negative: [negative, 0],
+    latent_image: [latent, 0],
+    denoise: 1.0,
+  });
+  const decoded = b.add('VAEDecodeAudio', { samples: [sampler, 1], vae: [checkpoint, 2] });
+  b.add('SaveAudio', { audio: [decoded, 0], filename_prefix: o.filenamePrefix ?? 'vs_music' });
+  return b.nodes;
 }
