@@ -175,7 +175,7 @@ async function executeStills(s: Shared): Promise<StillsResult> {
         const file = extractVideoOutput(outputs);
         if (!file) throw new Error('ComfyUI returned no video output');
         const mp4 = sceneFile(stillsDir, 'scene', i, 'mp4');
-        writeFileSync(mp4, await comfy.download(file));
+        await comfy.downloadToFile(file, mp4);
         await run(extractFrameArgs({ video: mp4, out: png }));
         if (s.cache && key) s.cache.store(key, readFileSync(png));
       } catch (e) {
@@ -233,7 +233,7 @@ async function executeTransitions(s: Shared, stills: StillsResult): Promise<Tran
         const file = extractVideoOutput(outputs);
         if (!file) throw new Error('ComfyUI returned no video output');
         const out = sceneFile(transDir, 'trans', i, 'mp4');
-        writeFileSync(out, await comfy.download(file));
+        await comfy.downloadToFile(file, out);
         transitions.push(out);
         if (s.cache && key) s.cache.store(key, readFileSync(out));
       } catch (e) {
