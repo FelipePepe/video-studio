@@ -60,6 +60,13 @@ function seedFor(draftId: string, sceneIndex: number): number {
   return createHash('sha256').update(`${draftId}:${sceneIndex}`).digest().readUInt32BE(0);
 }
 
+// doc §1: a global style (lighting/palette/realism) applied to every scene's visual prompt for
+// consistency across the video — applied at render time and included in the cache key.
+function stylePrompt(style: string | undefined, visualPrompt: string): string {
+  const s = (style ?? '').trim();
+  return s ? `${s}. ${visualPrompt}` : visualPrompt;
+}
+
 function abortError(): Error {
   const e = new Error('Job cancelled');
   e.name = 'AbortError';
@@ -156,14 +163,15 @@ async function executeStills(s: Shared): Promise<StillsResult> {
     guard();
     const seed = seedFor(s.job.draftId, i);
     const png = sceneFile(stillsDir, 'scene', i, 'png');
-    const key = s.cache?.key(WORKFLOW_VERSION, 't2v', escaleta[i].visualPrompt, seed, DEFAULTS.width, DEFAULTS.height, 1, s.job.options?.useLightx2v);
+    const prompt = stylePrompt(s.job.options?.style, escaleta[i].visualPrompt);
+    const key = s.cache?.key(WORKFLOW_VERSION, 't2v', prompt, seed, DEFAULTS.width, DEFAULTS.height, 1, s.job.options?.useLightx2v);
     if (s.cache && key && s.cache.has(key)) {
       writeFileSync(png, s.cache.read(key));
     } else {
       try {
         const id = await comfy.submit(
           buildT2VWorkflow({
-            prompt: escaleta[i].visualPrompt,
+            prompt,
             seed,
             numFrames: 1,
             pingpong: false,
@@ -208,7 +216,7 @@ async function executeTransitions(s: Shared, stills: StillsResult): Promise<Tran
   for (let i = 0; i < n - 1; i++) {
     guard();
     const seed = seedFor(s.job.draftId, 1000 + i);
-    const key = s.cache?.key(WORKFLOW_VERSION, 'i2v', escaleta[i].visualPrompt, escaleta[i + 1].visualPrompt, seed, frames, s.job.options?.useLightx2v);
+    const key = s.cache?.key(WORKFLOW_VERSION, 'i2v', stylePrompt(s.job.options?.style, escaleta[i].visualPrompt), stylePrompt(s.job.options?.style, escaleta[i + 1].visualPrompt), seed, frames, s.job.options?.useLightx2v);
     if (s.cache && key && s.cache.has(key)) {
       const out = sceneFile(transDir, 'trans', i, 'mp4');
       writeFileSync(out, s.cache.read(key));
@@ -221,7 +229,7 @@ async function executeTransitions(s: Shared, stills: StillsResult): Promise<Tran
           buildI2VWorkflow({
             startImage: start,
             endImage: end,
-            prompt: escaleta[i + 1].visualPrompt,
+            prompt: stylePrompt(s.job.options?.style, escaleta[i + 1].visualPrompt),
             seed,
             useLightx2v: s.job.options?.useLightx2v,
             numFrames: frames,
