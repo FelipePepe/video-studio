@@ -55,6 +55,35 @@ test('model defaults to OLLAMA_MODEL env then qwen3:8b', async () => {
   }
 });
 
+test('numCtx option is sent as options.num_ctx', async () => {
+  const { fetchImpl, calls } = fakeFetch(reply('{}'));
+  await new OllamaClient('http://o', { fetchImpl, numCtx: 16384 }).chatJson({ system: 's', user: 'u' });
+  assert.deepEqual(JSON.parse(String(calls[0].init?.body)).options, { num_ctx: 16384 });
+});
+
+test('num_ctx falls back to OLLAMA_NUM_CTX and ignores invalid values', async () => {
+  const prev = process.env.OLLAMA_NUM_CTX;
+  const bodyFor = async (opts: { numCtx?: number } = {}) => {
+    const f = fakeFetch(reply('{}'));
+    await new OllamaClient('http://o', { fetchImpl: f.fetchImpl, ...opts }).chatJson({ system: 's', user: 'u' });
+    return JSON.parse(String(f.calls[0].init?.body));
+  };
+  try {
+    process.env.OLLAMA_NUM_CTX = '8192';
+    assert.deepEqual((await bodyFor()).options, { num_ctx: 8192 });
+    assert.deepEqual((await bodyFor({ numCtx: 4096 })).options, { num_ctx: 4096 });
+    for (const bad of ['abc', '0', '-5', '1.5', '']) {
+      process.env.OLLAMA_NUM_CTX = bad;
+      assert.equal('options' in (await bodyFor()), false, `ignored: "${bad}"`);
+    }
+    delete process.env.OLLAMA_NUM_CTX;
+    assert.equal('options' in (await bodyFor()), false);
+  } finally {
+    if (prev === undefined) delete process.env.OLLAMA_NUM_CTX;
+    else process.env.OLLAMA_NUM_CTX = prev;
+  }
+});
+
 test('passes the abort signal to fetch', async () => {
   const { fetchImpl, calls } = fakeFetch(reply('{}'));
   const ac = new AbortController();
