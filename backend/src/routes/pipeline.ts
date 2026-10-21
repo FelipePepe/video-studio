@@ -1,5 +1,5 @@
-import { existsSync, realpathSync } from 'node:fs';
-import { isAbsolute, relative, resolve } from 'node:path';
+import { realpathSync, statSync } from 'node:fs';
+import { isAbsolute, relative, resolve, sep as pathSep } from 'node:path';
 import { Router } from 'express';
 import type { DatabaseSync } from 'node:sqlite';
 import type { OllamaClient } from '../clients/ollama';
@@ -40,12 +40,21 @@ function parseApproveOptions(body: unknown, musicDir?: string): ApproveOptions |
     const dir = (musicDir ?? '').trim();
     if (!dir) throw new ApproveOptionsError('music must come from a configured library (set MUSIC_DIR)');
     const allowedRoot = realpathSync(resolve(dir));
-    const musicFile = resolve(o.music);
+    // Resolve the file too: a symlink pointing outside the library resolves to
+    // its real location (rejected below) and a MUSIC_DIR reached via symlinks
+    // accepts the library's own files.
+    let musicFile: string;
+    try {
+      musicFile = realpathSync(resolve(o.music));
+    } catch {
+      throw new ApproveOptionsError(`Music file not found: ${o.music}`);
+    }
     const rel = relative(allowedRoot, musicFile);
-    if (rel.startsWith('..') || isAbsolute(rel)) {
+    // '..' or '../x' escape the library; '..foo.mp3' is a legitimate file name.
+    if (isAbsolute(rel) || rel === '..' || rel.startsWith('..' + pathSep)) {
       throw new ApproveOptionsError('music path escapes the configured music library directory');
     }
-    if (!existsSync(musicFile)) throw new ApproveOptionsError(`Music file not found: ${o.music}`);
+    if (!statSync(musicFile).isFile()) throw new ApproveOptionsError(`Music path is not a file: ${o.music}`);
     opts.music = musicFile;
   }
   if (o.musicVolume !== undefined) {

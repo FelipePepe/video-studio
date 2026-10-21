@@ -1,6 +1,6 @@
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import request from 'supertest';
@@ -116,6 +116,74 @@ test('approve with music persisted only when inside the library; rejects outside
     .send({ music: join(__dirname, '..', 'outside-the-library.mp3') });
   assert.equal(outside.status, 400);
   assert.match(outside.body.error, /escape|outside|configured/i);
+});
+
+test('approve accepts the library files when MUSIC_DIR is a symlink (F5)', async () => {
+  const realDir = mkdtempSync(join(tmpdir(), 'vs-music-real-'));
+  dirs.push(realDir);
+  const music = join(realDir, 'bgm.mp3');
+  writeFileSync(music, 'audio-bytes');
+  const link = mkdtempSync(join(tmpdir(), 'vs-music-link-'));
+  dirs.push(link);
+  rmSync(link, { recursive: true });
+  symlinkSync(realDir, link);
+
+  const app = setup({ musicDir: link });
+  const id = await draftId(app);
+  const res = await request(app)
+    .post(`/api/pipeline/draft/${id}/approve`)
+    .set('Accept', 'application/json')
+    .send({ music: join(link, 'bgm.mp3') });
+  assert.equal(res.status, 202, res.text);
+  const job = await request(app).get(`/api/jobs/${res.body.jobId}`);
+  assert.equal(job.status, 200);
+  assert.equal(job.body.options?.music, music, 'persisted path must be the resolved one');
+});
+
+test('approve rejects a symlink inside the library that points outside (F5)', async () => {
+  const musicDir = mkdtempSync(join(tmpdir(), 'vs-music-lib-'));
+  dirs.push(musicDir);
+  const outside = mkdtempSync(join(tmpdir(), 'vs-music-out-'));
+  dirs.push(outside);
+  writeFileSync(join(outside, 'secret.mp3'), 'audio-bytes');
+  symlinkSync(join(outside, 'secret.mp3'), join(musicDir, 'innocent.mp3'));
+
+  const app = setup({ musicDir });
+  const id = await draftId(app);
+  const res = await request(app)
+    .post(`/api/pipeline/draft/${id}/approve`)
+    .set('Accept', 'application/json')
+    .send({ music: join(musicDir, 'innocent.mp3') });
+  assert.equal(res.status, 400);
+  assert.match(res.body.error, /escape|outside|configured/i);
+});
+
+test('approve rejects a directory and a file named ..* that is actually inside (F5)', async () => {
+  const musicDir = mkdtempSync(join(tmpdir(), 'vs-music-lib-'));
+  dirs.push(musicDir);
+  const subdir = join(musicDir, 'folder');
+  // A real directory inside the library.
+  mkdirSync(subdir);
+  writeFileSync(join(musicDir, '..tricky.mp3'), 'audio-bytes');
+
+  const app = setup({ musicDir });
+
+  const dirAsMusic = await (async () => {
+    const id = await draftId(app);
+    return request(app)
+      .post(`/api/pipeline/draft/${id}/approve`)
+      .set('Accept', 'application/json')
+      .send({ music: subdir });
+  })();
+  assert.equal(dirAsMusic.status, 400);
+
+  // The '..' prefix check must not false-positive on a legitimate file name.
+  const id2 = await draftId(app);
+  const ok = await request(app)
+    .post(`/api/pipeline/draft/${id2}/approve`)
+    .set('Accept', 'application/json')
+    .send({ music: join(musicDir, '..tricky.mp3') });
+  assert.equal(ok.status, 202, ok.text);
 });
 
 test('approve without a configured music library rejects the music option', async () => {
