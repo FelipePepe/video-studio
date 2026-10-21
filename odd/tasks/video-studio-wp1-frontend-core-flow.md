@@ -1,7 +1,9 @@
 # video-studio-wp1-frontend-core-flow
 
-**Status:** in progress · **Branch:** `feature/wp1-frontend-core-flow` (cut from local develop @ cf09982)
+**Status:** done · **Branch:** `feature/wp1-frontend-core-flow` (cut from local develop @ cf09982)
 **Repo:** `/mnt/nas/sources/ai-tools/video-studio/`
+
+**Result (2026-10-21):** 3 commits (66708a2 F1, 52cf3b5 F2, a263bec F4). Frontend 17 files / 163 tests green, typecheck green, no ESLint in repo (N/A). Live browser scenario (chromium, isolated stack 15434/3101/5199): idle form → review screen → F2 music preselect PASS (`demo.mp3` pre-selected) → approve → SSE failure → F4 alert PASS (`Falló en la etapa «Voz (TTS)»: …Piper unreachable`) with exactly 1 `<h2>`. Evidence: /tmp/vslive/evidence/{01_idle,02_review_music,03_failure}.png. F1 done-state covered by component test (live done-state needs full ComfyUI+Piper stack).
 
 ## Objective
 Fix the three P0/P1 main-flow defects that make finishing a video a dead-end, approving music a no-op, and failures opaque (catalogue F1, F2, F4 in `docs/plan-mejoras-optimizacion.md`).
