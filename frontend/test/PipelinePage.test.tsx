@@ -133,6 +133,19 @@ describe('PipelinePage', () => {
     expect(screen.queryByText('Revisión de la escaleta')).not.toBeInTheDocument();
   });
 
+  it('failure at the images stage: the single alert names the failed stage and the error', async () => {
+    const { fake, user } = setup();
+    await generate(user);
+    await user.click(screen.getByRole('button', { name: 'Aprobar y generar' }));
+    act(() => fake.emit({ type: 'stage', stage: 'images', progress: 0.3 }));
+    act(() => fake.emit({ type: 'error', message: 'ComfyUI exploded' }));
+    const alerts = screen.getAllByRole('alert');
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toHaveTextContent('Imágenes');
+    expect(alerts[0]).toHaveTextContent('ComfyUI exploded');
+    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('Revisión de la escaleta');
+  });
+
   it('failure: fix a scene in the editor, then approve saves the fix and relaunches', async () => {
     const { fake, user } = setup();
     await generate(user);
