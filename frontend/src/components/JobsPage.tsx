@@ -4,8 +4,8 @@ import type { Job, JobStatus } from '../api/types';
 import { useI18n, type MessageKey } from '../i18n';
 
 export interface JobsPageProps {
-  /** `listJobs` to load the table, `cancelJob` to stop queued/running jobs, `approveDraft` to retry failed/cancelled ones. */
-  api: Pick<ApiClient, 'listJobs' | 'cancelJob' | 'approveDraft'>;
+  /** `listJobs` to load the table, `getJob` for the retry options, `cancelJob` to stop queued/running jobs, `approveDraft` to retry failed/cancelled ones. */
+  api: Pick<ApiClient, 'listJobs' | 'getJob' | 'cancelJob' | 'approveDraft'>;
 }
 
 type Filter = 'all' | 'active' | 'done' | 'failed' | 'cancelled';
@@ -36,6 +36,8 @@ export function JobsPage({ api }: JobsPageProps) {
   const { t, lang } = useI18n();
   const [jobs, setJobs] = useState<Job[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** Action-level failures (retry / cancel): shown even while the list is loaded. */
+  const [actionError, setActionError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>('all');
   const [canceling, setCanceling] = useState<string | null>(null);
   const [retrying, setRetrying] = useState<string | null>(null);
@@ -68,8 +70,11 @@ export function JobsPage({ api }: JobsPageProps) {
 
   async function cancel(id: string) {
     setCanceling(id);
+    setActionError(null);
     try {
       await api.cancelJob(id);
+    } catch {
+      setActionError(t('jobs.cancelFailed'));
     } finally {
       setCanceling(null);
     }
@@ -77,29 +82,29 @@ export function JobsPage({ api }: JobsPageProps) {
   }
 
   /**
-   * Retry a failed/cancelled job by re-approving its draft (the server allows exactly this).
-   * The first SSE event (`queued` + `jobId`) is the server's acceptance; the rest of the
-   * stream is left to run, and the list poller then observes the new job.
+   * Retry a failed/cancelled job by re-approving its draft (the server allows exactly this)
+   * and re-sending the options that job was rendered with (music, volume, subtitles, vertical
+   * would otherwise be lost). The first SSE event (`queued` + `jobId`) is the server's
+   * acceptance: we resolve on it and leave the rest of the stream running; the list poller
+   * then observes the new job. Any rejection (HTTP error, network) is surfaced, so the
+   * button never gets stuck on 'Retrying…'.
    */
-  async function retryJob(jobId: string, draftId: string) {
-    setRetrying(jobId);
+  async function retryJob(job: Job) {
+    setRetrying(job.id);
+    setActionError(null);
     try {
+      const previous = await api.getJob(job.id).catch(() => undefined);
+      const options = previous?.options ?? undefined;
       await new Promise<void>((resolve, reject) => {
-        const to = setTimeout(() => reject(new Error('retry timeout')), 6000);
         void api
-          .approveDraft(draftId, {
-            onEvent: () => {
-              clearTimeout(to);
-              resolve();
-            },
+          .approveDraft(job.draftId, {
+            onEvent: () => resolve(),
+            body: options,
           })
-          .catch((e) => {
-            clearTimeout(to);
-            reject(e);
-          });
+          .catch(reject);
       });
     } catch {
-      setError(t('jobs.retryFailed'));
+      setActionError(t('jobs.retryFailed'));
     } finally {
       setRetrying(null);
     }
@@ -150,6 +155,11 @@ export function JobsPage({ api }: JobsPageProps) {
           </button>
         </div>
       )}
+      {actionError && (
+        <div className="panel jobs__alert" role="alert">
+          <p>{actionError}</p>
+        </div>
+      )}
       {jobs === null && !error && <p className="placeholder">{t('jobs.loading')}</p>}
       {showEmpty && (
         <p className="placeholder">
@@ -191,7 +201,7 @@ export function JobsPage({ api }: JobsPageProps) {
                       type="button"
                       className="btn"
                       disabled={retrying === j.id}
-                      onClick={() => void retryJob(j.id, j.draftId)}
+                      onClick={() => void retryJob(j)}
                     >
                       {retrying === j.id ? t('jobs.retrying') : t('jobs.retryJob')}
                     </button>

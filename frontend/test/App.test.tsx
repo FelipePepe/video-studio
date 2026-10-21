@@ -27,6 +27,7 @@ const doneJob: Job = {
   progress: 1,
   error: null,
   outputPath: null,
+  options: null,
   createdAt: '2026-10-17T10:00:00.000Z',
   updatedAt: '2026-10-17T10:05:00.000Z',
   startedAt: null,
