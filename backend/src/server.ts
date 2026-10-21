@@ -4,6 +4,7 @@ import { buildApp } from './app';
 import { parsePort, resolveDbPath } from './config/runtime';
 import { openDatabase } from './db/connection';
 import { logger } from './lib/logger';
+import { makeCrashHandler } from './lib/crashHandler';
 import type { JobRunner } from './jobs/runner';
 
 const log = logger.child('server');
@@ -33,3 +34,9 @@ try {
 process.on('unhandledRejection', (reason) => {
   log.error('unhandledRejection', { err: reason instanceof Error ? reason : new Error(String(reason)) });
 });
+
+// B1: an 'error' that escapes ANY listener (a stream, a fetch body, a callback) is fatal in Node
+// — the classic case is a ComfyUI download whose body errors mid-stream while no 'error' handler
+// is attached. Log it clearly and exit instead of the default opaque crash, or a corrupt
+// process lingering after the crash point.
+process.on('uncaughtException', makeCrashHandler(log));
