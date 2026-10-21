@@ -30,6 +30,7 @@ export function PipelinePage({ api }: PipelinePageProps) {
             <PipelineForm
               drafting={p.state === 'drafting'}
               error={p.state === 'idle' || p.state === 'drafting' ? p.error : null}
+              disabled={p.state !== 'idle' && p.state !== 'drafting'}
               onSubmit={(req) => void p.createDraft(req)}
             />
             {p.state === 'idle' && <GuideCard />}
@@ -41,6 +42,11 @@ export function PipelinePage({ api }: PipelinePageProps) {
                 cancellable={rendering}
                 onCancel={() => void p.cancel()}
               />
+            )}
+            {p.state === 'done' && (
+              <button type="button" className="btn btn--primary" onClick={() => p.reset()}>
+                {t('pipeline.newVideo')}
+              </button>
             )}
           </div>
           <div className="pipeline__video">
