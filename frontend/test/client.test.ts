@@ -110,6 +110,52 @@ describe('approveDraft body', () => {
   });
 });
 
+describe('watchJob', () => {
+  const sseOf = (events: JobEvent[], status = 200) => {
+    const enc = new TextEncoder();
+    return new Response(
+      new ReadableStream({
+        start(c) {
+          for (const e of events) c.enqueue(enc.encode(`data: ${JSON.stringify(e)}\n\n`));
+          c.close();
+        },
+      }),
+      { status, headers: { 'Content-Type': 'text/event-stream' } },
+    );
+  };
+
+  it('GETs /api/jobs/:id/events as an SSE stream and forwards each event', async () => {
+    const events = [
+      { type: 'stage', jobId: 'j1', stage: 'images', progress: 0.3 },
+      { type: 'done', jobId: 'j1', outputUrl: '/api/jobs/j1/output' },
+    ] as JobEvent[];
+    const { fetchImpl, calls } = fakeFetch(() => sseOf(events));
+    const seen: JobEvent[] = [];
+    const last = await createApiClient({ fetchImpl }).watchJob('j1', { onEvent: (e) => seen.push(e) });
+    expect(calls[0].url).toBe('/api/jobs/j1/events');
+    expect(calls[0].init?.method ?? 'GET').toBe('GET');
+    expect(new Headers(calls[0].init?.headers).get('Accept')).toBe('text/event-stream');
+    expect(seen).toEqual(events);
+    expect(last).toEqual(events[1]);
+  });
+
+  it('throws an ApiError on a non-ok response (e.g. unknown job)', async () => {
+    const { fetchImpl } = fakeFetch(() => json({ error: 'Job not found' }, 404));
+    await expect(createApiClient({ fetchImpl }).watchJob('nope', { onEvent: () => {} })).rejects.toBeInstanceOf(ApiError);
+  });
+
+  it('resolves quietly when the caller aborts', async () => {
+    const ctrl = new AbortController();
+    const fetchImpl = (async (_i: RequestInfo | URL, init?: RequestInit) =>
+      new Promise<Response>((_res, rej) => {
+        init?.signal?.addEventListener('abort', () => rej(new DOMException('aborted', 'AbortError')));
+      })) as typeof fetch;
+    const p = createApiClient({ fetchImpl }).watchJob('j1', { onEvent: () => {}, signal: ctrl.signal });
+    ctrl.abort();
+    await expect(p).resolves.toBeUndefined();
+  });
+});
+
 const settings = { comfyHost: 'http://c', ollamaHost: 'http://o', piperHost: 'tcp://p:1' };
 
 describe('api client requests', () => {
