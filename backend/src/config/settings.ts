@@ -17,7 +17,7 @@ export function loadEnvDefaults(env: NodeJS.ProcessEnv = process.env): EnvDefaul
     comfyHost: env.COMFY_HOST || 'http://192.168.1.60:8188',
     ollamaHost: env.OLLAMA_HOST || 'http://192.168.1.60:11434',
     piperHost: env.PIPER_HOST || 'tcp://192.168.1.60:10200',
-    ollamaModel: env.OLLAMA_MODEL || 'qwen3:8b',
+    ollamaModel: env.OLLAMA_MODEL || 'gemma4:26b',
   };
 }
 

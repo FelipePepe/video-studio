@@ -38,13 +38,13 @@ test('per-call model overrides the client model', async () => {
   assert.equal(JSON.parse(String(calls[0].init?.body)).model, 'm2');
 });
 
-test('model defaults to OLLAMA_MODEL env then qwen3:8b', async () => {
+test('model defaults to OLLAMA_MODEL env then gemma4:26b', async () => {
   const prev = process.env.OLLAMA_MODEL;
   try {
     delete process.env.OLLAMA_MODEL;
     let f = fakeFetch(reply('{}'));
     await new OllamaClient('http://o', { fetchImpl: f.fetchImpl }).chatJson({ system: 's', user: 'u' });
-    assert.equal(JSON.parse(String(f.calls[0].init?.body)).model, 'qwen3:8b');
+    assert.equal(JSON.parse(String(f.calls[0].init?.body)).model, 'gemma4:26b');
     process.env.OLLAMA_MODEL = 'llama3';
     f = fakeFetch(reply('{}'));
     await new OllamaClient('http://o', { fetchImpl: f.fetchImpl }).chatJson({ system: 's', user: 'u' });
