@@ -30,7 +30,11 @@ Inline (frontend only, ~5 files; mapping done inline in 3 reads). No delegation:
 Switching tabs mid-render keeps progress; reload resumes; opening a done job shows the video; failed job shows review panel with error. `pnpm test` + `pnpm typecheck` green.
 
 ## Progress / evidence
-_(commit shas and check results per task go here)_
+- T1 `b76defc` · T2 `88fdd7f` · T3 `b554c2b` · T4 `75d5a4f` (each test-first: RED observed, then GREEN).
+- Checks at T4: `pnpm --filter @video-studio/frontend test` 191 pass; `pnpm typecheck` OK (backend untouched).
+- Deviation from the approved plan: T3 also keeps PipelinePage mounted-but-hidden (not only lifting the hook) because ReviewPanel/PipelineForm hold unsaved local state that a plain lift would still lose.
+- Route per task: inline (coupled through usePipeline); no delegation trigger fired. TDD ON, runner vitest.
+- Review assessment: not run on these commits (not requested; native review only ran on the earlier delete-job candidate).
 
 ## Next step
 Deliver (PR into develop, stacked on #50 and #51).
