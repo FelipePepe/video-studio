@@ -3,14 +3,21 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { ApiError } from '../src/api/client';
 import { PipelinePage } from '../src/components/PipelinePage';
+import { usePipeline } from '../src/hooks/usePipeline';
 import { I18nProvider } from '../src/i18n';
 import { draft, makeFakeApi } from './helpers/fakeApi';
+
+/** PipelinePage is presentational: App owns the hook so state survives tab switches. */
+function Host({ api }: { api: ReturnType<typeof makeFakeApi>['api'] }) {
+  const pipeline = usePipeline(api);
+  return <PipelinePage api={api} pipeline={pipeline} />;
+}
 
 function setup() {
   const fake = makeFakeApi();
   const view = render(
     <I18nProvider>
-      <PipelinePage api={fake.api} />
+      <Host api={fake.api} />
     </I18nProvider>,
   );
   return { fake, view, user: userEvent.setup() };
