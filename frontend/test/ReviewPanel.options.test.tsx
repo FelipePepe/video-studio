@@ -68,6 +68,22 @@ describe('ReviewPanel render options', () => {
     expect(props.onApprove).toHaveBeenCalledWith({ music: '/music/piano.ogg', musicVolume: 0.25 });
   });
 
+  it('music on with a library and no manual selection: approve sends the first track', async () => {
+    const { props, user } = setup(makeApi(library));
+    await user.click(screen.getByRole('switch', { name: /Música de fondo/i }));
+    await user.click(screen.getByRole('button', { name: 'Aprobar y generar' }));
+    expect(screen.getByLabelText('Canción')).toHaveValue('/music/ambient.mp3');
+    expect(props.onApprove).toHaveBeenCalledWith({ music: '/music/ambient.mp3', musicVolume: 0.25 });
+  });
+
+  it('music on with no library and an empty path: does not approve and shows the required message', async () => {
+    const { props, user } = setup(makeApi());
+    await user.click(screen.getByRole('switch', { name: /Música de fondo/i }));
+    await user.click(screen.getByRole('button', { name: 'Aprobar y generar' }));
+    expect(props.onApprove).not.toHaveBeenCalled();
+    expect(screen.getByText(/Selecciona una canción o escribe una ruta/i)).toBeInTheDocument();
+  });
+
   it('music on with custom path: send the typed path', async () => {
     const { props, user } = setup(makeApi());
     await user.click(screen.getByRole('switch', { name: /Música de fondo/i }));

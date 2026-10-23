@@ -91,6 +91,21 @@ describe('PipelinePage', () => {
     expect(screen.getByText('Intro v2')).toBeInTheDocument();
   });
 
+  it('after done: the form is disabled and "Nuevo vídeo" returns to a usable idle form', async () => {
+    const { fake, user } = setup();
+    await generate(user);
+    await user.click(screen.getByRole('button', { name: 'Aprobar y generar' }));
+    act(() => fake.emit({ type: 'done' }));
+    expect(screen.getByRole('link', { name: 'Descargar' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Generar' })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'Nuevo vídeo' }));
+    expect(screen.getByText('Cómo funciona')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Nuevo vídeo' })).not.toBeInTheDocument();
+    // the form is usable again: a new URL enables submit
+    await user.type(screen.getByLabelText('URL del artículo'), 'https://next.test/b');
+    expect(screen.getByRole('button', { name: 'Generar' })).toBeEnabled();
+  });
+
   it('a failed save keeps the review open and does not approve', async () => {
     const { fake, user } = setup();
     fake.api.putSegments.mockRejectedValueOnce(new ApiError(409, 'Draft is locked'));
@@ -116,6 +131,19 @@ describe('PipelinePage', () => {
     expect(view.container.querySelector('video')).toHaveAttribute('src', '/api/jobs/j2/output');
     // After a successful render the review panel is gone: the done view stands.
     expect(screen.queryByText('Revisión de la escaleta')).not.toBeInTheDocument();
+  });
+
+  it('failure at the images stage: the single alert names the failed stage and the error', async () => {
+    const { fake, user } = setup();
+    await generate(user);
+    await user.click(screen.getByRole('button', { name: 'Aprobar y generar' }));
+    act(() => fake.emit({ type: 'stage', stage: 'images', progress: 0.3 }));
+    act(() => fake.emit({ type: 'error', message: 'ComfyUI exploded' }));
+    const alerts = screen.getAllByRole('alert');
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toHaveTextContent('Imágenes');
+    expect(alerts[0]).toHaveTextContent('ComfyUI exploded');
+    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('Revisión de la escaleta');
   });
 
   it('failure: fix a scene in the editor, then approve saves the fix and relaunches', async () => {

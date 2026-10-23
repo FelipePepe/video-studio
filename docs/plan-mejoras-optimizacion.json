@@ -1,0 +1,3957 @@
+{
+  "plan": [
+    {
+      "step": 1,
+      "description": "WP1 — Frontend core flow fixes (F1, F2, F4)",
+      "tool": "Bash",
+      "args": {
+        "command": "git switch -c feature/wp1-frontend-core-flow develop"
+      },
+      "reason": "Fix the three main-flow defects: no new video after done, music approve does nothing, failed stage invisible. Frontend only.",
+      "substeps": [
+        {
+          "step": 1,
+          "description": "Create the feature branch from the local develop (no pull: remote access is not authorised)",
+          "tool": "Bash",
+          "args": {
+            "command": "git switch -c feature/wp1-frontend-core-flow develop"
+          },
+          "reason": "GitFlow: feature/* from develop; gitflow-casa branch check first."
+        },
+        {
+          "step": 2,
+          "description": "Create the ODD feature document: objective, scope, tasks T1 (F1), T2 (F2), T3 (F4), route, checks, TDD mode unresolved",
+          "tool": "Write",
+          "args": {
+            "file_path": "odd/tasks/video-studio-wp1-frontend-core-flow.md"
+          },
+          "reason": "Substantial work: feature document (and Engram mirror odd/video-studio-wp1-frontend-core-flow/tasks) before the first source write."
+        },
+        {
+          "step": 3,
+          "description": "T1 / F1: allow starting a new video after done",
+          "tool": "Edit",
+          "args": {
+            "file_path": "frontend/src/i18n.tsx"
+          },
+          "reason": "Work unit with tests first (RED then GREEN) and its own commit.",
+          "substeps": [
+            {
+              "step": 1,
+              "description": "RED test: PipelineForm with disabled={true} keeps submit disabled even with a filled URL",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/test/PipelineForm.test.tsx"
+              },
+              "reason": "Specify T1 / F1: allow starting a new video after done before implementing."
+            },
+            {
+              "step": 2,
+              "description": "RED test: after generate -> approve -> done a 'Nuevo vídeo' button exists, clicking it returns to the idle form, and the form submit is disabled while in done",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/test/PipelinePage.test.tsx"
+              },
+              "reason": "Specify T1 / F1: allow starting a new video after done before implementing."
+            },
+            {
+              "step": 3,
+              "description": "Run the new tests and confirm they fail for the expected reason",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/frontend exec vitest run test/PipelineForm.test.tsx test/PipelinePage.test.tsx"
+              },
+              "reason": "Observed RED before implementation."
+            },
+            {
+              "step": 4,
+              "description": "Add key pipeline.newVideo ('Nuevo vídeo' / 'New video') to both es and en dictionaries",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/src/i18n.tsx"
+              },
+              "reason": "en is Record<MessageKey,string>; test/i18n.test.tsx requires identical key sets."
+            },
+            {
+              "step": 5,
+              "description": "Add optional prop disabled?: boolean and include it in canSubmit",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/src/components/PipelineForm.tsx"
+              },
+              "reason": "Smallest change; drafting behaviour untouched."
+            },
+            {
+              "step": 6,
+              "description": "Pass disabled={p.state !== 'idle' && p.state !== 'drafting'} to PipelineForm and render a btn--primary 'new video' button calling p.reset when p.state === 'done'",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/src/components/PipelinePage.tsx"
+              },
+              "reason": "Reuses reset(); the createDraft idle guard stays so usePipeline tests keep passing. In failed the user already resets via 'Volver'."
+            },
+            {
+              "step": 7,
+              "description": "Run the touched and neighbouring suites: GREEN",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/frontend exec vitest run test/PipelineForm.test.tsx test/PipelinePage.test.tsx test/i18n.test.tsx test/usePipeline.test.tsx"
+              },
+              "reason": "Verifies the change and non-regression of adjacent tests."
+            },
+            {
+              "step": 8,
+              "description": "Commit the work unit",
+              "tool": "Bash",
+              "args": {
+                "command": "git add -A -- frontend && git commit -m \"fix(pipeline): allow starting a new video after a finished render\""
+              },
+              "reason": "Conventional commit, no AI attribution, tests alongside the behaviour."
+            }
+          ]
+        },
+        {
+          "step": 4,
+          "description": "T2 / F2: default the music track and show a message when none is chosen",
+          "tool": "Edit",
+          "args": {
+            "file_path": "frontend/src/i18n.tsx"
+          },
+          "reason": "Work unit with tests first (RED then GREEN) and its own commit.",
+          "substeps": [
+            {
+              "step": 1,
+              "description": "RED test: music on with a library and no manual selection: approve calls onApprove with the first track and volume 0.25",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/test/ReviewPanel.options.test.tsx"
+              },
+              "reason": "Specify T2 / F2: default the music track and show a message when none is chosen before implementing."
+            },
+            {
+              "step": 2,
+              "description": "RED test: music on with no library and an empty path: onApprove is not called and a music-required message is shown",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/test/ReviewPanel.options.test.tsx"
+              },
+              "reason": "Specify T2 / F2: default the music track and show a message when none is chosen before implementing."
+            },
+            {
+              "step": 3,
+              "description": "Run the new tests and confirm they fail for the expected reason",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/frontend exec vitest run test/ReviewPanel.options.test.tsx"
+              },
+              "reason": "Observed RED before implementation."
+            },
+            {
+              "step": 4,
+              "description": "Add key review.musicRequired to es and en",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/src/i18n.tsx"
+              },
+              "reason": "No existing key covers it."
+            },
+            {
+              "step": 5,
+              "description": "useEffect: when the library has files and musicPath === '', set musicPath to library.files[0].path",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/src/components/ReviewPanel.tsx"
+              },
+              "reason": "Aligns state with what the select renders; never overwrites a user choice."
+            },
+            {
+              "step": 6,
+              "description": "Add musicError state; replace the silent 'if (!path) return' in approve() with setMusicError(t('review.musicRequired')); clear on musicOn/musicPath change; render as a plain form-error paragraph (no role=alert)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/src/components/ReviewPanel.tsx"
+              },
+              "reason": "Visible validation without adding a second alert that PipelinePage tests would trip over."
+            },
+            {
+              "step": 7,
+              "description": "Run the touched and neighbouring suites: GREEN",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/frontend exec vitest run test/ReviewPanel.options.test.tsx test/ReviewPanel.test.tsx test/i18n.test.tsx"
+              },
+              "reason": "Verifies the change and non-regression of adjacent tests."
+            },
+            {
+              "step": 8,
+              "description": "Commit the work unit",
+              "tool": "Bash",
+              "args": {
+                "command": "git add -A -- frontend && git commit -m \"fix(review): default the music track and show a message when none is chosen\""
+              },
+              "reason": "Conventional commit, no AI attribution, tests alongside the behaviour."
+            }
+          ]
+        },
+        {
+          "step": 5,
+          "description": "T3 / F4: show the failed stage on the failure screen",
+          "tool": "Edit",
+          "args": {
+            "file_path": "frontend/src/i18n.tsx"
+          },
+          "reason": "Work unit with tests first (RED then GREEN) and its own commit.",
+          "substeps": [
+            {
+              "step": 1,
+              "description": "RED test: render fails at the images stage: the single role=alert contains the localized stage name and the error; still exactly one alert and one level-2 heading",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/test/PipelinePage.test.tsx"
+              },
+              "reason": "Specify T3 / F4: show the failed stage on the failure screen before implementing."
+            },
+            {
+              "step": 2,
+              "description": "Run the new tests and confirm they fail for the expected reason",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/frontend exec vitest run test/PipelinePage.test.tsx"
+              },
+              "reason": "Observed RED before implementation."
+            },
+            {
+              "step": 3,
+              "description": "Add key pipeline.failedAt ('Falló en «{stage}»: {error}' / EN equivalent) to es and en",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/src/i18n.tsx"
+              },
+              "reason": "t() supports {param} interpolation."
+            },
+            {
+              "step": 4,
+              "description": "When p.state === 'failed', find the stage with status 'failed' in p.stages and pass ReviewPanel the error built with pipeline.failedAt and the stage.* label; otherwise pass p.error unchanged",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/src/components/PipelinePage.tsx"
+              },
+              "reason": "Reuses stages from usePipeline and existing stage.* keys; no new component and no extra alert."
+            },
+            {
+              "step": 5,
+              "description": "Run the touched and neighbouring suites: GREEN",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/frontend exec vitest run test/PipelinePage.test.tsx test/VideoPanel.test.tsx test/ProgressStages.test.tsx test/i18n.test.tsx"
+              },
+              "reason": "Verifies the change and non-regression of adjacent tests."
+            },
+            {
+              "step": 6,
+              "description": "Commit the work unit",
+              "tool": "Bash",
+              "args": {
+                "command": "git add -A -- frontend && git commit -m \"fix(pipeline): show the failed stage when a render fails\""
+              },
+              "reason": "Conventional commit, no AI attribution, tests alongside the behaviour."
+            }
+          ]
+        },
+        {
+          "step": 6,
+          "description": "Run the full frontend suite",
+          "tool": "Bash",
+          "args": {
+            "command": "pnpm --filter @video-studio/frontend exec vitest run"
+          },
+          "reason": "Whole-suite non-regression."
+        },
+        {
+          "step": 7,
+          "description": "Typecheck the frontend",
+          "tool": "Bash",
+          "args": {
+            "command": "pnpm --filter @video-studio/frontend typecheck"
+          },
+          "reason": "Types must stay clean."
+        },
+        {
+          "step": 8,
+          "description": "Re-run the live browser check (dev servers, throwaway DB, fake local Ollama, dead local ports): new video after done, music default, failed-stage message",
+          "tool": "mcp__rea__capture_browser_scenario",
+          "args": {
+            "browser": {
+              "mode": "launch",
+              "executable_path": "/usr/bin/chromium"
+            }
+          },
+          "reason": "Unit-test fakes were more permissive than the real app; one live pass confirms the fixes. Stop the servers afterwards."
+        },
+        {
+          "step": 9,
+          "description": "Record the status of WP1 in the plan document",
+          "tool": "Edit",
+          "args": {
+            "file_path": "docs/plan-mejoras-optimizacion.md"
+          },
+          "reason": "The plan asks to record each package as it lands."
+        },
+        {
+          "step": 10,
+          "description": "Ask whether to push and open the PR into develop",
+          "tool": "AskUserQuestion",
+          "args": {
+            "question": "Package WP1 is committed on feature/wp1-frontend-core-flow. Push and open a PR into develop?"
+          },
+          "reason": "Push and PR creation are the user's decisions (remote operations are not pre-authorised)."
+        }
+      ]
+    },
+    {
+      "step": 2,
+      "description": "WP2 — Backend crash and cancellation safety (B1, B2, B3)",
+      "tool": "Bash",
+      "args": {
+        "command": "git switch -c feature/wp2-backend-cancel-safety develop"
+      },
+      "reason": "Stop the process-killing stream error, make ComfyUI waits cancellable and lost-prompt aware, and scope /interrupt to the job's own prompt.",
+      "substeps": [
+        {
+          "step": 1,
+          "description": "Create the feature branch from the local develop (no pull: remote access is not authorised)",
+          "tool": "Bash",
+          "args": {
+            "command": "git switch -c feature/wp2-backend-cancel-safety develop"
+          },
+          "reason": "GitFlow: feature/* from develop; gitflow-casa branch check first."
+        },
+        {
+          "step": 2,
+          "description": "Create the ODD feature document: objective, scope, tasks B1, B3, B2, route, checks, real-service check pending authorisation",
+          "tool": "Write",
+          "args": {
+            "file_path": "odd/tasks/video-studio-wp2-backend-cancel-safety.md"
+          },
+          "reason": "Substantial work: feature document (and Engram mirror odd/video-studio-wp2-backend-cancel-safety/tasks) before the first source write."
+        },
+        {
+          "step": 3,
+          "description": "B1: download write errors must not crash the process",
+          "tool": "Edit",
+          "args": {
+            "file_path": "backend/src/clients/comfy.ts"
+          },
+          "reason": "Work unit with tests first (RED then GREEN) and its own commit.",
+          "substeps": [
+            {
+              "step": 1,
+              "description": "RED test: downloadToFile into a non-existent directory rejects and emits no uncaught exception; partial file is removed",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/test/comfy.test.ts"
+              },
+              "reason": "Specify B1: download write errors must not crash the process before implementing."
+            },
+            {
+              "step": 2,
+              "description": "Run the new tests and confirm they fail for the expected reason",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/backend exec node --test --import tsx test/comfy.test.ts"
+              },
+              "reason": "Observed RED before implementation."
+            },
+            {
+              "step": 3,
+              "description": "Replace the manual reader/writer loop in downloadToFile with stream/promises pipeline(Readable.fromWeb(res.body), createWriteStream(dest)); unlink the partial file on failure",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/src/clients/comfy.ts"
+              },
+              "reason": "pipeline wires error handling on both streams for the whole transfer."
+            },
+            {
+              "step": 4,
+              "description": "Add process.on('uncaughtException') that logs through the logger and exits in a controlled way",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/src/server.ts"
+              },
+              "reason": "unhandledRejection was handled but uncaughtException was not."
+            },
+            {
+              "step": 5,
+              "description": "Run the touched and neighbouring suites: GREEN",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/backend exec node --test --import tsx test/comfy.test.ts"
+              },
+              "reason": "Verifies the change and non-regression of adjacent tests."
+            },
+            {
+              "step": 6,
+              "description": "Commit the work unit",
+              "tool": "Bash",
+              "args": {
+                "command": "git add -A -- backend && git commit -m \"fix(comfy): handle write errors during output download\""
+              },
+              "reason": "Conventional commit, no AI attribution, tests alongside the behaviour."
+            }
+          ]
+        },
+        {
+          "step": 4,
+          "description": "B3: cancellable waitForCompletion that detects a lost prompt",
+          "tool": "Edit",
+          "args": {
+            "file_path": "backend/src/clients/comfy.ts"
+          },
+          "reason": "Work unit with tests first (RED then GREEN) and its own commit.",
+          "substeps": [
+            {
+              "step": 1,
+              "description": "RED test: waitForCompletion rejects promptly when the AbortSignal fires",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/test/comfy.test.ts"
+              },
+              "reason": "Specify B3: cancellable waitForCompletion that detects a lost prompt before implementing."
+            },
+            {
+              "step": 2,
+              "description": "RED test: persistently empty /history for N polls triggers a /queue check and fails when the prompt is absent; timeout uses wall-clock time",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/test/comfy.test.ts"
+              },
+              "reason": "Specify B3: cancellable waitForCompletion that detects a lost prompt before implementing."
+            },
+            {
+              "step": 3,
+              "description": "Run the new tests and confirm they fail for the expected reason",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/backend exec node --test --import tsx test/comfy.test.ts test/orchestrator.test.ts"
+              },
+              "reason": "Observed RED before implementation."
+            },
+            {
+              "step": 4,
+              "description": "Give waitForCompletion a signal parameter checked every iteration; use Date.now() for the timeout; after N empty-history polls consult /queue and fail if the prompt is absent",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/src/clients/comfy.ts"
+              },
+              "reason": "Today a ComfyUI restart leaves the wait running for up to an hour."
+            },
+            {
+              "step": 5,
+              "description": "Pass the job signal to waitForCompletion at the two call sites (~lines 195 and 252)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/src/pipeline/orchestrator.ts"
+              },
+              "reason": "Wires cancellation through."
+            },
+            {
+              "step": 6,
+              "description": "Run the touched and neighbouring suites: GREEN",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/backend exec node --test --import tsx test/comfy.test.ts test/orchestrator.test.ts"
+              },
+              "reason": "Verifies the change and non-regression of adjacent tests."
+            },
+            {
+              "step": 7,
+              "description": "Commit the work unit",
+              "tool": "Bash",
+              "args": {
+                "command": "git add -A -- backend && git commit -m \"fix(comfy): make completion wait cancellable and detect lost prompts\""
+              },
+              "reason": "Conventional commit, no AI attribution, tests alongside the behaviour."
+            }
+          ]
+        },
+        {
+          "step": 5,
+          "description": "B2: scope /interrupt to the job's own prompt",
+          "tool": "Edit",
+          "args": {
+            "file_path": "backend/src/clients/comfy.ts"
+          },
+          "reason": "Work unit with tests first (RED then GREEN) and its own commit.",
+          "substeps": [
+            {
+              "step": 1,
+              "description": "RED test: interrupt(promptId) posts { prompt_id } in the body",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/test/comfy.test.ts"
+              },
+              "reason": "Specify B2: scope /interrupt to the job's own prompt before implementing."
+            },
+            {
+              "step": 2,
+              "description": "RED test: aborting during TTS or ffmpeg does not call interrupt; aborting during a ComfyUI wait does, with that prompt id",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/test/orchestrator.test.ts"
+              },
+              "reason": "Specify B2: scope /interrupt to the job's own prompt before implementing."
+            },
+            {
+              "step": 3,
+              "description": "Run the new tests and confirm they fail for the expected reason",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/backend exec node --test --import tsx test/comfy.test.ts test/orchestrator.test.ts"
+              },
+              "reason": "Observed RED before implementation."
+            },
+            {
+              "step": 4,
+              "description": "interrupt(promptId?: string) sends the id in the JSON body",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/src/clients/comfy.ts"
+              },
+              "reason": "A bare /interrupt stops whatever is running on the shared server."
+            },
+            {
+              "step": 5,
+              "description": "Track the in-flight prompt id and call interrupt only when one exists (~lines 384-390)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/src/pipeline/orchestrator.ts"
+              },
+              "reason": "Do not disturb other clients' work."
+            },
+            {
+              "step": 6,
+              "description": "Run the touched and neighbouring suites: GREEN",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/backend exec node --test --import tsx test/comfy.test.ts test/orchestrator.test.ts"
+              },
+              "reason": "Verifies the change and non-regression of adjacent tests."
+            },
+            {
+              "step": 7,
+              "description": "Commit the work unit",
+              "tool": "Bash",
+              "args": {
+                "command": "git add -A -- backend && git commit -m \"fix(orchestrator): interrupt only the job's own ComfyUI prompt\""
+              },
+              "reason": "Conventional commit, no AI attribution, tests alongside the behaviour."
+            }
+          ]
+        },
+        {
+          "step": 6,
+          "description": "Run the full backend suite",
+          "tool": "Bash",
+          "args": {
+            "command": "pnpm --filter @video-studio/backend test"
+          },
+          "reason": "Whole-suite non-regression."
+        },
+        {
+          "step": 7,
+          "description": "Typecheck the backend",
+          "tool": "Bash",
+          "args": {
+            "command": "pnpm --filter @video-studio/backend typecheck"
+          },
+          "reason": "Types must stay clean."
+        },
+        {
+          "step": 8,
+          "description": "Request explicit authorisation for the real-service check",
+          "tool": "AskUserQuestion",
+          "args": {
+            "question": "May I POST /interrupt with a prompt_id against babybeast (192.168.1.60:8188) to confirm the parameter is honoured by your ComfyUI version? Destination, operation and session must be confirmed."
+          },
+          "reason": "Remote operations need explicit authorisation of destination, operation and credentials; without it B2 stays unverified (H) and relies on the unit tests."
+        },
+        {
+          "step": 9,
+          "description": "Record the status of WP2 in the plan document",
+          "tool": "Edit",
+          "args": {
+            "file_path": "docs/plan-mejoras-optimizacion.md"
+          },
+          "reason": "The plan asks to record each package as it lands."
+        },
+        {
+          "step": 10,
+          "description": "Ask whether to push and open the PR into develop",
+          "tool": "AskUserQuestion",
+          "args": {
+            "question": "Package WP2 is committed on feature/wp2-backend-cancel-safety. Push and open a PR into develop?"
+          },
+          "reason": "Push and PR creation are the user's decisions (remote operations are not pre-authorised)."
+        }
+      ]
+    },
+    {
+      "step": 3,
+      "description": "WP3 — Failed-render retry flow (X1 Option B, F8, F9)",
+      "tool": "Bash",
+      "args": {
+        "command": "git switch -c feature/wp3-retry-after-failure develop"
+      },
+      "reason": "Allow editing a draft after a failed/cancelled job (decision X1 = Option B), keep render options on retry from Jobs, and surface cancel errors.",
+      "substeps": [
+        {
+          "step": 1,
+          "description": "Create the feature branch from the local develop (no pull: remote access is not authorised)",
+          "tool": "Bash",
+          "args": {
+            "command": "git switch -c feature/wp3-retry-after-failure develop"
+          },
+          "reason": "GitFlow: feature/* from develop; gitflow-casa branch check first. Land WP1 (F4) first so the failed stage is visible before the editor reopens."
+        },
+        {
+          "step": 2,
+          "description": "Create the ODD feature document: objective, scope, tasks X1 backend, F8/F9 frontend, ADR D1 amendment",
+          "tool": "Write",
+          "args": {
+            "file_path": "odd/tasks/video-studio-wp3-retry-after-failure.md"
+          },
+          "reason": "Substantial work: feature document (and Engram mirror odd/video-studio-wp3-retry-after-failure/tasks) before the first source write."
+        },
+        {
+          "step": 3,
+          "description": "X1 backend: allow script edits when the latest job is failed or cancelled",
+          "tool": "Edit",
+          "args": {
+            "file_path": "backend/src/pipeline/draftRepository.ts"
+          },
+          "reason": "Work unit with tests first (RED then GREEN) and its own commit.",
+          "substeps": [
+            {
+              "step": 1,
+              "description": "RED test: updateEscaleta succeeds when the latest job is failed or cancelled and throws DraftLockedError when it is queued, running or done; a draft with no job still works",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/test/draftRepository.test.ts"
+              },
+              "reason": "Specify X1 backend: allow script edits when the latest job is failed or cancelled before implementing."
+            },
+            {
+              "step": 2,
+              "description": "RED test: PUT /draft/:id/segments returns 200 after a failed job and 409 after a done job or while a job is active",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/test/pipeline.routes.test.ts"
+              },
+              "reason": "Specify X1 backend: allow script edits when the latest job is failed or cancelled before implementing."
+            },
+            {
+              "step": 3,
+              "description": "Run the new tests and confirm they fail for the expected reason",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/backend exec node --test --import tsx test/draftRepository.test.ts test/pipeline.routes.test.ts"
+              },
+              "reason": "Observed RED before implementation."
+            },
+            {
+              "step": 4,
+              "description": "updateEscaleta / failUnchanged: permit the update when status='draft' or the latest job (jobRepository.getLatestJobForDraft) is failed/cancelled",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/src/pipeline/draftRepository.ts"
+              },
+              "reason": "Same condition the approve-retry already uses."
+            },
+            {
+              "step": 5,
+              "description": "Adjust the PUT segments handler (~line 147) to the new rule and keep 404/409 semantics",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/src/routes/pipeline.ts"
+              },
+              "reason": "Contract stays explicit."
+            },
+            {
+              "step": 6,
+              "description": "Amend D1: one-shot approve admits script edits after a failed/cancelled job",
+              "tool": "Edit",
+              "args": {
+                "file_path": "docs/adr/0001-pipeline-architecture.md"
+              },
+              "reason": "Keep the ADR as the single source of the lifecycle."
+            },
+            {
+              "step": 7,
+              "description": "Run the touched and neighbouring suites: GREEN",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/backend exec node --test --import tsx test/draftRepository.test.ts test/pipeline.routes.test.ts test/approve.routes.test.ts test/jobs.routes.test.ts"
+              },
+              "reason": "Verifies the change and non-regression of adjacent tests."
+            },
+            {
+              "step": 8,
+              "description": "Commit the work unit",
+              "tool": "Bash",
+              "args": {
+                "command": "git add -A -- backend docs/adr && git commit -m \"fix(pipeline): allow editing a draft after a failed or cancelled job\""
+              },
+              "reason": "Conventional commit, no AI attribution, tests alongside the behaviour."
+            }
+          ]
+        },
+        {
+          "step": 4,
+          "description": "F8/F9 frontend: retry keeps options and aborts its stream; cancel reports errors",
+          "tool": "Edit",
+          "args": {
+            "file_path": "frontend/src/api/types.ts"
+          },
+          "reason": "Work unit with tests first (RED then GREEN) and its own commit.",
+          "substeps": [
+            {
+              "step": 1,
+              "description": "RED test: retry re-approves with the original job options as body; the stream is aborted after the first event and on unmount",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/test/JobsPage.test.tsx"
+              },
+              "reason": "Specify F8/F9 frontend: retry keeps options and aborts its stream; cancel reports errors before implementing."
+            },
+            {
+              "step": 2,
+              "description": "RED test: a failed cancel shows an error and the list is refreshed",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/test/JobsPage.test.tsx"
+              },
+              "reason": "Specify F8/F9 frontend: retry keeps options and aborts its stream; cancel reports errors before implementing."
+            },
+            {
+              "step": 3,
+              "description": "Run the new tests and confirm they fail for the expected reason",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/frontend exec vitest run test/JobsPage.test.tsx"
+              },
+              "reason": "Observed RED before implementation."
+            },
+            {
+              "step": 4,
+              "description": "Add options to the Job type (music, musicVolume, subtitles, vertical)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/src/api/types.ts"
+              },
+              "reason": "Backend already stores Job.options."
+            },
+            {
+              "step": 5,
+              "description": "retryJob: pass job.options as body, add AbortController aborted after the first event and on unmount, drop the false-failure timeout path; cancel(): add catch with i18n error and always refresh",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/src/components/JobsPage.tsx"
+              },
+              "reason": "Fixes F8 and F9."
+            },
+            {
+              "step": 6,
+              "description": "Add key jobs.cancelFailed to es and en",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/src/i18n.tsx"
+              },
+              "reason": "Message for the new catch."
+            },
+            {
+              "step": 7,
+              "description": "Run the touched and neighbouring suites: GREEN",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/frontend exec vitest run test/JobsPage.test.tsx test/i18n.test.tsx"
+              },
+              "reason": "Verifies the change and non-regression of adjacent tests."
+            },
+            {
+              "step": 8,
+              "description": "Commit the work unit",
+              "tool": "Bash",
+              "args": {
+                "command": "git add -A -- frontend && git commit -m \"fix(jobs): keep render options on retry and report cancel failures\""
+              },
+              "reason": "Conventional commit, no AI attribution, tests alongside the behaviour."
+            }
+          ]
+        },
+        {
+          "step": 5,
+          "description": "Run the full frontend suite",
+          "tool": "Bash",
+          "args": {
+            "command": "pnpm --filter @video-studio/frontend exec vitest run"
+          },
+          "reason": "Whole-suite non-regression."
+        },
+        {
+          "step": 6,
+          "description": "Typecheck the frontend",
+          "tool": "Bash",
+          "args": {
+            "command": "pnpm --filter @video-studio/frontend typecheck"
+          },
+          "reason": "Types must stay clean."
+        },
+        {
+          "step": 7,
+          "description": "Run the full backend suite",
+          "tool": "Bash",
+          "args": {
+            "command": "pnpm --filter @video-studio/backend test"
+          },
+          "reason": "Whole-suite non-regression."
+        },
+        {
+          "step": 8,
+          "description": "Typecheck the backend",
+          "tool": "Bash",
+          "args": {
+            "command": "pnpm --filter @video-studio/backend typecheck"
+          },
+          "reason": "Types must stay clean."
+        },
+        {
+          "step": 9,
+          "description": "Record the status of WP3 in the plan document",
+          "tool": "Edit",
+          "args": {
+            "file_path": "docs/plan-mejoras-optimizacion.md"
+          },
+          "reason": "The plan asks to record each package as it lands."
+        },
+        {
+          "step": 10,
+          "description": "Ask whether to push and open the PR into develop",
+          "tool": "AskUserQuestion",
+          "args": {
+            "question": "Package WP3 is committed on feature/wp3-retry-after-failure. Push and open a PR into develop?"
+          },
+          "reason": "Push and PR creation are the user's decisions (remote operations are not pre-authorised)."
+        }
+      ]
+    },
+    {
+      "step": 4,
+      "description": "WP4 — Music library correctness (F5)",
+      "tool": "Bash",
+      "args": {
+        "command": "git switch -c feature/wp4-music-library-paths develop"
+      },
+      "reason": "Make the music library accept its own files under symlinks and reject escapes, directories and look-alike names.",
+      "substeps": [
+        {
+          "step": 1,
+          "description": "Create the feature branch from the local develop (no pull: remote access is not authorised)",
+          "tool": "Bash",
+          "args": {
+            "command": "git switch -c feature/wp4-music-library-paths develop"
+          },
+          "reason": "GitFlow: feature/* from develop; gitflow-casa branch check first."
+        },
+        {
+          "step": 2,
+          "description": "F5: realpath-based containment",
+          "tool": "Edit",
+          "args": {
+            "file_path": "backend/src/lib/musicLibrary.ts"
+          },
+          "reason": "Work unit with tests first (RED then GREEN) and its own commit.",
+          "substeps": [
+            {
+              "step": 1,
+              "description": "RED test: MUSIC_DIR that is (or sits under) a symlink: listed files are accepted by parseApproveOptions",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/test/musicLibrary.test.ts"
+              },
+              "reason": "Specify F5: realpath-based containment before implementing."
+            },
+            {
+              "step": 2,
+              "description": "RED test: a symlink inside the library pointing outside is rejected; a directory path is rejected; a file named '..foo.mp3' is accepted",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/test/approve.routes.test.ts"
+              },
+              "reason": "Specify F5: realpath-based containment before implementing."
+            },
+            {
+              "step": 3,
+              "description": "Run the new tests and confirm they fail for the expected reason",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/backend exec node --test --import tsx test/musicLibrary.test.ts test/approve.routes.test.ts"
+              },
+              "reason": "Observed RED before implementation."
+            },
+            {
+              "step": 4,
+              "description": "Resolve the library dir and entries with realpath and return resolved paths (~line 45)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/src/lib/musicLibrary.ts"
+              },
+              "reason": "Both sides of the comparison must use the same resolved form."
+            },
+            {
+              "step": 5,
+              "description": "parseApproveOptions (~lines 42-48): realpath the file, require isFile(), use rel === '..' || rel.startsWith('..' + sep), store the real path",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/src/routes/pipeline.ts"
+              },
+              "reason": "Fixes false positives and the symlink-escape hole."
+            },
+            {
+              "step": 6,
+              "description": "Run the touched and neighbouring suites: GREEN",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/backend exec node --test --import tsx test/musicLibrary.test.ts test/approve.routes.test.ts test/bgMusic.test.ts"
+              },
+              "reason": "Verifies the change and non-regression of adjacent tests."
+            },
+            {
+              "step": 7,
+              "description": "Commit the work unit",
+              "tool": "Bash",
+              "args": {
+                "command": "git add -A -- backend && git commit -m \"fix(music): resolve library paths with realpath and validate files\""
+              },
+              "reason": "Conventional commit, no AI attribution, tests alongside the behaviour."
+            }
+          ]
+        },
+        {
+          "step": 3,
+          "description": "Run the full backend suite",
+          "tool": "Bash",
+          "args": {
+            "command": "pnpm --filter @video-studio/backend test"
+          },
+          "reason": "Whole-suite non-regression."
+        },
+        {
+          "step": 4,
+          "description": "Typecheck the backend",
+          "tool": "Bash",
+          "args": {
+            "command": "pnpm --filter @video-studio/backend typecheck"
+          },
+          "reason": "Types must stay clean."
+        },
+        {
+          "step": 5,
+          "description": "Record the status of WP4 in the plan document",
+          "tool": "Edit",
+          "args": {
+            "file_path": "docs/plan-mejoras-optimizacion.md"
+          },
+          "reason": "The plan asks to record each package as it lands."
+        },
+        {
+          "step": 6,
+          "description": "Ask whether to push and open the PR into develop",
+          "tool": "AskUserQuestion",
+          "args": {
+            "question": "Package WP4 is committed on feature/wp4-music-library-paths. Push and open a PR into develop?"
+          },
+          "reason": "Push and PR creation are the user's decisions (remote operations are not pre-authorised)."
+        }
+      ]
+    },
+    {
+      "step": 5,
+      "description": "WP5 — Transition failure handling (F6)",
+      "tool": "Bash",
+      "args": {
+        "command": "git switch -c feature/wp5-transition-failures develop"
+      },
+      "reason": "Stop reporting a render as clean when transitions were silently dropped; persist warnings on the job. Blocked until decision 3.2 is made.",
+      "substeps": [
+        {
+          "step": 1,
+          "description": "Create the feature branch from the local develop (no pull: remote access is not authorised)",
+          "tool": "Bash",
+          "args": {
+            "command": "git switch -c feature/wp5-transition-failures develop"
+          },
+          "reason": "GitFlow: feature/* from develop; gitflow-casa branch check first."
+        },
+        {
+          "step": 2,
+          "description": "Decide the transition failure policy (open decision 3.2)",
+          "tool": "AskUserQuestion",
+          "args": {
+            "question": "On transition failures, degrade to a hard cut always, or abort after N consecutive unreachable/timeout failures? Persist warnings on the job?"
+          },
+          "reason": "Product decision that blocks this package; do not assume."
+        },
+        {
+          "step": 3,
+          "description": "Create the ODD feature document: objective, scope, tasks F6 backend, F6 frontend, schema migration",
+          "tool": "Write",
+          "args": {
+            "file_path": "odd/tasks/video-studio-wp5-transition-failures.md"
+          },
+          "reason": "Substantial work: feature document (and Engram mirror odd/video-studio-wp5-transition-failures/tasks) before the first source write."
+        },
+        {
+          "step": 4,
+          "description": "F6: degrade on rejected executions, abort on unreachable or repeated failures, persist warnings",
+          "tool": "Edit",
+          "args": {
+            "file_path": "backend/src/db/schema.sql"
+          },
+          "reason": "Work unit with tests first (RED then GREEN) and its own commit.",
+          "substeps": [
+            {
+              "step": 1,
+              "description": "RED test: a rejected transition degrades to a hard cut and records a warning; N consecutive unreachable/timeout failures abort the job",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/test/orchestrator.test.ts"
+              },
+              "reason": "Specify F6: degrade on rejected executions, abort on unreachable or repeated failures, persist warnings before implementing."
+            },
+            {
+              "step": 2,
+              "description": "RED test: warnings are persisted and returned with the job",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/test/jobRepository.test.ts"
+              },
+              "reason": "Specify F6: degrade on rejected executions, abort on unreachable or repeated failures, persist warnings before implementing."
+            },
+            {
+              "step": 3,
+              "description": "Run the new tests and confirm they fail for the expected reason",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/backend exec node --test --import tsx test/orchestrator.test.ts test/jobRepository.test.ts"
+              },
+              "reason": "Observed RED before implementation."
+            },
+            {
+              "step": 4,
+              "description": "Add a warnings column to jobs (JSON text, default '[]')",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/src/db/schema.sql"
+              },
+              "reason": "Durable trace instead of an ephemeral SSE event."
+            },
+            {
+              "step": 5,
+              "description": "Add the matching migration (coordinate with WP9 user_version)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/src/db/connection.ts"
+              },
+              "reason": "Existing databases must upgrade."
+            },
+            {
+              "step": 6,
+              "description": "Add warnings to the Job type",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/src/jobs/types.ts"
+              },
+              "reason": "Contract."
+            },
+            {
+              "step": 7,
+              "description": "Persist and read warnings",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/src/jobs/jobRepository.ts"
+              },
+              "reason": "Storage."
+            },
+            {
+              "step": 8,
+              "description": "Replace the swallow-all catch (~lines 259-263) with the agreed policy",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/src/pipeline/orchestrator.ts"
+              },
+              "reason": "Core of F6."
+            },
+            {
+              "step": 9,
+              "description": "Run the touched and neighbouring suites: GREEN",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/backend exec node --test --import tsx test/orchestrator.test.ts test/jobRepository.test.ts test/connection.test.ts test/jobRunner.test.ts"
+              },
+              "reason": "Verifies the change and non-regression of adjacent tests."
+            },
+            {
+              "step": 10,
+              "description": "Commit the work unit",
+              "tool": "Bash",
+              "args": {
+                "command": "git add -A -- backend && git commit -m \"fix(orchestrator): persist transition warnings and abort on repeated failures\""
+              },
+              "reason": "Conventional commit, no AI attribution, tests alongside the behaviour."
+            }
+          ]
+        },
+        {
+          "step": 5,
+          "description": "F6 frontend: show job warnings",
+          "tool": "Edit",
+          "args": {
+            "file_path": "frontend/src/api/types.ts"
+          },
+          "reason": "Work unit with tests first (RED then GREEN) and its own commit.",
+          "substeps": [
+            {
+              "step": 1,
+              "description": "RED test: a done job with warnings shows them",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/test/JobsPage.test.tsx"
+              },
+              "reason": "Specify F6 frontend: show job warnings before implementing."
+            },
+            {
+              "step": 2,
+              "description": "Run the new tests and confirm they fail for the expected reason",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/frontend exec vitest run test/JobsPage.test.tsx"
+              },
+              "reason": "Observed RED before implementation."
+            },
+            {
+              "step": 3,
+              "description": "Add warnings to Job",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/src/api/types.ts"
+              },
+              "reason": "Contract."
+            },
+            {
+              "step": 4,
+              "description": "Render warnings in the job row",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/src/components/JobsPage.tsx"
+              },
+              "reason": "Visibility."
+            },
+            {
+              "step": 5,
+              "description": "Add a jobs.warnings key to es and en",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/src/i18n.tsx"
+              },
+              "reason": "i18n parity."
+            },
+            {
+              "step": 6,
+              "description": "Run the touched and neighbouring suites: GREEN",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/frontend exec vitest run test/JobsPage.test.tsx test/i18n.test.tsx"
+              },
+              "reason": "Verifies the change and non-regression of adjacent tests."
+            },
+            {
+              "step": 7,
+              "description": "Commit the work unit",
+              "tool": "Bash",
+              "args": {
+                "command": "git add -A -- frontend && git commit -m \"feat(jobs): show render warnings in the jobs list\""
+              },
+              "reason": "Conventional commit, no AI attribution, tests alongside the behaviour."
+            }
+          ]
+        },
+        {
+          "step": 6,
+          "description": "Run the full frontend suite",
+          "tool": "Bash",
+          "args": {
+            "command": "pnpm --filter @video-studio/frontend exec vitest run"
+          },
+          "reason": "Whole-suite non-regression."
+        },
+        {
+          "step": 7,
+          "description": "Typecheck the frontend",
+          "tool": "Bash",
+          "args": {
+            "command": "pnpm --filter @video-studio/frontend typecheck"
+          },
+          "reason": "Types must stay clean."
+        },
+        {
+          "step": 8,
+          "description": "Run the full backend suite",
+          "tool": "Bash",
+          "args": {
+            "command": "pnpm --filter @video-studio/backend test"
+          },
+          "reason": "Whole-suite non-regression."
+        },
+        {
+          "step": 9,
+          "description": "Typecheck the backend",
+          "tool": "Bash",
+          "args": {
+            "command": "pnpm --filter @video-studio/backend typecheck"
+          },
+          "reason": "Types must stay clean."
+        },
+        {
+          "step": 10,
+          "description": "Record the status of WP5 in the plan document",
+          "tool": "Edit",
+          "args": {
+            "file_path": "docs/plan-mejoras-optimizacion.md"
+          },
+          "reason": "The plan asks to record each package as it lands."
+        },
+        {
+          "step": 11,
+          "description": "Ask whether to push and open the PR into develop",
+          "tool": "AskUserQuestion",
+          "args": {
+            "question": "Package WP5 is committed on feature/wp5-transition-failures. Push and open a PR into develop?"
+          },
+          "reason": "Push and PR creation are the user's decisions (remote operations are not pre-authorised)."
+        }
+      ]
+    },
+    {
+      "step": 6,
+      "description": "WP6 — Render performance (P1, P2, P3, P4)",
+      "tool": "Bash",
+      "args": {
+        "command": "git switch -c feature/wp6-render-performance develop"
+      },
+      "reason": "Cut render time: faster x264 presets and one vertical pass, overlap CPU and GPU work, stop persisting every sampling tick, fix cover seek. Depends on WP2.",
+      "substeps": [
+        {
+          "step": 1,
+          "description": "Create the feature branch from the local develop (no pull: remote access is not authorised)",
+          "tool": "Bash",
+          "args": {
+            "command": "git switch -c feature/wp6-render-performance develop"
+          },
+          "reason": "GitFlow: feature/* from develop; gitflow-casa branch check first. Depends on WP2 being merged."
+        },
+        {
+          "step": 2,
+          "description": "Authorise the real-service benchmark",
+          "tool": "AskUserQuestion",
+          "args": {
+            "question": "May I run a before/after render on babybeast (192.168.1.60:8188, Piper tcp://192.168.1.60:10200) with a fixed fixture to measure time and compare streams with ffprobe? Confirm destination, operation and session."
+          },
+          "reason": "Remote work requires explicit authorisation; without it the unit tests are the only evidence."
+        },
+        {
+          "step": 3,
+          "description": "Create the ODD feature document: objective, scope, tasks P1+P4, P3, P2, acceptance: identical output streams and measured time reduction",
+          "tool": "Write",
+          "args": {
+            "file_path": "odd/tasks/video-studio-wp6-render-performance.md"
+          },
+          "reason": "Substantial work: feature document (and Engram mirror odd/video-studio-wp6-render-performance/tasks) before the first source write."
+        },
+        {
+          "step": 4,
+          "description": "P1 + P4: ffmpeg presets, chained vertical filter, cover seek",
+          "tool": "Edit",
+          "args": {
+            "file_path": "backend/src/media/ffmpeg.ts"
+          },
+          "reason": "Work unit with tests first (RED then GREEN) and its own commit.",
+          "substeps": [
+            {
+              "step": 1,
+              "description": "RED test: burnSubtitlesArgs and verticalCropArgs include -preset veryfast; vertical+subtitles builds a single crop,scale,subtitles chain; coverArgs places -ss before -i",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/test/ffmpeg.test.ts"
+              },
+              "reason": "Specify P1 + P4: ffmpeg presets, chained vertical filter, cover seek before implementing."
+            },
+            {
+              "step": 2,
+              "description": "Run the new tests and confirm they fail for the expected reason",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/backend exec node --test --import tsx test/ffmpeg.test.ts test/vertical.test.ts"
+              },
+              "reason": "Observed RED before implementation."
+            },
+            {
+              "step": 3,
+              "description": "Add -preset veryfast to burnSubtitlesArgs and verticalCropArgs, chain crop,scale,subtitles for vertical, move -ss before -i in coverArgs (~lines 159-187)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/src/media/ffmpeg.ts"
+              },
+              "reason": "Pure argument builders, testable without ffmpeg."
+            },
+            {
+              "step": 4,
+              "description": "Use the single-pass vertical path (~lines 341, 352-353)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/src/pipeline/orchestrator.ts"
+              },
+              "reason": "Removes a re-encode."
+            },
+            {
+              "step": 5,
+              "description": "Run the touched and neighbouring suites: GREEN",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/backend exec node --test --import tsx test/ffmpeg.test.ts test/vertical.test.ts test/subtitles.test.ts test/orchestrator.test.ts"
+              },
+              "reason": "Verifies the change and non-regression of adjacent tests."
+            },
+            {
+              "step": 6,
+              "description": "Commit the work unit",
+              "tool": "Bash",
+              "args": {
+                "command": "git add -A -- backend && git commit -m \"perf(ffmpeg): faster presets, single vertical pass and fast cover seek\""
+              },
+              "reason": "Conventional commit, no AI attribution, tests alongside the behaviour."
+            }
+          ]
+        },
+        {
+          "step": 5,
+          "description": "P3: stop persisting redundant progress ticks",
+          "tool": "Edit",
+          "args": {
+            "file_path": "backend/src/jobs/runner.ts"
+          },
+          "reason": "Work unit with tests first (RED then GREEN) and its own commit.",
+          "substeps": [
+            {
+              "step": 1,
+              "description": "RED test: progress events with an unchanged value do not call updateJob; persistence is throttled",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/test/jobRunner.test.ts"
+              },
+              "reason": "Specify P3: stop persisting redundant progress ticks before implementing."
+            },
+            {
+              "step": 2,
+              "description": "RED test: high-frequency progress events do not evict stage events from the replay buffer",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/test/eventHub.test.ts"
+              },
+              "reason": "Specify P3: stop persisting redundant progress ticks before implementing."
+            },
+            {
+              "step": 3,
+              "description": "Run the new tests and confirm they fail for the expected reason",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/backend exec node --test --import tsx test/jobRunner.test.ts test/eventHub.test.ts"
+              },
+              "reason": "Observed RED before implementation."
+            },
+            {
+              "step": 4,
+              "description": "Skip updateJob when progress is unchanged and throttle to ~2 Hz (~lines 157-163)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/src/jobs/runner.ts"
+              },
+              "reason": "One UPDATE plus SELECT per tick is wasteful."
+            },
+            {
+              "step": 5,
+              "description": "Keep stage events out of replay eviction by progress events (~line 30)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/src/jobs/eventHub.ts"
+              },
+              "reason": "Reconnecting clients must keep context."
+            },
+            {
+              "step": 6,
+              "description": "Run the touched and neighbouring suites: GREEN",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/backend exec node --test --import tsx test/jobRunner.test.ts test/eventHub.test.ts"
+              },
+              "reason": "Verifies the change and non-regression of adjacent tests."
+            },
+            {
+              "step": 7,
+              "description": "Commit the work unit",
+              "tool": "Bash",
+              "args": {
+                "command": "git add -A -- backend && git commit -m \"perf(jobs): throttle progress persistence and protect stage replay\""
+              },
+              "reason": "Conventional commit, no AI attribution, tests alongside the behaviour."
+            }
+          ]
+        },
+        {
+          "step": 6,
+          "description": "P2: overlap Ken Burns with transitions and pre-queue prompts",
+          "tool": "Edit",
+          "args": {
+            "file_path": "backend/src/pipeline/orchestrator.ts"
+          },
+          "reason": "Work unit with tests first (RED then GREEN) and its own commit.",
+          "substeps": [
+            {
+              "step": 1,
+              "description": "RED test: Ken Burns clips are produced while transitions run; output order and cancellation behaviour are unchanged",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/test/orchestrator.test.ts"
+              },
+              "reason": "Specify P2: overlap Ken Burns with transitions and pre-queue prompts before implementing."
+            },
+            {
+              "step": 2,
+              "description": "Run the new tests and confirm they fail for the expected reason",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/backend exec node --test --import tsx test/orchestrator.test.ts"
+              },
+              "reason": "Observed RED before implementation."
+            },
+            {
+              "step": 3,
+              "description": "Start Ken Burns work concurrently with the transitions stage and submit ComfyUI prompts ahead of polling (~lines 474-477)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/src/pipeline/orchestrator.ts"
+              },
+              "reason": "Highest regression risk in the plan; kept in its own commit after WP2 settles cancellation semantics."
+            },
+            {
+              "step": 4,
+              "description": "Run the touched and neighbouring suites: GREEN",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/backend exec node --test --import tsx test/orchestrator.test.ts test/approve.routes.test.ts test/comfy.test.ts"
+              },
+              "reason": "Verifies the change and non-regression of adjacent tests."
+            },
+            {
+              "step": 5,
+              "description": "Commit the work unit",
+              "tool": "Bash",
+              "args": {
+                "command": "git add -A -- backend && git commit -m \"perf(orchestrator): overlap Ken Burns with GPU transitions\""
+              },
+              "reason": "Conventional commit, no AI attribution, tests alongside the behaviour."
+            }
+          ]
+        },
+        {
+          "step": 7,
+          "description": "Run the full backend suite",
+          "tool": "Bash",
+          "args": {
+            "command": "pnpm --filter @video-studio/backend test"
+          },
+          "reason": "Whole-suite non-regression."
+        },
+        {
+          "step": 8,
+          "description": "Typecheck the backend",
+          "tool": "Bash",
+          "args": {
+            "command": "pnpm --filter @video-studio/backend typecheck"
+          },
+          "reason": "Types must stay clean."
+        },
+        {
+          "step": 9,
+          "description": "Record the status of WP6 in the plan document",
+          "tool": "Edit",
+          "args": {
+            "file_path": "docs/plan-mejoras-optimizacion.md"
+          },
+          "reason": "The plan asks to record each package as it lands."
+        },
+        {
+          "step": 10,
+          "description": "Ask whether to push and open the PR into develop",
+          "tool": "AskUserQuestion",
+          "args": {
+            "question": "Package WP6 is committed on feature/wp6-render-performance. Push and open a PR into develop?"
+          },
+          "reason": "Push and PR creation are the user's decisions (remote operations are not pre-authorised)."
+        }
+      ]
+    },
+    {
+      "step": 7,
+      "description": "WP7a — Lifecycle: timeouts, graceful shutdown, ffmpeg watchdog (B4, B5, B6)",
+      "tool": "Bash",
+      "args": {
+        "command": "git switch -c feature/wp7a-lifecycle-shutdown develop"
+      },
+      "reason": "Make Ollama calls cancellable with timeouts and bounded concurrency, shut down cleanly, and stop a hung ffmpeg from blocking the queue.",
+      "substeps": [
+        {
+          "step": 1,
+          "description": "Create the feature branch from the local develop (no pull: remote access is not authorised)",
+          "tool": "Bash",
+          "args": {
+            "command": "git switch -c feature/wp7a-lifecycle-shutdown develop"
+          },
+          "reason": "GitFlow: feature/* from develop; gitflow-casa branch check first."
+        },
+        {
+          "step": 2,
+          "description": "Create the ODD feature document: objective, scope, tasks B4, B5, B6",
+          "tool": "Write",
+          "args": {
+            "file_path": "odd/tasks/video-studio-wp7a-lifecycle-shutdown.md"
+          },
+          "reason": "Substantial work: feature document (and Engram mirror odd/video-studio-wp7a-lifecycle-shutdown/tasks) before the first source write."
+        },
+        {
+          "step": 3,
+          "description": "B4: Ollama timeout, abort on client close, concurrency limit on /draft",
+          "tool": "Edit",
+          "args": {
+            "file_path": "backend/src/clients/ollama.ts"
+          },
+          "reason": "Work unit with tests first (RED then GREEN) and its own commit.",
+          "substeps": [
+            {
+              "step": 1,
+              "description": "RED test: chatJson and listModels abort after the configured timeout and when the signal fires",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/test/ollama.test.ts"
+              },
+              "reason": "Specify B4: Ollama timeout, abort on client close, concurrency limit on /draft before implementing."
+            },
+            {
+              "step": 2,
+              "description": "RED test: closing the HTTP request aborts the Ollama call; more than N concurrent /draft requests are queued or rejected",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/test/pipeline.routes.test.ts"
+              },
+              "reason": "Specify B4: Ollama timeout, abort on client close, concurrency limit on /draft before implementing."
+            },
+            {
+              "step": 3,
+              "description": "Run the new tests and confirm they fail for the expected reason",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/backend exec node --test --import tsx test/ollama.test.ts test/pipeline.routes.test.ts"
+              },
+              "reason": "Observed RED before implementation."
+            },
+            {
+              "step": 4,
+              "description": "Add AbortSignal.timeout (configurable) to listModels and chatJson (~lines 26-61)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/src/clients/ollama.ts"
+              },
+              "reason": "undici defaults are too long and opaque."
+            },
+            {
+              "step": 5,
+              "description": "Forward the signal to chatJson (~line 123)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/src/pipeline/draft.ts"
+              },
+              "reason": "Plumbing."
+            },
+            {
+              "step": 6,
+              "description": "Abort on req 'close' and add a small semaphore for /draft (~lines 79-100)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/src/routes/pipeline.ts"
+              },
+              "reason": "Protect the GPU host."
+            },
+            {
+              "step": 7,
+              "description": "Run the touched and neighbouring suites: GREEN",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/backend exec node --test --import tsx test/ollama.test.ts test/pipeline.routes.test.ts test/draft.test.ts test/ollamaModels.test.ts"
+              },
+              "reason": "Verifies the change and non-regression of adjacent tests."
+            },
+            {
+              "step": 8,
+              "description": "Commit the work unit",
+              "tool": "Bash",
+              "args": {
+                "command": "git add -A -- backend && git commit -m \"fix(ollama): add timeouts, client-abort and bounded concurrency\""
+              },
+              "reason": "Conventional commit, no AI attribution, tests alongside the behaviour."
+            }
+          ]
+        },
+        {
+          "step": 4,
+          "description": "B5: graceful shutdown",
+          "tool": "Edit",
+          "args": {
+            "file_path": "backend/src/jobs/runner.ts"
+          },
+          "reason": "Work unit with tests first (RED then GREEN) and its own commit.",
+          "substeps": [
+            {
+              "step": 1,
+              "description": "RED test: shutdown aborts the running job and prevents new ones from starting",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/test/jobRunner.test.ts"
+              },
+              "reason": "Specify B5: graceful shutdown before implementing."
+            },
+            {
+              "step": 2,
+              "description": "Run the new tests and confirm they fail for the expected reason",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/backend exec node --test --import tsx test/jobRunner.test.ts"
+              },
+              "reason": "Observed RED before implementation."
+            },
+            {
+              "step": 3,
+              "description": "Expose a stop()/shutdown() that aborts current.controller and waits for the job to settle",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/src/jobs/runner.ts"
+              },
+              "reason": "Lets the process end without orphaned ffmpeg or ComfyUI work."
+            },
+            {
+              "step": 4,
+              "description": "Handle SIGTERM/SIGINT: runner shutdown, server.close, db close; add an error handler on listen (~lines 18-22)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/src/server.ts"
+              },
+              "reason": "Clean exit and readable EADDRINUSE."
+            },
+            {
+              "step": 5,
+              "description": "Run the touched and neighbouring suites: GREEN",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/backend exec node --test --import tsx test/jobRunner.test.ts"
+              },
+              "reason": "Verifies the change and non-regression of adjacent tests."
+            },
+            {
+              "step": 6,
+              "description": "Commit the work unit",
+              "tool": "Bash",
+              "args": {
+                "command": "git add -A -- backend && git commit -m \"feat(server): graceful shutdown on SIGTERM and SIGINT\""
+              },
+              "reason": "Conventional commit, no AI attribution, tests alongside the behaviour."
+            }
+          ]
+        },
+        {
+          "step": 5,
+          "description": "B6: ffmpeg watchdog and partial-output cleanup",
+          "tool": "Edit",
+          "args": {
+            "file_path": "backend/src/media/ffmpeg.ts"
+          },
+          "reason": "Work unit with tests first (RED then GREEN) and its own commit.",
+          "substeps": [
+            {
+              "step": 1,
+              "description": "RED test: a hung process is killed after the watchdog timeout and its partial output is deleted",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/test/ffmpeg.test.ts"
+              },
+              "reason": "Specify B6: ffmpeg watchdog and partial-output cleanup before implementing."
+            },
+            {
+              "step": 2,
+              "description": "Run the new tests and confirm they fail for the expected reason",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/backend exec node --test --import tsx test/ffmpeg.test.ts"
+              },
+              "reason": "Observed RED before implementation."
+            },
+            {
+              "step": 3,
+              "description": "Add a per-call watchdog timeout and unlink partial output on kill (~lines 11-36)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/src/media/ffmpeg.ts"
+              },
+              "reason": "A hung ffmpeg blocks the single-job queue indefinitely."
+            },
+            {
+              "step": 4,
+              "description": "Run the touched and neighbouring suites: GREEN",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/backend exec node --test --import tsx test/ffmpeg.test.ts"
+              },
+              "reason": "Verifies the change and non-regression of adjacent tests."
+            },
+            {
+              "step": 5,
+              "description": "Commit the work unit",
+              "tool": "Bash",
+              "args": {
+                "command": "git add -A -- backend && git commit -m \"fix(ffmpeg): add watchdog timeout and clean partial outputs\""
+              },
+              "reason": "Conventional commit, no AI attribution, tests alongside the behaviour."
+            }
+          ]
+        },
+        {
+          "step": 6,
+          "description": "Run the full backend suite",
+          "tool": "Bash",
+          "args": {
+            "command": "pnpm --filter @video-studio/backend test"
+          },
+          "reason": "Whole-suite non-regression."
+        },
+        {
+          "step": 7,
+          "description": "Typecheck the backend",
+          "tool": "Bash",
+          "args": {
+            "command": "pnpm --filter @video-studio/backend typecheck"
+          },
+          "reason": "Types must stay clean."
+        },
+        {
+          "step": 8,
+          "description": "Record the status of WP7a in the plan document",
+          "tool": "Edit",
+          "args": {
+            "file_path": "docs/plan-mejoras-optimizacion.md"
+          },
+          "reason": "The plan asks to record each package as it lands."
+        },
+        {
+          "step": 9,
+          "description": "Ask whether to push and open the PR into develop",
+          "tool": "AskUserQuestion",
+          "args": {
+            "question": "Package WP7a is committed on feature/wp7a-lifecycle-shutdown. Push and open a PR into develop?"
+          },
+          "reason": "Push and PR creation are the user's decisions (remote operations are not pre-authorised)."
+        }
+      ]
+    },
+    {
+      "step": 8,
+      "description": "WP7b — Disk hygiene and atomic cache (B8, B9)",
+      "tool": "Bash",
+      "args": {
+        "command": "git switch -c feature/wp7b-disk-and-cache develop"
+      },
+      "reason": "Bound disk growth and make cache writes atomic and cheap.",
+      "substeps": [
+        {
+          "step": 1,
+          "description": "Create the feature branch from the local develop (no pull: remote access is not authorised)",
+          "tool": "Bash",
+          "args": {
+            "command": "git switch -c feature/wp7b-disk-and-cache develop"
+          },
+          "reason": "GitFlow: feature/* from develop; gitflow-casa branch check first."
+        },
+        {
+          "step": 2,
+          "description": "Create the ODD feature document: objective, scope, tasks B8, B9",
+          "tool": "Write",
+          "args": {
+            "file_path": "odd/tasks/video-studio-wp7b-disk-and-cache.md"
+          },
+          "reason": "Substantial work: feature document (and Engram mirror odd/video-studio-wp7b-disk-and-cache/tasks) before the first source write."
+        },
+        {
+          "step": 3,
+          "description": "B8: periodic prune and cache retention",
+          "tool": "Edit",
+          "args": {
+            "file_path": "backend/src/jobs/runner.ts"
+          },
+          "reason": "Work unit with tests first (RED then GREEN) and its own commit.",
+          "substeps": [
+            {
+              "step": 1,
+              "description": "RED test: prune runs periodically via an unref'd timer; cache entries older than the TTL are removed",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/test/retention.test.ts"
+              },
+              "reason": "Specify B8: periodic prune and cache retention before implementing."
+            },
+            {
+              "step": 2,
+              "description": "Run the new tests and confirm they fail for the expected reason",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/backend exec node --test --import tsx test/retention.test.ts test/contentCache.test.ts"
+              },
+              "reason": "Observed RED before implementation."
+            },
+            {
+              "step": 3,
+              "description": "Schedule pruneWorkDirs periodically with an unref'd timer (~lines 61-72)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/src/jobs/runner.ts"
+              },
+              "reason": "Today it runs only at start()."
+            },
+            {
+              "step": 4,
+              "description": "Add TTL/LRU eviction for data/cache",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/src/pipeline/contentCache.ts"
+              },
+              "reason": "The cache has no retention policy."
+            },
+            {
+              "step": 5,
+              "description": "Run the touched and neighbouring suites: GREEN",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/backend exec node --test --import tsx test/retention.test.ts test/contentCache.test.ts"
+              },
+              "reason": "Verifies the change and non-regression of adjacent tests."
+            },
+            {
+              "step": 6,
+              "description": "Commit the work unit",
+              "tool": "Bash",
+              "args": {
+                "command": "git add -A -- backend && git commit -m \"feat(jobs): periodic work-dir prune and cache retention\""
+              },
+              "reason": "Conventional commit, no AI attribution, tests alongside the behaviour."
+            }
+          ]
+        },
+        {
+          "step": 4,
+          "description": "B9: atomic cache writes and cheap copies",
+          "tool": "Edit",
+          "args": {
+            "file_path": "backend/src/pipeline/contentCache.ts"
+          },
+          "reason": "Work unit with tests first (RED then GREEN) and its own commit.",
+          "substeps": [
+            {
+              "step": 1,
+              "description": "RED test: a write interrupted mid-way leaves no truncated entry visible to has(); store is atomic; entries are copied without loading into memory",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/test/contentCache.test.ts"
+              },
+              "reason": "Specify B9: atomic cache writes and cheap copies before implementing."
+            },
+            {
+              "step": 2,
+              "description": "Run the new tests and confirm they fail for the expected reason",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/backend exec node --test --import tsx test/contentCache.test.ts test/orchestrator.test.ts"
+              },
+              "reason": "Observed RED before implementation."
+            },
+            {
+              "step": 3,
+              "description": "Write to a .tmp file and rename; validate WAV before caching (~line 45)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/src/pipeline/contentCache.ts"
+              },
+              "reason": "A truncated file is currently a permanent hit."
+            },
+            {
+              "step": 4,
+              "description": "Use copyFile/link between cache and workDir instead of readFileSync+writeFileSync (~lines 181, 199, 234, 258)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/src/pipeline/orchestrator.ts"
+              },
+              "reason": "Stops blocking the event loop with whole mp4 files."
+            },
+            {
+              "step": 5,
+              "description": "Run the touched and neighbouring suites: GREEN",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/backend exec node --test --import tsx test/contentCache.test.ts test/orchestrator.test.ts"
+              },
+              "reason": "Verifies the change and non-regression of adjacent tests."
+            },
+            {
+              "step": 6,
+              "description": "Commit the work unit",
+              "tool": "Bash",
+              "args": {
+                "command": "git add -A -- backend && git commit -m \"fix(cache): atomic writes and non-blocking file copies\""
+              },
+              "reason": "Conventional commit, no AI attribution, tests alongside the behaviour."
+            }
+          ]
+        },
+        {
+          "step": 5,
+          "description": "Run the full backend suite",
+          "tool": "Bash",
+          "args": {
+            "command": "pnpm --filter @video-studio/backend test"
+          },
+          "reason": "Whole-suite non-regression."
+        },
+        {
+          "step": 6,
+          "description": "Typecheck the backend",
+          "tool": "Bash",
+          "args": {
+            "command": "pnpm --filter @video-studio/backend typecheck"
+          },
+          "reason": "Types must stay clean."
+        },
+        {
+          "step": 7,
+          "description": "Record the status of WP7b in the plan document",
+          "tool": "Edit",
+          "args": {
+            "file_path": "docs/plan-mejoras-optimizacion.md"
+          },
+          "reason": "The plan asks to record each package as it lands."
+        },
+        {
+          "step": 8,
+          "description": "Ask whether to push and open the PR into develop",
+          "tool": "AskUserQuestion",
+          "args": {
+            "question": "Package WP7b is committed on feature/wp7b-disk-and-cache. Push and open a PR into develop?"
+          },
+          "reason": "Push and PR creation are the user's decisions (remote operations are not pre-authorised)."
+        }
+      ]
+    },
+    {
+      "step": 9,
+      "description": "WP8 — Subtitles and ffmpeg filter hygiene (F7, B7)",
+      "tool": "Bash",
+      "args": {
+        "command": "git switch -c feature/wp8-subtitles-and-filters develop"
+      },
+      "reason": "Split long narration into timed cues, sanitise blank lines, and stop escaping absolute paths in the subtitles filter.",
+      "substeps": [
+        {
+          "step": 1,
+          "description": "Create the feature branch from the local develop (no pull: remote access is not authorised)",
+          "tool": "Bash",
+          "args": {
+            "command": "git switch -c feature/wp8-subtitles-and-filters develop"
+          },
+          "reason": "GitFlow: feature/* from develop; gitflow-casa branch check first."
+        },
+        {
+          "step": 2,
+          "description": "F7: cue splitting and SRT sanitising",
+          "tool": "Edit",
+          "args": {
+            "file_path": "backend/src/pipeline/subtitles.ts"
+          },
+          "reason": "Work unit with tests first (RED then GREEN) and its own commit.",
+          "substeps": [
+            {
+              "step": 1,
+              "description": "RED test: a 1200-character narration becomes several cues with proportional timing and bounded line length; '\\n\\n' inside narration does not break the SRT",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/test/subtitles.test.ts"
+              },
+              "reason": "Specify F7: cue splitting and SRT sanitising before implementing."
+            },
+            {
+              "step": 2,
+              "description": "Run the new tests and confirm they fail for the expected reason",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/backend exec node --test --import tsx test/subtitles.test.ts test/orchestrator.test.ts"
+              },
+              "reason": "Observed RED before implementation."
+            },
+            {
+              "step": 3,
+              "description": "Split text into cues by sentence/length with proportional times and replace blank lines (~lines 41-60)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/src/pipeline/subtitles.ts"
+              },
+              "reason": "One cue per scene overflows the frame."
+            },
+            {
+              "step": 4,
+              "description": "Adapt the caller to multiple cues per scene (~line 340)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/src/pipeline/orchestrator.ts"
+              },
+              "reason": "Consumer of the new output."
+            },
+            {
+              "step": 5,
+              "description": "Run the touched and neighbouring suites: GREEN",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/backend exec node --test --import tsx test/subtitles.test.ts test/orchestrator.test.ts"
+              },
+              "reason": "Verifies the change and non-regression of adjacent tests."
+            },
+            {
+              "step": 6,
+              "description": "Commit the work unit",
+              "tool": "Bash",
+              "args": {
+                "command": "git add -A -- backend && git commit -m \"fix(subtitles): split long narration into timed cues\""
+              },
+              "reason": "Conventional commit, no AI attribution, tests alongside the behaviour."
+            }
+          ]
+        },
+        {
+          "step": 3,
+          "description": "B7: relative subtitle path with cwd = workDir",
+          "tool": "Edit",
+          "args": {
+            "file_path": "backend/src/media/ffmpeg.ts"
+          },
+          "reason": "Work unit with tests first (RED then GREEN) and its own commit.",
+          "substeps": [
+            {
+              "step": 1,
+              "description": "RED test: burnSubtitlesArgs uses a relative subtitles path; paths containing quote, comma and brackets are not part of the filtergraph",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/test/ffmpeg.test.ts"
+              },
+              "reason": "Specify B7: relative subtitle path with cwd = workDir before implementing."
+            },
+            {
+              "step": 2,
+              "description": "Run the new tests and confirm they fail for the expected reason",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/backend exec node --test --import tsx test/ffmpeg.test.ts"
+              },
+              "reason": "Observed RED before implementation."
+            },
+            {
+              "step": 3,
+              "description": "Remove escapeFilterPath use, take a cwd option and pass subtitles=subtitles.srt (~lines 154-170)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/src/media/ffmpeg.ts"
+              },
+              "reason": "Avoids the incomplete escaping."
+            },
+            {
+              "step": 4,
+              "description": "Run the touched and neighbouring suites: GREEN",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/backend exec node --test --import tsx test/ffmpeg.test.ts test/vertical.test.ts"
+              },
+              "reason": "Verifies the change and non-regression of adjacent tests."
+            },
+            {
+              "step": 5,
+              "description": "Commit the work unit",
+              "tool": "Bash",
+              "args": {
+                "command": "git add -A -- backend && git commit -m \"fix(ffmpeg): run subtitle burn with cwd instead of escaping paths\""
+              },
+              "reason": "Conventional commit, no AI attribution, tests alongside the behaviour."
+            }
+          ]
+        },
+        {
+          "step": 4,
+          "description": "Run the full backend suite",
+          "tool": "Bash",
+          "args": {
+            "command": "pnpm --filter @video-studio/backend test"
+          },
+          "reason": "Whole-suite non-regression."
+        },
+        {
+          "step": 5,
+          "description": "Typecheck the backend",
+          "tool": "Bash",
+          "args": {
+            "command": "pnpm --filter @video-studio/backend typecheck"
+          },
+          "reason": "Types must stay clean."
+        },
+        {
+          "step": 6,
+          "description": "Record the status of WP8 in the plan document",
+          "tool": "Edit",
+          "args": {
+            "file_path": "docs/plan-mejoras-optimizacion.md"
+          },
+          "reason": "The plan asks to record each package as it lands."
+        },
+        {
+          "step": 7,
+          "description": "Ask whether to push and open the PR into develop",
+          "tool": "AskUserQuestion",
+          "args": {
+            "question": "Package WP8 is committed on feature/wp8-subtitles-and-filters. Push and open a PR into develop?"
+          },
+          "reason": "Push and PR creation are the user's decisions (remote operations are not pre-authorised)."
+        }
+      ]
+    },
+    {
+      "step": 10,
+      "description": "WP9 — Data layer cleanup (B12)",
+      "tool": "Bash",
+      "args": {
+        "command": "git switch -c feature/wp9-data-layer develop"
+      },
+      "reason": "Add the missing indexes, move migrations to user_version and make schema loading build-safe. Coordinate with WP5.",
+      "substeps": [
+        {
+          "step": 1,
+          "description": "Create the feature branch from the local develop (no pull: remote access is not authorised)",
+          "tool": "Bash",
+          "args": {
+            "command": "git switch -c feature/wp9-data-layer develop"
+          },
+          "reason": "GitFlow: feature/* from develop; gitflow-casa branch check first."
+        },
+        {
+          "step": 2,
+          "description": "B12: indexes, user_version migrations, build-safe schema",
+          "tool": "Edit",
+          "args": {
+            "file_path": "backend/src/db/schema.sql"
+          },
+          "reason": "Work unit with tests first (RED then GREEN) and its own commit.",
+          "substeps": [
+            {
+              "step": 1,
+              "description": "RED test: opening an old database upgrades it via user_version; the two jobs indexes exist; schema loads without relying on __dirname file layout",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/test/connection.test.ts"
+              },
+              "reason": "Specify B12: indexes, user_version migrations, build-safe schema before implementing."
+            },
+            {
+              "step": 2,
+              "description": "Run the new tests and confirm they fail for the expected reason",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/backend exec node --test --import tsx test/connection.test.ts"
+              },
+              "reason": "Observed RED before implementation."
+            },
+            {
+              "step": 3,
+              "description": "Add indexes on jobs(draft_id, created_at) and jobs(status, created_at)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/src/db/schema.sql"
+              },
+              "reason": "getLatestJobForDraft and listJobs sort without an index."
+            },
+            {
+              "step": 4,
+              "description": "Replace PRAGMA table_info probing with PRAGMA user_version steps; embed or copy the schema so a tsc build works (~lines 8-61)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/src/db/connection.ts"
+              },
+              "reason": "Deterministic migrations."
+            },
+            {
+              "step": 5,
+              "description": "Run the touched and neighbouring suites: GREEN",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/backend exec node --test --import tsx test/connection.test.ts test/jobRepository.test.ts"
+              },
+              "reason": "Verifies the change and non-regression of adjacent tests."
+            },
+            {
+              "step": 6,
+              "description": "Commit the work unit",
+              "tool": "Bash",
+              "args": {
+                "command": "git add -A -- backend && git commit -m \"refactor(db): user_version migrations and jobs indexes\""
+              },
+              "reason": "Conventional commit, no AI attribution, tests alongside the behaviour."
+            }
+          ]
+        },
+        {
+          "step": 3,
+          "description": "Run the full backend suite",
+          "tool": "Bash",
+          "args": {
+            "command": "pnpm --filter @video-studio/backend test"
+          },
+          "reason": "Whole-suite non-regression."
+        },
+        {
+          "step": 4,
+          "description": "Typecheck the backend",
+          "tool": "Bash",
+          "args": {
+            "command": "pnpm --filter @video-studio/backend typecheck"
+          },
+          "reason": "Types must stay clean."
+        },
+        {
+          "step": 5,
+          "description": "Record the status of WP9 in the plan document",
+          "tool": "Edit",
+          "args": {
+            "file_path": "docs/plan-mejoras-optimizacion.md"
+          },
+          "reason": "The plan asks to record each package as it lands."
+        },
+        {
+          "step": 6,
+          "description": "Ask whether to push and open the PR into develop",
+          "tool": "AskUserQuestion",
+          "args": {
+            "question": "Package WP9 is committed on feature/wp9-data-layer. Push and open a PR into develop?"
+          },
+          "reason": "Push and PR creation are the user's decisions (remote operations are not pre-authorised)."
+        }
+      ]
+    },
+    {
+      "step": 11,
+      "description": "WP10 — Frontend resilience (F3, F10, U1, P6)",
+      "tool": "Bash",
+      "args": {
+        "command": "git switch -c feature/wp10-frontend-resilience develop"
+      },
+      "reason": "Keep the review alive across view changes, keep form state, reconnect SSE, and make polling polite.",
+      "substeps": [
+        {
+          "step": 1,
+          "description": "Create the feature branch from the local develop (no pull: remote access is not authorised)",
+          "tool": "Bash",
+          "args": {
+            "command": "git switch -c feature/wp10-frontend-resilience develop"
+          },
+          "reason": "GitFlow: feature/* from develop; gitflow-casa branch check first."
+        },
+        {
+          "step": 2,
+          "description": "Decide how to preserve pipeline state across views (open decision 3.4)",
+          "tool": "AskUserQuestion",
+          "args": {
+            "question": "Keep PipelinePage mounted hidden/inert, lift usePipeline into App, or persist draftId in sessionStorage and rehydrate with getDraft?"
+          },
+          "reason": "Product/architecture decision that blocks F3; do not assume."
+        },
+        {
+          "step": 3,
+          "description": "Create the ODD feature document: objective, scope, tasks F10, F3, U1, P6",
+          "tool": "Write",
+          "args": {
+            "file_path": "odd/tasks/video-studio-wp10-frontend-resilience.md"
+          },
+          "reason": "Substantial work: feature document (and Engram mirror odd/video-studio-wp10-frontend-resilience/tasks) before the first source write."
+        },
+        {
+          "step": 4,
+          "description": "F10: keep form state across review/back",
+          "tool": "Edit",
+          "args": {
+            "file_path": "frontend/src/components/PipelinePage.tsx"
+          },
+          "reason": "Work unit with tests first (RED then GREEN) and its own commit.",
+          "substeps": [
+            {
+              "step": 1,
+              "description": "RED test: typed URL/text survives going to review and back",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/test/PipelinePage.test.tsx"
+              },
+              "reason": "Specify F10: keep form state across review/back before implementing."
+            },
+            {
+              "step": 2,
+              "description": "Run the new tests and confirm they fail for the expected reason",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/frontend exec vitest run test/PipelinePage.test.tsx test/PipelineForm.test.tsx"
+              },
+              "reason": "Observed RED before implementation."
+            },
+            {
+              "step": 3,
+              "description": "Lift PipelineForm state up (or keep it mounted hidden)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/src/components/PipelinePage.tsx"
+              },
+              "reason": "Pasted articles are otherwise lost."
+            },
+            {
+              "step": 4,
+              "description": "Accept initial values and report changes if state is lifted",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/src/components/PipelineForm.tsx"
+              },
+              "reason": "Supports the lift."
+            },
+            {
+              "step": 5,
+              "description": "Run the touched and neighbouring suites: GREEN",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/frontend exec vitest run test/PipelinePage.test.tsx test/PipelineForm.test.tsx"
+              },
+              "reason": "Verifies the change and non-regression of adjacent tests."
+            },
+            {
+              "step": 6,
+              "description": "Commit the work unit",
+              "tool": "Bash",
+              "args": {
+                "command": "git add -A -- frontend && git commit -m \"fix(pipeline): keep form input when returning from review\""
+              },
+              "reason": "Conventional commit, no AI attribution, tests alongside the behaviour."
+            }
+          ]
+        },
+        {
+          "step": 5,
+          "description": "F3: preserve pipeline state across view changes (per decision 3.4)",
+          "tool": "Edit",
+          "args": {
+            "file_path": "frontend/src/App.tsx"
+          },
+          "reason": "Work unit with tests first (RED then GREEN) and its own commit.",
+          "substeps": [
+            {
+              "step": 1,
+              "description": "RED test: navigating to #trabajos and back keeps the draft, edits and progress",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/test/App.test.tsx"
+              },
+              "reason": "Specify F3: preserve pipeline state across view changes (per decision 3.4) before implementing."
+            },
+            {
+              "step": 2,
+              "description": "Run the new tests and confirm they fail for the expected reason",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/frontend exec vitest run test/App.test.tsx"
+              },
+              "reason": "Observed RED before implementation."
+            },
+            {
+              "step": 3,
+              "description": "Apply the decided approach (keep PipelinePage mounted with hidden+inert, lift usePipeline, or rehydrate from sessionStorage + getDraft) (~line 49)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/src/App.tsx"
+              },
+              "reason": "Navigation currently destroys work in progress."
+            },
+            {
+              "step": 4,
+              "description": "Run the touched and neighbouring suites: GREEN",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/frontend exec vitest run test/App.test.tsx test/usePipeline.test.tsx"
+              },
+              "reason": "Verifies the change and non-regression of adjacent tests."
+            },
+            {
+              "step": 5,
+              "description": "Commit the work unit",
+              "tool": "Bash",
+              "args": {
+                "command": "git add -A -- frontend && git commit -m \"fix(app): keep pipeline state when switching views\""
+              },
+              "reason": "Conventional commit, no AI attribution, tests alongside the behaviour."
+            }
+          ]
+        },
+        {
+          "step": 6,
+          "description": "U1: SSE reconnection with bounded backoff",
+          "tool": "Edit",
+          "args": {
+            "file_path": "frontend/src/hooks/usePipeline.ts"
+          },
+          "reason": "Work unit with tests first (RED then GREEN) and its own commit.",
+          "substeps": [
+            {
+              "step": 1,
+              "description": "RED test: a stream cut without a terminal event reconnects to /events or polls getJob and only fails after bounded retries",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/test/usePipeline.test.tsx"
+              },
+              "reason": "Specify U1: SSE reconnection with bounded backoff before implementing."
+            },
+            {
+              "step": 2,
+              "description": "RED test: reconnect resumes from replay without duplicating events",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/test/sse.test.ts"
+              },
+              "reason": "Specify U1: SSE reconnection with bounded backoff before implementing."
+            },
+            {
+              "step": 3,
+              "description": "Run the new tests and confirm they fail for the expected reason",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/frontend exec vitest run test/usePipeline.test.tsx test/sse.test.ts test/client.test.ts"
+              },
+              "reason": "Observed RED before implementation."
+            },
+            {
+              "step": 4,
+              "description": "On a non-terminal stream end with a known jobId, retry with backoff before marking failed (~lines 212-229)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/src/hooks/usePipeline.ts"
+              },
+              "reason": "The job keeps running server-side."
+            },
+            {
+              "step": 5,
+              "description": "Expose the reconnect/getJob path used by the hook (~lines 184-209)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/src/api/client.ts"
+              },
+              "reason": "API support."
+            },
+            {
+              "step": 6,
+              "description": "Run the touched and neighbouring suites: GREEN",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/frontend exec vitest run test/usePipeline.test.tsx test/sse.test.ts test/client.test.ts"
+              },
+              "reason": "Verifies the change and non-regression of adjacent tests."
+            },
+            {
+              "step": 7,
+              "description": "Commit the work unit",
+              "tool": "Bash",
+              "args": {
+                "command": "git add -A -- frontend && git commit -m \"feat(pipeline): reconnect the progress stream with bounded backoff\""
+              },
+              "reason": "Conventional commit, no AI attribution, tests alongside the behaviour."
+            }
+          ]
+        },
+        {
+          "step": 7,
+          "description": "P6: polite polling in Jobs",
+          "tool": "Edit",
+          "args": {
+            "file_path": "frontend/src/components/JobsPage.tsx"
+          },
+          "reason": "Work unit with tests first (RED then GREEN) and its own commit.",
+          "substeps": [
+            {
+              "step": 1,
+              "description": "RED test: polling pauses while the tab is hidden and a language change does not restart the interval",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/test/JobsPage.test.tsx"
+              },
+              "reason": "Specify P6: polite polling in Jobs before implementing."
+            },
+            {
+              "step": 2,
+              "description": "Run the new tests and confirm they fail for the expected reason",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/frontend exec vitest run test/JobsPage.test.tsx"
+              },
+              "reason": "Observed RED before implementation."
+            },
+            {
+              "step": 3,
+              "description": "Check document.visibilityState, add AbortSignal to requests, remove t from load deps (~lines 63-67)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/src/components/JobsPage.tsx"
+              },
+              "reason": "Avoids background requests and interval resets."
+            },
+            {
+              "step": 4,
+              "description": "Run the touched and neighbouring suites: GREEN",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/frontend exec vitest run test/JobsPage.test.tsx"
+              },
+              "reason": "Verifies the change and non-regression of adjacent tests."
+            },
+            {
+              "step": 5,
+              "description": "Commit the work unit",
+              "tool": "Bash",
+              "args": {
+                "command": "git add -A -- frontend && git commit -m \"perf(jobs): pause polling when hidden and stabilise load deps\""
+              },
+              "reason": "Conventional commit, no AI attribution, tests alongside the behaviour."
+            }
+          ]
+        },
+        {
+          "step": 8,
+          "description": "Run the full frontend suite",
+          "tool": "Bash",
+          "args": {
+            "command": "pnpm --filter @video-studio/frontend exec vitest run"
+          },
+          "reason": "Whole-suite non-regression."
+        },
+        {
+          "step": 9,
+          "description": "Typecheck the frontend",
+          "tool": "Bash",
+          "args": {
+            "command": "pnpm --filter @video-studio/frontend typecheck"
+          },
+          "reason": "Types must stay clean."
+        },
+        {
+          "step": 10,
+          "description": "Record the status of WP10 in the plan document",
+          "tool": "Edit",
+          "args": {
+            "file_path": "docs/plan-mejoras-optimizacion.md"
+          },
+          "reason": "The plan asks to record each package as it lands."
+        },
+        {
+          "step": 11,
+          "description": "Ask whether to push and open the PR into develop",
+          "tool": "AskUserQuestion",
+          "args": {
+            "question": "Package WP10 is committed on feature/wp10-frontend-resilience. Push and open a PR into develop?"
+          },
+          "reason": "Push and PR creation are the user's decisions (remote operations are not pre-authorised)."
+        }
+      ]
+    },
+    {
+      "step": 12,
+      "description": "WP11a — Accessibility and i18n (F11, U2, U3, U5, U6, U7)",
+      "tool": "Bash",
+      "args": {
+        "command": "git switch -c feature/wp11a-a11y-i18n develop"
+      },
+      "reason": "Complete focus trapping, fix mislabelled and unlabelled controls, translate remaining strings and sync the document language.",
+      "substeps": [
+        {
+          "step": 1,
+          "description": "Create the feature branch from the local develop (no pull: remote access is not authorised)",
+          "tool": "Bash",
+          "args": {
+            "command": "git switch -c feature/wp11a-a11y-i18n develop"
+          },
+          "reason": "GitFlow: feature/* from develop; gitflow-casa branch check first."
+        },
+        {
+          "step": 2,
+          "description": "Create the ODD feature document: objective, scope, tasks U2+U3+F11, U5+U6+U7",
+          "tool": "Write",
+          "args": {
+            "file_path": "odd/tasks/video-studio-wp11a-a11y-i18n.md"
+          },
+          "reason": "Substantial work: feature document (and Engram mirror odd/video-studio-wp11a-a11y-i18n/tasks) before the first source write."
+        },
+        {
+          "step": 3,
+          "description": "U2 + U3 + F11: focus trap, filter label, model select",
+          "tool": "Edit",
+          "args": {
+            "file_path": "frontend/src/hooks/useFocusTrap.ts"
+          },
+          "reason": "Work unit with tests first (RED then GREEN) and its own commit.",
+          "substeps": [
+            {
+              "step": 1,
+              "description": "RED test: Tab and Shift+Tab stay inside the dialog including select and textarea; the model select has an empty option and includes the stored value",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/test/SettingsModal.test.tsx"
+              },
+              "reason": "Specify U2 + U3 + F11: focus trap, filter label, model select before implementing."
+            },
+            {
+              "step": 2,
+              "description": "RED test: ConfirmDialog traps Tab",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/test/ReviewPanel.test.tsx"
+              },
+              "reason": "Specify U2 + U3 + F11: focus trap, filter label, model select before implementing."
+            },
+            {
+              "step": 3,
+              "description": "RED test: the filter group has its own accessible name",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/test/JobsPage.test.tsx"
+              },
+              "reason": "Specify U2 + U3 + F11: focus trap, filter label, model select before implementing."
+            },
+            {
+              "step": 4,
+              "description": "Run the new tests and confirm they fail for the expected reason",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/frontend exec vitest run test/SettingsModal.test.tsx test/ReviewPanel.test.tsx test/JobsPage.test.tsx"
+              },
+              "reason": "Observed RED before implementation."
+            },
+            {
+              "step": 5,
+              "description": "Create a useFocusTrap hook (focusable selector: select, textarea, input, button, a[href]) and set the background inert/aria-hidden",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/src/hooks/useFocusTrap.ts"
+              },
+              "reason": "One implementation for both dialogs."
+            },
+            {
+              "step": 6,
+              "description": "Use useFocusTrap; add the empty and current-value options to the Ollama model select (~lines 17, 154-163)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/src/components/SettingsModal.tsx"
+              },
+              "reason": "Fixes U2 and F11."
+            },
+            {
+              "step": 7,
+              "description": "Use useFocusTrap in ConfirmDialog (~lines 249-274)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/src/components/ReviewPanel.tsx"
+              },
+              "reason": "Fixes U2."
+            },
+            {
+              "step": 8,
+              "description": "Replace aria-label nav.label on the filter group with a new jobs.filter.label key (~line 126)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/src/components/JobsPage.tsx"
+              },
+              "reason": "Fixes U3."
+            },
+            {
+              "step": 9,
+              "description": "Add jobs.filter.label and settings.modelDefault to es and en",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/src/i18n.tsx"
+              },
+              "reason": "i18n parity."
+            },
+            {
+              "step": 10,
+              "description": "Run the touched and neighbouring suites: GREEN",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/frontend exec vitest run test/SettingsModal.test.tsx test/ReviewPanel.test.tsx test/JobsPage.test.tsx test/i18n.test.tsx"
+              },
+              "reason": "Verifies the change and non-regression of adjacent tests."
+            },
+            {
+              "step": 11,
+              "description": "Commit the work unit",
+              "tool": "Bash",
+              "args": {
+                "command": "git add -A -- frontend && git commit -m \"fix(a11y): complete focus trapping and label controls\""
+              },
+              "reason": "Conventional commit, no AI attribution, tests alongside the behaviour."
+            }
+          ]
+        },
+        {
+          "step": 4,
+          "description": "U5 + U6 + U7: i18n gaps, aria-live and stable effect deps",
+          "tool": "Edit",
+          "args": {
+            "file_path": "frontend/src/i18n.tsx"
+          },
+          "reason": "Work unit with tests first (RED then GREEN) and its own commit.",
+          "substeps": [
+            {
+              "step": 1,
+              "description": "RED test: document.documentElement.lang follows the selected language",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/test/i18n.test.tsx"
+              },
+              "reason": "Specify U5 + U6 + U7: i18n gaps, aria-live and stable effect deps before implementing."
+            },
+            {
+              "step": 2,
+              "description": "RED test: stage changes and failures are announced through an aria-live region; progressbars have accessible names",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/test/ProgressStages.test.tsx"
+              },
+              "reason": "Specify U5 + U6 + U7: i18n gaps, aria-live and stable effect deps before implementing."
+            },
+            {
+              "step": 3,
+              "description": "RED test: default ApiError messages are localisable by status code",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/test/client.test.ts"
+              },
+              "reason": "Specify U5 + U6 + U7: i18n gaps, aria-live and stable effect deps before implementing."
+            },
+            {
+              "step": 4,
+              "description": "Run the new tests and confirm they fail for the expected reason",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/frontend exec vitest run test/i18n.test.tsx test/ProgressStages.test.tsx test/client.test.ts"
+              },
+              "reason": "Observed RED before implementation."
+            },
+            {
+              "step": 5,
+              "description": "Sync document.documentElement.lang on language change; add status-code error keys",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/src/i18n.tsx"
+              },
+              "reason": "index.html fixes lang=es today."
+            },
+            {
+              "step": 6,
+              "description": "Map status codes to i18n keys instead of English defaults (~line 108)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/src/api/client.ts"
+              },
+              "reason": "Mixed-language errors."
+            },
+            {
+              "step": 7,
+              "description": "Add an aria-live=polite region and progressbar labels (~lines 34-57)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/src/components/ProgressStages.tsx"
+              },
+              "reason": "Screen-reader feedback."
+            },
+            {
+              "step": 8,
+              "description": "Add aria-valuetext to the volume slider (~lines 153-161)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/src/components/ReviewPanel.tsx"
+              },
+              "reason": "Accessible value."
+            },
+            {
+              "step": 9,
+              "description": "Use a stable onClose (~lines 58-64)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/src/components/SettingsModal.tsx"
+              },
+              "reason": "Avoid re-registering keydown every render."
+            },
+            {
+              "step": 10,
+              "description": "Wrap onClose in useCallback (~line 51)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/src/App.tsx"
+              },
+              "reason": "Pair of the previous edit."
+            },
+            {
+              "step": 11,
+              "description": "Move log.child('jobs') to module scope and drop decorative eslint-disable comments (~line 45)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/src/hooks/usePipeline.ts"
+              },
+              "reason": "Stable dependencies."
+            },
+            {
+              "step": 12,
+              "description": "Run the touched and neighbouring suites: GREEN",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/frontend exec vitest run test/i18n.test.tsx test/ProgressStages.test.tsx test/client.test.ts test/usePipeline.test.tsx test/SettingsModal.test.tsx"
+              },
+              "reason": "Verifies the change and non-regression of adjacent tests."
+            },
+            {
+              "step": 13,
+              "description": "Commit the work unit",
+              "tool": "Bash",
+              "args": {
+                "command": "git add -A -- frontend && git commit -m \"fix(i18n): localise remaining strings and improve live announcements\""
+              },
+              "reason": "Conventional commit, no AI attribution, tests alongside the behaviour."
+            }
+          ]
+        },
+        {
+          "step": 5,
+          "description": "Run the full frontend suite",
+          "tool": "Bash",
+          "args": {
+            "command": "pnpm --filter @video-studio/frontend exec vitest run"
+          },
+          "reason": "Whole-suite non-regression."
+        },
+        {
+          "step": 6,
+          "description": "Typecheck the frontend",
+          "tool": "Bash",
+          "args": {
+            "command": "pnpm --filter @video-studio/frontend typecheck"
+          },
+          "reason": "Types must stay clean."
+        },
+        {
+          "step": 7,
+          "description": "Record the status of WP11a in the plan document",
+          "tool": "Edit",
+          "args": {
+            "file_path": "docs/plan-mejoras-optimizacion.md"
+          },
+          "reason": "The plan asks to record each package as it lands."
+        },
+        {
+          "step": 8,
+          "description": "Ask whether to push and open the PR into develop",
+          "tool": "AskUserQuestion",
+          "args": {
+            "question": "Package WP11a is committed on feature/wp11a-a11y-i18n. Push and open a PR into develop?"
+          },
+          "reason": "Push and PR creation are the user's decisions (remote operations are not pre-authorised)."
+        }
+      ]
+    },
+    {
+      "step": 13,
+      "description": "WP11c — Types and self-hosted fonts (U4, U9)",
+      "tool": "Bash",
+      "args": {
+        "command": "git switch -c feature/wp11c-types-and-fonts develop"
+      },
+      "reason": "Validate SSE frames, align frontend types with the backend and remove the Google Fonts CDN dependency.",
+      "substeps": [
+        {
+          "step": 1,
+          "description": "Create the feature branch from the local develop (no pull: remote access is not authorised)",
+          "tool": "Bash",
+          "args": {
+            "command": "git switch -c feature/wp11c-types-and-fonts develop"
+          },
+          "reason": "GitFlow: feature/* from develop; gitflow-casa branch check first."
+        },
+        {
+          "step": 2,
+          "description": "Create the ODD feature document: objective, scope, tasks U9, U4",
+          "tool": "Write",
+          "args": {
+            "file_path": "odd/tasks/video-studio-wp11c-types-and-fonts.md"
+          },
+          "reason": "Substantial work: feature document (and Engram mirror odd/video-studio-wp11c-types-and-fonts/tasks) before the first source write."
+        },
+        {
+          "step": 3,
+          "description": "U9: SSE frame guard and type alignment",
+          "tool": "Edit",
+          "args": {
+            "file_path": "frontend/src/api/types.ts"
+          },
+          "reason": "Work unit with tests first (RED then GREEN) and its own commit.",
+          "substeps": [
+            {
+              "step": 1,
+              "description": "RED test: malformed frames are discarded by isJobEvent; JobEvent.at is required",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/test/sse.test.ts"
+              },
+              "reason": "Specify U9: SSE frame guard and type alignment before implementing."
+            },
+            {
+              "step": 2,
+              "description": "RED test: Voice type accepts known literals and arbitrary strings",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/test/client.test.ts"
+              },
+              "reason": "Specify U9: SSE frame guard and type alignment before implementing."
+            },
+            {
+              "step": 3,
+              "description": "Run the new tests and confirm they fail for the expected reason",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/frontend exec vitest run test/sse.test.ts test/client.test.ts"
+              },
+              "reason": "Observed RED before implementation."
+            },
+            {
+              "step": 4,
+              "description": "Align Job/JobEvent with the backend (required at, options), fix the degenerate Voice union",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/src/api/types.ts"
+              },
+              "reason": "Types drifted from backend/src/jobs/types.ts."
+            },
+            {
+              "step": 5,
+              "description": "Add isJobEvent and call it before onEvent (~lines 137, 200)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/src/api/client.ts"
+              },
+              "reason": "Stop trusting casts."
+            },
+            {
+              "step": 6,
+              "description": "Run the touched and neighbouring suites: GREEN",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/frontend exec vitest run test/sse.test.ts test/client.test.ts test/usePipeline.test.tsx"
+              },
+              "reason": "Verifies the change and non-regression of adjacent tests."
+            },
+            {
+              "step": 7,
+              "description": "Commit the work unit",
+              "tool": "Bash",
+              "args": {
+                "command": "git add -A -- frontend && git commit -m \"refactor(api): validate SSE frames and align types with the backend\""
+              },
+              "reason": "Conventional commit, no AI attribution, tests alongside the behaviour."
+            }
+          ]
+        },
+        {
+          "step": 4,
+          "description": "U4: self-host the font",
+          "tool": "Bash",
+          "args": {
+            "command": "pnpm --filter @video-studio/frontend add @fontsource/work-sans"
+          },
+          "reason": "Removes the render-blocking CDN request on an intranet app; adds one dependency (declare it in the PR).",
+          "substeps": [
+            {
+              "step": 1,
+              "description": "Add the dependency",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/frontend add @fontsource/work-sans"
+              },
+              "reason": "Self-hosted weights 300/400/500."
+            },
+            {
+              "step": 2,
+              "description": "Import the three @fontsource weights",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/src/main.tsx"
+              },
+              "reason": "Bundled with the app."
+            },
+            {
+              "step": 3,
+              "description": "Remove the Google Fonts preconnect and stylesheet links (~lines 7-10)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/index.html"
+              },
+              "reason": "No external CSS."
+            },
+            {
+              "step": 4,
+              "description": "Use font-display: swap via the fontsource CSS and keep the same font-family stack",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/src/styles.css"
+              },
+              "reason": "No layout shift offline."
+            },
+            {
+              "step": 5,
+              "description": "Run the frontend suite and typecheck",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/frontend exec vitest run && pnpm --filter @video-studio/frontend typecheck"
+              },
+              "reason": "Non-regression."
+            },
+            {
+              "step": 6,
+              "description": "Commit the work unit",
+              "tool": "Bash",
+              "args": {
+                "command": "git add -A -- frontend pnpm-lock.yaml && git commit -m \"perf(frontend): self-host the font instead of the Google Fonts CDN\""
+              },
+              "reason": "Conventional commit; lockfile included."
+            }
+          ]
+        },
+        {
+          "step": 5,
+          "description": "Run the full frontend suite",
+          "tool": "Bash",
+          "args": {
+            "command": "pnpm --filter @video-studio/frontend exec vitest run"
+          },
+          "reason": "Whole-suite non-regression."
+        },
+        {
+          "step": 6,
+          "description": "Typecheck the frontend",
+          "tool": "Bash",
+          "args": {
+            "command": "pnpm --filter @video-studio/frontend typecheck"
+          },
+          "reason": "Types must stay clean."
+        },
+        {
+          "step": 7,
+          "description": "Record the status of WP11c in the plan document",
+          "tool": "Edit",
+          "args": {
+            "file_path": "docs/plan-mejoras-optimizacion.md"
+          },
+          "reason": "The plan asks to record each package as it lands."
+        },
+        {
+          "step": 8,
+          "description": "Ask whether to push and open the PR into develop",
+          "tool": "AskUserQuestion",
+          "args": {
+            "question": "Package WP11c is committed on feature/wp11c-types-and-fonts. Push and open a PR into develop?"
+          },
+          "reason": "Push and PR creation are the user's decisions (remote operations are not pre-authorised)."
+        }
+      ]
+    },
+    {
+      "step": 14,
+      "description": "WP11b — Visual polish (V1, V2, V3, V5, V6, V7)",
+      "tool": "Bash",
+      "args": {
+        "command": "git switch -c feature/wp11b-visual-polish develop"
+      },
+      "reason": "Responsive voice row and mobile header, a hint for the disabled Generate button, friendlier empty state, visible Settings control and a favicon. V4 is delivered by WP1 and WP11a.",
+      "substeps": [
+        {
+          "step": 1,
+          "description": "Create the feature branch from the local develop (no pull: remote access is not authorised)",
+          "tool": "Bash",
+          "args": {
+            "command": "git switch -c feature/wp11b-visual-polish develop"
+          },
+          "reason": "GitFlow: feature/* from develop; gitflow-casa branch check first. Best done after WP1 so screens are stable."
+        },
+        {
+          "step": 2,
+          "description": "V1 + V2 + V5 + V6: layout and styling",
+          "tool": "Edit",
+          "args": {
+            "file_path": "frontend/src/styles.css"
+          },
+          "reason": "CSS and copy only; verified by before/after screenshots rather than unit tests.",
+          "substeps": [
+            {
+              "step": 1,
+              "description": "Capture 'before' screenshots at 320, 390, 768 and 1280 px against the dev servers (throwaway DB, fake local Ollama, dead local ports)",
+              "tool": "mcp__rea__capture_browser_scenario",
+              "args": {
+                "browser": {
+                  "mode": "launch",
+                  "executable_path": "/usr/bin/chromium"
+                }
+              },
+              "reason": "Baseline for the PR."
+            },
+            {
+              "step": 2,
+              "description": "Let the voice row wrap/stack below ~480 px (V1) and give the mobile header a deliberate single-row nav with grouped Settings and language toggle (V2)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/src/styles.css"
+              },
+              "reason": "Fixes truncated 'Masculi/Femeni' and the misaligned header."
+            },
+            {
+              "step": 3,
+              "description": "Style the Settings control like the other buttons (V6) and the Jobs empty-state link with palette colours (V5)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/src/styles.css"
+              },
+              "reason": "Affordance and consistency."
+            },
+            {
+              "step": 4,
+              "description": "Empty state with an action button to Pipeline instead of a bare link (V5)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/src/components/JobsPage.tsx"
+              },
+              "reason": "Clear call to action."
+            },
+            {
+              "step": 5,
+              "description": "Shrink or enrich the 'video will appear here' placeholder (V6)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/src/components/VideoPanel.tsx"
+              },
+              "reason": "It currently takes half the width for nothing."
+            }
+          ]
+        },
+        {
+          "step": 3,
+          "description": "V3: say why Generate is disabled",
+          "tool": "Edit",
+          "args": {
+            "file_path": "frontend/src/components/PipelineForm.tsx"
+          },
+          "reason": "Work unit with tests first (RED then GREEN) and its own commit.",
+          "substeps": [
+            {
+              "step": 1,
+              "description": "RED test: with an empty source a helper text explains what is missing and is linked with aria-describedby",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/test/PipelineForm.test.tsx"
+              },
+              "reason": "Specify V3: say why Generate is disabled before implementing."
+            },
+            {
+              "step": 2,
+              "description": "Run the new tests and confirm they fail for the expected reason",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/frontend exec vitest run test/PipelineForm.test.tsx"
+              },
+              "reason": "Observed RED before implementation."
+            },
+            {
+              "step": 3,
+              "description": "Render helper text when the source is empty (~line 27)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/src/components/PipelineForm.tsx"
+              },
+              "reason": "Disabled buttons give no hint."
+            },
+            {
+              "step": 4,
+              "description": "Add form.hint.url and form.hint.text to es and en",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/src/i18n.tsx"
+              },
+              "reason": "i18n parity."
+            },
+            {
+              "step": 5,
+              "description": "Run the touched and neighbouring suites: GREEN",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/frontend exec vitest run test/PipelineForm.test.tsx test/i18n.test.tsx"
+              },
+              "reason": "Verifies the change and non-regression of adjacent tests."
+            },
+            {
+              "step": 6,
+              "description": "Commit the work unit",
+              "tool": "Bash",
+              "args": {
+                "command": "git add -A -- frontend && git commit -m \"feat(form): explain why generate is disabled\""
+              },
+              "reason": "Conventional commit, no AI attribution, tests alongside the behaviour."
+            }
+          ]
+        },
+        {
+          "step": 4,
+          "description": "V7: favicon",
+          "tool": "Write",
+          "args": {
+            "file_path": "frontend/public/favicon.svg"
+          },
+          "reason": "Removes the console 404.",
+          "substeps": [
+            {
+              "step": 1,
+              "description": "Add a small SVG favicon matching the palette",
+              "tool": "Write",
+              "args": {
+                "file_path": "frontend/public/favicon.svg"
+              },
+              "reason": "Asset."
+            },
+            {
+              "step": 2,
+              "description": "Add <link rel='icon' type='image/svg+xml' href='/favicon.svg'>",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/index.html"
+              },
+              "reason": "Reference."
+            },
+            {
+              "step": 3,
+              "description": "Commit visual polish",
+              "tool": "Bash",
+              "args": {
+                "command": "git add -A -- frontend && git commit -m \"style(frontend): responsive layout fixes, empty state and favicon\""
+              },
+              "reason": "Conventional commit."
+            }
+          ]
+        },
+        {
+          "step": 5,
+          "description": "Capture 'after' screenshots with the same live browser check and attach before/after to the PR",
+          "tool": "mcp__rea__capture_browser_scenario",
+          "args": {
+            "browser": {
+              "mode": "launch",
+              "executable_path": "/usr/bin/chromium"
+            }
+          },
+          "reason": "Visual verification is the acceptance check for this package."
+        },
+        {
+          "step": 6,
+          "description": "Run the full frontend suite",
+          "tool": "Bash",
+          "args": {
+            "command": "pnpm --filter @video-studio/frontend exec vitest run"
+          },
+          "reason": "Whole-suite non-regression."
+        },
+        {
+          "step": 7,
+          "description": "Typecheck the frontend",
+          "tool": "Bash",
+          "args": {
+            "command": "pnpm --filter @video-studio/frontend typecheck"
+          },
+          "reason": "Types must stay clean."
+        },
+        {
+          "step": 8,
+          "description": "Record the status of WP11b in the plan document",
+          "tool": "Edit",
+          "args": {
+            "file_path": "docs/plan-mejoras-optimizacion.md"
+          },
+          "reason": "The plan asks to record each package as it lands."
+        },
+        {
+          "step": 9,
+          "description": "Ask whether to push and open the PR into develop",
+          "tool": "AskUserQuestion",
+          "args": {
+            "question": "Package WP11b is committed on feature/wp11b-visual-polish. Push and open a PR into develop?"
+          },
+          "reason": "Push and PR creation are the user's decisions (remote operations are not pre-authorised)."
+        }
+      ]
+    },
+    {
+      "step": 15,
+      "description": "WP12 — Security hardening (S1, S2, S3)",
+      "tool": "Bash",
+      "args": {
+        "command": "git switch -c feature/wp12-security-hardening develop"
+      },
+      "reason": "Only needed if the service leaves the trusted LAN; scope follows decision 3.3.",
+      "substeps": [
+        {
+          "step": 1,
+          "description": "Create the feature branch from the local develop (no pull: remote access is not authorised)",
+          "tool": "Bash",
+          "args": {
+            "command": "git switch -c feature/wp12-security-hardening develop"
+          },
+          "reason": "GitFlow: feature/* from develop; gitflow-casa branch check first."
+        },
+        {
+          "step": 2,
+          "description": "Decide the threat model (open decision 3.3)",
+          "tool": "AskUserQuestion",
+          "args": {
+            "question": "Will the service ever be reachable beyond the trusted LAN? If not, this package reduces to documentation plus the bind warning."
+          },
+          "reason": "Product decision that sets the scope of this package."
+        },
+        {
+          "step": 3,
+          "description": "Create the ODD feature document: objective, scope, tasks S1, S2+S3",
+          "tool": "Write",
+          "args": {
+            "file_path": "odd/tasks/video-studio-wp12-security-hardening.md"
+          },
+          "reason": "Substantial work: feature document (and Engram mirror odd/video-studio-wp12-security-hardening/tasks) before the first source write."
+        },
+        {
+          "step": 4,
+          "description": "S1: authenticate and cache the LLM-triggering GET",
+          "tool": "Edit",
+          "args": {
+            "file_path": "backend/src/config/auth.ts"
+          },
+          "reason": "Work unit with tests first (RED then GREEN) and its own commit.",
+          "substeps": [
+            {
+              "step": 1,
+              "description": "RED test: GET /draft/:id/publish requires the token when API_TOKEN is set",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/test/auth.test.ts"
+              },
+              "reason": "Specify S1: authenticate and cache the LLM-triggering GET before implementing."
+            },
+            {
+              "step": 2,
+              "description": "RED test: repeated calls for an unchanged escaleta reuse the cached result",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/test/publish.test.ts"
+              },
+              "reason": "Specify S1: authenticate and cache the LLM-triggering GET before implementing."
+            },
+            {
+              "step": 3,
+              "description": "Run the new tests and confirm they fail for the expected reason",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/backend exec node --test --import tsx test/auth.test.ts test/publish.test.ts"
+              },
+              "reason": "Observed RED before implementation."
+            },
+            {
+              "step": 4,
+              "description": "Extend the guard to cover the publish GET (or convert it to POST) (~line 27)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/src/config/auth.ts"
+              },
+              "reason": "It runs Ollama on every request."
+            },
+            {
+              "step": 5,
+              "description": "Cache publish output per draft and escaleta hash (~line 112)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/src/routes/pipeline.ts"
+              },
+              "reason": "Avoids repeated GPU work."
+            },
+            {
+              "step": 6,
+              "description": "Run the touched and neighbouring suites: GREEN",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/backend exec node --test --import tsx test/auth.test.ts test/publish.test.ts"
+              },
+              "reason": "Verifies the change and non-regression of adjacent tests."
+            },
+            {
+              "step": 7,
+              "description": "Commit the work unit",
+              "tool": "Bash",
+              "args": {
+                "command": "git add -A -- backend && git commit -m \"fix(security): require the token for publish and cache its result\""
+              },
+              "reason": "Conventional commit, no AI attribution, tests alongside the behaviour."
+            }
+          ]
+        },
+        {
+          "step": 5,
+          "description": "S2 + S3: Host validation, bind warning, hardening",
+          "tool": "Edit",
+          "args": {
+            "file_path": "backend/src/app.ts"
+          },
+          "reason": "Work unit with tests first (RED then GREEN) and its own commit.",
+          "substeps": [
+            {
+              "step": 1,
+              "description": "RED test: requests with an unexpected Host header are rejected; x-powered-by is disabled",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/test/app.test.ts"
+              },
+              "reason": "Specify S2 + S3: Host validation, bind warning, hardening before implementing."
+            },
+            {
+              "step": 2,
+              "description": "RED test: changing hosts via PATCH /api/config requires the token",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/test/auth.test.ts"
+              },
+              "reason": "Specify S2 + S3: Host validation, bind warning, hardening before implementing."
+            },
+            {
+              "step": 3,
+              "description": "Run the new tests and confirm they fail for the expected reason",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/backend exec node --test --import tsx test/app.test.ts test/auth.test.ts"
+              },
+              "reason": "Observed RED before implementation."
+            },
+            {
+              "step": 4,
+              "description": "Add a Host allowlist middleware and app.disable('x-powered-by') (~lines 60-75)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/src/app.ts"
+              },
+              "reason": "Mitigates DNS rebinding."
+            },
+            {
+              "step": 5,
+              "description": "Log a warning when binding to a non-loopback HOST without API_TOKEN",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/src/server.ts"
+              },
+              "reason": "Make the exposure visible."
+            },
+            {
+              "step": 6,
+              "description": "Require the token to change hosts",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/src/routes/config.ts"
+              },
+              "reason": "Prevents SSRF-style retargeting."
+            },
+            {
+              "step": 7,
+              "description": "Respect SSE backpressure and cap connections per job (~line 29)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/src/routes/jobs.ts"
+              },
+              "reason": "Resource protection."
+            },
+            {
+              "step": 8,
+              "description": "Run the touched and neighbouring suites: GREEN",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/backend exec node --test --import tsx test/app.test.ts test/auth.test.ts test/jobs.routes.test.ts"
+              },
+              "reason": "Verifies the change and non-regression of adjacent tests."
+            },
+            {
+              "step": 9,
+              "description": "Commit the work unit",
+              "tool": "Bash",
+              "args": {
+                "command": "git add -A -- backend && git commit -m \"feat(security): host allowlist, bind warning and config guard\""
+              },
+              "reason": "Conventional commit, no AI attribution, tests alongside the behaviour."
+            }
+          ]
+        },
+        {
+          "step": 6,
+          "description": "Run the full backend suite",
+          "tool": "Bash",
+          "args": {
+            "command": "pnpm --filter @video-studio/backend test"
+          },
+          "reason": "Whole-suite non-regression."
+        },
+        {
+          "step": 7,
+          "description": "Typecheck the backend",
+          "tool": "Bash",
+          "args": {
+            "command": "pnpm --filter @video-studio/backend typecheck"
+          },
+          "reason": "Types must stay clean."
+        },
+        {
+          "step": 8,
+          "description": "Record the status of WP12 in the plan document",
+          "tool": "Edit",
+          "args": {
+            "file_path": "docs/plan-mejoras-optimizacion.md"
+          },
+          "reason": "The plan asks to record each package as it lands."
+        },
+        {
+          "step": 9,
+          "description": "Ask whether to push and open the PR into develop",
+          "tool": "AskUserQuestion",
+          "args": {
+            "question": "Package WP12 is committed on feature/wp12-security-hardening. Push and open a PR into develop?"
+          },
+          "reason": "Push and PR creation are the user's decisions (remote operations are not pre-authorised)."
+        }
+      ]
+    },
+    {
+      "step": 16,
+      "description": "WP13 — Maintainability (M1, M2, U8, B10, B11, F12)",
+      "tool": "Bash",
+      "args": {
+        "command": "git switch -c feature/wp13-maintainability develop"
+      },
+      "reason": "Share the Wyoming framing client, unify orchestrator branches, stabilise scene keys, map errors and drop the double WAV parse.",
+      "substeps": [
+        {
+          "step": 1,
+          "description": "Create the feature branch from the local develop (no pull: remote access is not authorised)",
+          "tool": "Bash",
+          "args": {
+            "command": "git switch -c feature/wp13-maintainability develop"
+          },
+          "reason": "GitFlow: feature/* from develop; gitflow-casa branch check first."
+        },
+        {
+          "step": 2,
+          "description": "Create the ODD feature document: objective, scope, tasks M1+F12, B10+B11+M2, U8",
+          "tool": "Write",
+          "args": {
+            "file_path": "odd/tasks/video-studio-wp13-maintainability.md"
+          },
+          "reason": "Substantial work: feature document (and Engram mirror odd/video-studio-wp13-maintainability/tasks) before the first source write."
+        },
+        {
+          "step": 3,
+          "description": "M1 + F12: shared Wyoming framing client",
+          "tool": "Edit",
+          "args": {
+            "file_path": "backend/src/clients/piper.ts"
+          },
+          "reason": "Work unit with tests first (RED then GREEN) and its own commit.",
+          "substeps": [
+            {
+              "step": 1,
+              "description": "RED test: synthesize and listVoices share one framing implementation; two events in one chunk are both processed",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/test/piper.test.ts"
+              },
+              "reason": "Specify M1 + F12: shared Wyoming framing client before implementing."
+            },
+            {
+              "step": 2,
+              "description": "RED test: listVoices reads tts[].voices from an info event",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/test/voices.test.ts"
+              },
+              "reason": "Specify M1 + F12: shared Wyoming framing client before implementing."
+            },
+            {
+              "step": 3,
+              "description": "Run the new tests and confirm they fail for the expected reason",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/backend exec node --test --import tsx test/piper.test.ts test/voices.test.ts"
+              },
+              "reason": "Observed RED before implementation."
+            },
+            {
+              "step": 4,
+              "description": "Extract a framing client (header parse, drain loop, settle, timeout) used by synthesize and listVoices; accept the info event (~lines 184-219)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/src/clients/piper.ts"
+              },
+              "reason": "Removes duplication and the one-event-per-chunk bug."
+            },
+            {
+              "step": 5,
+              "description": "Run the touched and neighbouring suites: GREEN",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/backend exec node --test --import tsx test/piper.test.ts test/voices.test.ts"
+              },
+              "reason": "Verifies the change and non-regression of adjacent tests."
+            },
+            {
+              "step": 6,
+              "description": "Commit the work unit",
+              "tool": "Bash",
+              "args": {
+                "command": "git add -A -- backend && git commit -m \"refactor(piper): share Wyoming framing between synthesize and listVoices\""
+              },
+              "reason": "Conventional commit, no AI attribution, tests alongside the behaviour."
+            }
+          ]
+        },
+        {
+          "step": 4,
+          "description": "B10 + B11 + M2: error mapping, single WAV parse, orchestrator cleanup",
+          "tool": "Edit",
+          "args": {
+            "file_path": "backend/src/routes/pipeline.ts"
+          },
+          "reason": "Work unit with tests first (RED then GREEN) and its own commit.",
+          "substeps": [
+            {
+              "step": 1,
+              "description": "RED test: /draft maps known errors to stable messages and never returns raw internal messages",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/test/pipeline.routes.test.ts"
+              },
+              "reason": "Specify B10 + B11 + M2: error mapping, single WAV parse, orchestrator cleanup before implementing."
+            },
+            {
+              "step": 2,
+              "description": "RED test: WAV is parsed once per scene",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/test/orchestrator.test.ts"
+              },
+              "reason": "Specify B10 + B11 + M2: error mapping, single WAV parse, orchestrator cleanup before implementing."
+            },
+            {
+              "step": 3,
+              "description": "Run the new tests and confirm they fail for the expected reason",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/backend exec node --test --import tsx test/pipeline.routes.test.ts test/orchestrator.test.ts"
+              },
+              "reason": "Observed RED before implementation."
+            },
+            {
+              "step": 4,
+              "description": "Map known errors and log details server-side (~line 98)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/src/routes/pipeline.ts"
+              },
+              "reason": "Avoid leaking internals."
+            },
+            {
+              "step": 5,
+              "description": "Sanitise failure messages stored by markFailed (~lines 178-181)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/src/jobs/runner.ts"
+              },
+              "reason": "Paths and stderr tails reach clients."
+            },
+            {
+              "step": 6,
+              "description": "Reuse parseWav result instead of calling wavDurationSec too (~lines 151-152); unify the music x subtitles x vertical branches (~lines 338-357)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/src/pipeline/orchestrator.ts"
+              },
+              "reason": "Less duplication and fewer buffers."
+            },
+            {
+              "step": 7,
+              "description": "Compute musicDir once (~lines 101, 112)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "backend/src/app.ts"
+              },
+              "reason": "Duplicate calculation."
+            },
+            {
+              "step": 8,
+              "description": "Run the touched and neighbouring suites: GREEN",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/backend exec node --test --import tsx test/pipeline.routes.test.ts test/orchestrator.test.ts test/jobRunner.test.ts test/app.test.ts"
+              },
+              "reason": "Verifies the change and non-regression of adjacent tests."
+            },
+            {
+              "step": 9,
+              "description": "Commit the work unit",
+              "tool": "Bash",
+              "args": {
+                "command": "git add -A -- backend && git commit -m \"refactor(backend): map errors, parse WAV once and unify orchestrator branches\""
+              },
+              "reason": "Conventional commit, no AI attribution, tests alongside the behaviour."
+            }
+          ]
+        },
+        {
+          "step": 5,
+          "description": "U8: stable scene keys and memoised SceneCard",
+          "tool": "Edit",
+          "args": {
+            "file_path": "frontend/src/components/SegmentEditor.tsx"
+          },
+          "reason": "Work unit with tests first (RED then GREEN) and its own commit.",
+          "substeps": [
+            {
+              "step": 1,
+              "description": "RED test: reordering or deleting a scene keeps focus and caret on the right scene",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/test/SegmentEditor.test.tsx"
+              },
+              "reason": "Specify U8: stable scene keys and memoised SceneCard before implementing."
+            },
+            {
+              "step": 2,
+              "description": "Run the new tests and confirm they fail for the expected reason",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/frontend exec vitest run test/SegmentEditor.test.tsx test/ReviewPanel.test.tsx"
+              },
+              "reason": "Observed RED before implementation."
+            },
+            {
+              "step": 3,
+              "description": "Give each scene a stable client id, extract a memoised SceneCard (~lines 78-146)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/src/components/SegmentEditor.tsx"
+              },
+              "reason": "key={index} reuses DOM nodes across scenes."
+            },
+            {
+              "step": 4,
+              "description": "Adapt to scene ids (~lines 88-89)",
+              "tool": "Edit",
+              "args": {
+                "file_path": "frontend/src/components/ReviewPanel.tsx"
+              },
+              "reason": "Consumer."
+            },
+            {
+              "step": 5,
+              "description": "Run the touched and neighbouring suites: GREEN",
+              "tool": "Bash",
+              "args": {
+                "command": "pnpm --filter @video-studio/frontend exec vitest run test/SegmentEditor.test.tsx test/ReviewPanel.test.tsx"
+              },
+              "reason": "Verifies the change and non-regression of adjacent tests."
+            },
+            {
+              "step": 6,
+              "description": "Commit the work unit",
+              "tool": "Bash",
+              "args": {
+                "command": "git add -A -- frontend && git commit -m \"refactor(editor): stable scene ids and memoised scene cards\""
+              },
+              "reason": "Conventional commit, no AI attribution, tests alongside the behaviour."
+            }
+          ]
+        },
+        {
+          "step": 6,
+          "description": "Run the full frontend suite",
+          "tool": "Bash",
+          "args": {
+            "command": "pnpm --filter @video-studio/frontend exec vitest run"
+          },
+          "reason": "Whole-suite non-regression."
+        },
+        {
+          "step": 7,
+          "description": "Typecheck the frontend",
+          "tool": "Bash",
+          "args": {
+            "command": "pnpm --filter @video-studio/frontend typecheck"
+          },
+          "reason": "Types must stay clean."
+        },
+        {
+          "step": 8,
+          "description": "Run the full backend suite",
+          "tool": "Bash",
+          "args": {
+            "command": "pnpm --filter @video-studio/backend test"
+          },
+          "reason": "Whole-suite non-regression."
+        },
+        {
+          "step": 9,
+          "description": "Typecheck the backend",
+          "tool": "Bash",
+          "args": {
+            "command": "pnpm --filter @video-studio/backend typecheck"
+          },
+          "reason": "Types must stay clean."
+        },
+        {
+          "step": 10,
+          "description": "Request authorisation for the real Piper contract check",
+          "tool": "AskUserQuestion",
+          "args": {
+            "question": "May I send a Wyoming describe to Piper at tcp://192.168.1.60:10200 to confirm it answers with an info event? Confirm destination, operation and session."
+          },
+          "reason": "Remote operation requires explicit authorisation; without it F12 stays a hypothesis backed only by the protocol description."
+        },
+        {
+          "step": 11,
+          "description": "Record the status of WP13 in the plan document",
+          "tool": "Edit",
+          "args": {
+            "file_path": "docs/plan-mejoras-optimizacion.md"
+          },
+          "reason": "The plan asks to record each package as it lands."
+        },
+        {
+          "step": 12,
+          "description": "Ask whether to push and open the PR into develop",
+          "tool": "AskUserQuestion",
+          "args": {
+            "question": "Package WP13 is committed on feature/wp13-maintainability. Push and open a PR into develop?"
+          },
+          "reason": "Push and PR creation are the user's decisions (remote operations are not pre-authorised)."
+        }
+      ]
+    },
+    {
+      "step": 17,
+      "description": "WP14 — Docs and housekeeping (M4)",
+      "tool": "Bash",
+      "args": {
+        "command": "git switch -c feature/wp14-docs-housekeeping develop"
+      },
+      "reason": "Fix stale docs and version the new documentation.",
+      "substeps": [
+        {
+          "step": 1,
+          "description": "Create the feature branch from the local develop",
+          "tool": "Bash",
+          "args": {
+            "command": "git switch -c feature/wp14-docs-housekeeping develop"
+          },
+          "reason": "GitFlow."
+        },
+        {
+          "step": 2,
+          "description": "Change 'pnpm 10' to pnpm 12 to match package.json (packageManager pnpm@12.14.0) and CI",
+          "tool": "Edit",
+          "args": {
+            "file_path": "README.md"
+          },
+          "reason": "Single source of truth for the toolchain."
+        },
+        {
+          "step": 3,
+          "description": "Refresh package statuses from the merged PRs",
+          "tool": "Edit",
+          "args": {
+            "file_path": "docs/plan-mejoras-optimizacion.md"
+          },
+          "reason": "Keep the plan current."
+        },
+        {
+          "step": 4,
+          "description": "Update the Atlas note Proyectos/video-studio with the PR range 15-40, current test counts and the improvement plan link",
+          "tool": "Skill",
+          "args": {
+            "skill": "atlas-docs"
+          },
+          "reason": "The note was last updated 2026-10-17 and is stale; atlas-docs keeps bidirectional wikilinks."
+        },
+        {
+          "step": 5,
+          "description": "Commit CLAUDE.md, the plan documents and the README fix",
+          "tool": "Bash",
+          "args": {
+            "command": "git add CLAUDE.md README.md docs && git commit -m \"docs: add CLAUDE.md, improvement plan and fix toolchain version\""
+          },
+          "reason": "Conventional commit; CLAUDE.md and the plans are currently untracked."
+        },
+        {
+          "step": 6,
+          "description": "Ask whether to push and open the PR into develop",
+          "tool": "AskUserQuestion",
+          "args": {
+            "question": "Docs package committed on feature/wp14-docs-housekeeping. Push and open a PR into develop?"
+          },
+          "reason": "Push and PR creation are the user's decisions."
+        }
+      ]
+    }
+  ]
+}

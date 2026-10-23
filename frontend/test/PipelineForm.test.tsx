@@ -72,6 +72,12 @@ describe('PipelineForm', () => {
     expect(mix).toHaveAttribute('aria-pressed', 'false');
   });
 
+  it('disabled prop keeps submit disabled even with a filled URL', async () => {
+    const { user } = setup({ disabled: true });
+    await user.type(screen.getByLabelText('URL del artículo'), 'https://x.test/a');
+    expect(screen.getByRole('button', { name: 'Generar' })).toBeDisabled();
+  });
+
   it('while drafting disables submit and shows the drafting label', () => {
     setup({ drafting: true });
     expect(screen.getByRole('button', { name: /Generando/ })).toBeDisabled();

@@ -18,18 +18,25 @@ export function PipelinePage({ api }: PipelinePageProps) {
   const rendering = p.state === 'rendering';
   const showProgress = rendering || p.state === 'done' || p.state === 'failed';
 
+  // F4: on a failed run, name the failed stage next to the error.
+  const failedStage = p.stages.find((s) => s.status === 'failed');
+  const reviewError =
+    p.state === 'failed' && p.error && failedStage
+      ? t('pipeline.failedAt', { stage: t(`stage.${failedStage.id}`), error: p.error })
+      : p.error;
   return (
     <div className="pipeline">
       <h1 className="pipeline__title">{t('pipeline.title')}</h1>
 
       {((p.state === 'review' || p.state === 'failed') && p.draft) ? (
-        <ReviewPanel draft={p.draft} api={api} error={p.error} onSave={p.saveSegments} onApprove={(body) => void p.approve({ body })} onBack={p.reset} />
+        <ReviewPanel draft={p.draft} api={api} error={reviewError} onSave={p.saveSegments} onApprove={(body) => void p.approve({ body })} onBack={p.reset} />
       ) : (
         <div className="pipeline__grid">
           <div className="pipeline__form">
             <PipelineForm
               drafting={p.state === 'drafting'}
               error={p.state === 'idle' || p.state === 'drafting' ? p.error : null}
+              disabled={p.state !== 'idle' && p.state !== 'drafting'}
               onSubmit={(req) => void p.createDraft(req)}
             />
             {p.state === 'idle' && <GuideCard />}
@@ -41,6 +48,11 @@ export function PipelinePage({ api }: PipelinePageProps) {
                 cancellable={rendering}
                 onCancel={() => void p.cancel()}
               />
+            )}
+            {p.state === 'done' && (
+              <button type="button" className="btn btn--primary" onClick={() => p.reset()}>
+                {t('pipeline.newVideo')}
+              </button>
             )}
           </div>
           <div className="pipeline__video">
