@@ -324,6 +324,9 @@ body {
 .stages__item {
   display: flex;
   justify-content: space-between;
+.progress__bar--sub { height: 4px; }
+.progress__sub { display: grid; gap: 4px; margin-top: 8px; }
+.progress__sub-label { font-size: var(--step-ui); color: var(--muted); }
   gap: 8px;
   padding: 7px 10px;
   border-radius: var(--radius);

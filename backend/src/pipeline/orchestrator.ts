@@ -437,14 +437,8 @@ export function createExecute(deps: OrchestratorDeps): ExecuteFn {
       emit({ type: 'progress', stage, progress: advance(lo + ((hi - lo) * done) / total) });
     };
     const comfyStep = (stage: Stage, info: ProgressInfo): void => {
-      if (info.done) return;
-      const text =
-        typeof info.max === 'number' && info.max > 0
-          ? `comfy: paso ${info.value ?? 0}/${info.max}`
-          : info.node
-            ? `comfy: nodo ${info.node}`
-            : undefined;
-      if (text) emit({ type: 'progress', stage, progress: emitted, message: text });
+      if (info.done || typeof info.max !== 'number' || info.max <= 0) return;
+      emit({ type: 'progress', stage, progress: emitted, substep: { value: info.value ?? 0, max: info.max } });
     };
     const run = async (args: string[]) => {
       guard();
