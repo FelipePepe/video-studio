@@ -37,6 +37,9 @@ interface Opts {
   failT2V?: number;
   failTts?: number;
   abortAfterTts?: number;
+  abortDuringWait?: boolean;
+  queueRunning?: boolean;
+  queuePending?: boolean;
   cacheDir?: string;
 }
 
@@ -62,8 +65,15 @@ function harness(opts: Opts = {}) {
   let t2vCalls = 0;
   let i2vCalls = 0;
   const pending = new Map<string, boolean>();
+  const abortErr = (m: string) => {
+    const e = new Error(m);
+    e.name = 'AbortError';
+    return e;
+  };
   const comfy = {
-    interrupted: 0,
+    lastWaitId: null as string | null,
+    interrupts: [] as Array<string | null>,
+    deleteCalls: [] as string[],
     uploads: [] as string[],
     submit: async (wf: (typeof workflows)[number]) => {
       workflows.push(wf);
@@ -75,7 +85,15 @@ function harness(opts: Opts = {}) {
       pending.set(id, isI2V);
       return id;
     },
-    waitForCompletion: async (id: string) => ({ '9': { images: [{ filename: `${id}.png`, subfolder: 's', type: 'output' }], gifs: [{ filename: `${id}.mp4`, subfolder: 's', type: 'output' }] } }),
+    waitForCompletion: async (id: string, o?: { signal?: AbortSignal }) => {
+      comfy.lastWaitId = id;
+      if (o?.signal?.aborted) throw abortErr('aborted before wait');
+      if (opts.abortDuringWait) {
+        controller.abort();
+        throw abortErr('aborted during wait');
+      }
+      return { '9': { images: [{ filename: `${id}.png`, subfolder: 's', type: 'output' }], gifs: [{ filename: `${id}.mp4`, subfolder: 's', type: 'output' }] } };
+    },
     download: async (file: { filename: string }) => Buffer.from(`bytes:${file.filename}`),
     downloadToFile: async (file: { filename: string }, dest: string) => {
       writeFileSync(dest, Buffer.from(`bytes:${file.filename}`));
@@ -84,9 +102,16 @@ function harness(opts: Opts = {}) {
       comfy.uploads.push(name);
       return `up_${name}`;
     },
-    interrupt: async () => {
-      comfy.interrupted++;
+    queueIds: async () => ({
+      running: opts.queueRunning !== false ? [comfy.lastWaitId ?? 'p1'] : [],
+      pending: opts.queuePending ? [comfy.lastWaitId ?? 'p1'] : [],
+    }),
+    interrupt: async (pid?: string) => {
+      comfy.interrupts.push(pid ?? null);
       throw new Error('interrupt unreachable');
+    },
+    deletePrompt: async (pid: string) => {
+      comfy.deleteCalls.push(pid);
     },
   };
   let ttsCalls = 0;
@@ -267,12 +292,28 @@ test('a single-scene draft skips transitions', async () => {
   assert.deepEqual(h.list('video.txt'), ['kb_00.mp4']);
 });
 
-test('cancellation interrupts ComfyUI and throws AbortError', async () => {
+test('B2: cancellation during TTS throws AbortError without touching shared ComfyUI (no prompt in flight)', async () => {
   const h = harness({ abortAfterTts: 0 });
   await assert.rejects(h.execute(h.job, h.ctx), (e: Error) => e.name === 'AbortError');
-  assert.equal(h.comfy.interrupted, 1);
+  assert.deepEqual(h.comfy.interrupts, [], 'no in-flight prompt must not trigger /interrupt on a shared server');
+  assert.deepEqual(h.comfy.deleteCalls, []);
   assert.equal(h.workflows.length, 0);
   assert.equal(h.ffmpegCalls.length, 0);
+});
+
+test('B2: cancellation while the job\'s prompt is running interrupts with that prompt\'s id', async () => {
+  const h = harness({ abortDuringWait: true });
+  await assert.rejects(h.execute(h.job, h.ctx), (e: Error) => e.name === 'AbortError');
+  assert.deepEqual(h.comfy.interrupts, ['p1'], 'interrupt must target the in-flight prompt');
+  assert.deepEqual(h.comfy.deleteCalls, []);
+  assert.equal(h.workflows.length, 1, 'the in-flight scene was submitted');
+});
+
+test('B2: cancellation while the prompt is only queued deletes that prompt (no global interrupt)', async () => {
+  const h = harness({ abortDuringWait: true, queueRunning: false, queuePending: true });
+  await assert.rejects(h.execute(h.job, h.ctx), (e: Error) => e.name === 'AbortError');
+  assert.deepEqual(h.comfy.interrupts, [], 'a queued prompt must not force a global /interrupt');
+  assert.deepEqual(h.comfy.deleteCalls, ['p1']);
 });
 
 test('cancellation before start throws without touching clients', async () => {

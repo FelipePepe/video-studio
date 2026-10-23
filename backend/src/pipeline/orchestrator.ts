@@ -103,6 +103,12 @@ interface AssembleResult {
 interface Shared {
   job: Job;
   signal: AbortSignal;
+  /**
+   * B2: the prompt id most recently submitted to ComfyUI by this job (updated on every
+   * submit). Used to scope cancellation: on abort the orchestrator consults /queue and only
+   * acts (interrupt / delete) if THIS job's prompt is the one running or queued.
+   */
+  inflight: { promptId: string | null };
   workDir: string;
   n: number;
   escaleta: Escaleta;
@@ -192,7 +198,8 @@ async function executeStills(s: Shared): Promise<StillsResult> {
             useLightx2v: s.job.options?.useLightx2v,
           }),
         );
-        const outputs = await comfy.waitForCompletion(id, { onProgress: (info) => s.comfyStep('images', info) });
+        s.inflight.promptId = id;
+        const outputs = await comfy.waitForCompletion(id, { onProgress: (info) => s.comfyStep('images', info), signal: s.signal });
         const file = extractOutputFile(outputs);
         if (!file) throw new Error('ComfyUI returned no image output');
         writeFileSync(png, await comfy.download(file));
@@ -249,7 +256,8 @@ async function executeTransitions(s: Shared, stills: StillsResult): Promise<Tran
             filenamePrefix: `${prefix}_trans_${pad(i)}`,
           }),
         );
-        const outputs = await comfy.waitForCompletion(id, { onProgress: (info) => s.comfyStep('transitions', info) });
+        s.inflight.promptId = id;
+        const outputs = await comfy.waitForCompletion(id, { onProgress: (info) => s.comfyStep('transitions', info), signal: s.signal });
         const file = extractVideoOutput(outputs);
         if (!file) throw new Error('ComfyUI returned no video output');
         const out = sceneFile(transDir, 'trans', i, 'mp4');
@@ -381,19 +389,42 @@ export function createExecute(deps: OrchestratorDeps): ExecuteFn {
     const comfy = deps.resolveComfy();
     const piper = deps.resolvePiper();
 
-    let interrupted = false;
-    const interruptOnce = () => {
-      if (interrupted) return;
-      interrupted = true;
-      comfy.interrupt().catch(() => {});
+    // B2: ComfyUI is a SHARED server — /interrupt is global there (core 0.28 ignores the
+    // prompt_id body), so blindly calling it on cancel kills other users' jobs. Strategy:
+    // check /queue first; only interrupt if THIS job's own prompt is the one running (making
+    // the global interrupt safe), best-effort DELETE /prompt/{id} if it is still queued, and
+    // touch nothing when the job is not in a ComfyUI phase (tts/ffmpeg, or not started).
+    const inflight: { promptId: string | null } = { promptId: null };
+    let comfyAbort: Promise<void> | null = null;
+    const cancelComfy = (): Promise<void> => {
+      if (!comfyAbort) {
+        comfyAbort = (async () => {
+          const id = inflight.promptId;
+          if (!id) return; // job never reached ComfyUI → must not touch the shared server
+          try {
+            const { running, pending } = await comfy.queueIds();
+            if (running.includes(id)) {
+              await comfy.interrupt(id); // our prompt is the one running → global interrupt is safe
+            } else if (pending.includes(id)) {
+              await comfy.deletePrompt(id); // 0.28 core: 405 → caught below; newer cores: removed
+            }
+          } catch {
+            /* best-effort cancel: the job already fails with AbortError */
+          }
+        })();
+      }
+      return comfyAbort;
     };
-    signal.addEventListener('abort', interruptOnce, { once: true });
+    const onAbort = (): void => {
+      void cancelComfy();
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
 
     let emitted = 0;
     const advance = (value: number) => (emitted = Math.max(emitted, value));
     const guard = () => {
       if (!signal.aborted) return;
-      interruptOnce();
+      void cancelComfy();
       throw abortError();
     };
     const fail = (_stage: Stage, what: string, e: unknown): never => {
@@ -434,6 +465,7 @@ export function createExecute(deps: OrchestratorDeps): ExecuteFn {
     const shared: Shared = {
       job,
       signal,
+      inflight,
       workDir,
       n: escaleta.length,
       escaleta,
@@ -476,7 +508,8 @@ export function createExecute(deps: OrchestratorDeps): ExecuteFn {
       const transitions = await timed('transitions', () => executeTransitions(shared, stills));
       return await timed('assemble', () => executeAssemble(shared, tts, stills, transitions));
     } finally {
-      signal.removeEventListener('abort', interruptOnce);
+      signal.removeEventListener('abort', onAbort);
+      if (comfyAbort) await comfyAbort;
     }
   };
 }
