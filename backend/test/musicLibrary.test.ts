@@ -56,6 +56,15 @@ test('listMusicDir throws MusicLibraryError when the path is a file', () => {
   assert.throws(() => listMusicDir(path.join(dir, 'a.mp3')), MusicLibraryError);
 });
 
+test('listMusicDir resolves a symlinked dir so persisted paths are stable (F5)', () => {
+  const real = makeDir({ 'a.mp3': 'x' });
+  const link = `${real}-link`;
+  fs.symlinkSync(real, link);
+  const files = listMusicDir(link);
+  assert.equal(files.length, 1);
+  assert.equal(files[0].path, path.join(real, 'a.mp3'));
+});
+
 test('GET /api/music lists the MUSIC_DIR contents with absolute paths', async () => {
   const dir = makeDir({ 'a.mp3': 'audio', 'b.ogg': 'audio' });
   const app = buildApp({ musicDir: dir });
