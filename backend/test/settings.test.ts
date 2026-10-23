@@ -15,7 +15,7 @@ test('loadEnvDefaults uses built-in defaults when env is empty', () => {
     comfyHost: 'http://192.168.1.60:8188',
     ollamaHost: 'http://192.168.1.60:11434',
     piperHost: 'tcp://192.168.1.60:10200',
-    ollamaModel: 'qwen3:8b',
+    ollamaModel: 'gemma4:26b',
   });
 });
 
@@ -29,7 +29,7 @@ test('loadEnvDefaults reads COMFY_HOST, OLLAMA_HOST and PIPER_HOST', () => {
     comfyHost: 'http://c:1',
     ollamaHost: 'http://o:2',
     piperHost: 'tcp://k:3',
-    ollamaModel: 'qwen3:8b',
+    ollamaModel: 'gemma4:26b',
   });
 });
 

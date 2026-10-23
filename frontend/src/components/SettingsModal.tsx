@@ -167,7 +167,7 @@ export function SettingsModal({ api, onClose }: SettingsModalProps) {
                     id={modelsId}
                     type="text"
                     value={values.ollamaModel}
-                    placeholder="qwen3:8b / llama3.2:3b"
+                    placeholder="gemma4:26b / qwen3:14b"
                     autoComplete="off"
                     spellCheck={false}
                     onChange={(e) => setValues({ ...values, ollamaModel: e.target.value })}

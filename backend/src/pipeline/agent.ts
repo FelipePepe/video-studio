@@ -107,7 +107,7 @@ export class PipelineAgent {
 
   constructor(opts: PipelineAgentOptions) {
     this.host = opts.host.replace(/\/+$/, '');
-    this.model = opts.model ?? process.env.OLLAMA_MODEL ?? 'qwen3:8b';
+    this.model = opts.model ?? process.env.OLLAMA_MODEL ?? 'gemma4:26b';
     this.fetchImpl = opts.fetchImpl ?? fetch;
     this.comfy = opts.comfy;
   }

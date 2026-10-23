@@ -50,7 +50,7 @@ export class OllamaClient {
   }
 
   async chatJson<T = unknown>(opts: ChatJsonOptions): Promise<T> {
-    const model = opts.model ?? this.model ?? process.env.OLLAMA_MODEL ?? 'qwen3:8b';
+    const model = opts.model ?? this.model ?? process.env.OLLAMA_MODEL ?? 'gemma4:26b';
     const numCtx = this.numCtx ?? parsePositiveInt(process.env.OLLAMA_NUM_CTX);
     let res: Response;
     try {
