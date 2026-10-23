@@ -1,6 +1,12 @@
 export interface OllamaClientOptions {
   fetchImpl?: typeof fetch;
   model?: string;
+  /** Context window sent as `options.num_ctx`; falls back to env OLLAMA_NUM_CTX, else the server default. */
+  numCtx?: number;
+}
+
+function parsePositiveInt(value: string | undefined): number | undefined {
+  return value !== undefined && /^[1-9]\d*$/.test(value) ? Number(value) : undefined;
 }
 
 export interface ChatJsonOptions {
@@ -13,6 +19,7 @@ export interface ChatJsonOptions {
 export class OllamaClient {
   private readonly fetchImpl: typeof fetch;
   private readonly model?: string;
+  private readonly numCtx?: number;
 
   constructor(
     readonly host: string,
@@ -20,6 +27,7 @@ export class OllamaClient {
   ) {
     this.fetchImpl = opts.fetchImpl ?? fetch;
     this.model = opts.model;
+    this.numCtx = opts.numCtx;
   }
 
   /** Lists the model names (Ollama `/api/tags`), skipping entries without a name. */
@@ -43,6 +51,7 @@ export class OllamaClient {
 
   async chatJson<T = unknown>(opts: ChatJsonOptions): Promise<T> {
     const model = opts.model ?? this.model ?? process.env.OLLAMA_MODEL ?? 'qwen3:8b';
+    const numCtx = this.numCtx ?? parsePositiveInt(process.env.OLLAMA_NUM_CTX);
     let res: Response;
     try {
       res = await this.fetchImpl(`${this.host.replace(/\/+$/, '')}/api/chat`, {
@@ -53,6 +62,7 @@ export class OllamaClient {
           model,
           stream: false,
           format: 'json',
+          ...(numCtx ? { options: { num_ctx: numCtx } } : {}),
           messages: [
             { role: 'system', content: opts.system },
             { role: 'user', content: opts.user },
