@@ -45,6 +45,17 @@ describe('ProgressStages', () => {
     expect(bar).toHaveAttribute('aria-valuemax', '100');
   });
 
+  it('renders a secondary progress bar only when a substep is given', () => {
+    setup({ substep: { value: 5, max: 20 } });
+    const bar = screen.getByRole('progressbar', { name: 'Paso ComfyUI 5/20' });
+    expect(bar).toHaveAttribute('aria-valuenow', '25');
+  });
+
+  it('has a single progress bar without substep', () => {
+    setup();
+    expect(screen.getAllByRole('progressbar')).toHaveLength(1);
+  });
+
   it('shows warnings only when there are some', () => {
     setup();
     expect(screen.queryByText('Avisos')).not.toBeInTheDocument();

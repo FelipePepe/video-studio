@@ -45,6 +45,7 @@ export function PipelinePage({ api }: PipelinePageProps) {
                 stages={p.stages}
                 progress={p.progress}
                 warnings={p.warnings}
+                substep={p.substep}
                 cancellable={rendering}
                 onCancel={() => void p.cancel()}
               />
