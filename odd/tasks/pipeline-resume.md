@@ -2,7 +2,7 @@
 
 **Status:** implemented, PR pending · **Updated:** 2026-10-24
 **Repo:** `/mnt/nas/sources/ai-tools/video-studio/` · **Branch:** `feature/pipeline-resume` (stacked on PR #50 progress bar + PR #51 delete-job)
-**Engram mirror:** `odd/pipeline-resume/tasks` — PENDING (mem_save refused: project_transition_conflict personal vs video-studio; awaiting user project choice)
+**Engram mirror:** `odd/pipeline-resume/tasks` — saved as observation #3396 (project video-studio, via `engram save`; the MCP `mem_save` needed a session id)
 
 ## Objective
 Do not lose pipeline work (draft, review, running render) when the user switches tabs or reloads, and let a job opened from the Jobs tab show up in the Pipeline tab (live progress if running, video if done).
