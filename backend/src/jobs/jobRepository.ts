@@ -130,6 +130,15 @@ export function markCancelled(db: DatabaseSync, id: string, clock: Clock = now):
   return patchJob(db, id, { status: 'cancelled', finishedAt: clock().toISOString() }, clock);
 }
 
+/**
+ * Delete a job's row. Returns the number of rows removed (1 when the job existed,
+ * 0 otherwise). Does NOT touch the linked draft — a draft stays re-approvable.
+ */
+export function deleteJob(db: DatabaseSync, id: string): number {
+  const res = db.prepare('DELETE FROM jobs WHERE id = ?').run(id);
+  return Number(res.changes);
+}
+
 export function failInterruptedJobs(db: DatabaseSync, clock: Clock = now): number {
   const ts = clock().toISOString();
   const res = db

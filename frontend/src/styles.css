@@ -177,6 +177,12 @@ body {
 .btn--ghost { background: transparent; }
 .btn--ghost:hover:not(:disabled) { background: var(--toned-2); }
 
+/* destructive action: neutral until armed (2-click confirm), then filled red */
+.btn--danger { color: var(--danger); }
+.btn--danger:hover:not(:disabled) { background: var(--toned-2); }
+.btn--danger--armed { background: var(--danger); color: var(--danger-ink); }
+.btn--danger--armed:hover:not(:disabled) { background: var(--danger); }
+
 .btn--primary { background: var(--accent); color: var(--accent-ink); }
 .btn--primary:hover:not(:disabled) { background: var(--accent); }
 
@@ -312,6 +318,9 @@ body {
 .progress { display: grid; gap: 12px; }
 .progress h2, .progress h3 { margin: 0; }
 .progress__bar { height: 6px; background: var(--track); border-radius: var(--radius); overflow: hidden; }
+.progress__bar--sub { height: 4px; }
+.progress__sub { display: grid; gap: 4px; margin-top: 8px; }
+.progress__sub-label { font-size: var(--step-ui); color: var(--muted); }
 .progress__fill { height: 100%; background: var(--accent); transition: width 0.2s ease; }
 
 .stages { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }

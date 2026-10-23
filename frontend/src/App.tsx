@@ -20,7 +20,7 @@ export interface AppProps {
   api?:
     | (Pick<ApiClient, 'getConfig' | 'patchConfig' | 'listModels'> &
         Partial<PipelineApi> &
-        Partial<Pick<ApiClient, 'listJobs' | 'getJob' | 'cancelJob' | 'approveDraft'>>)
+        Partial<Pick<ApiClient, 'listJobs' | 'getJob' | 'cancelJob' | 'approveDraft' | 'deleteJob'>>)
     | ApiClient;
 }
 
@@ -30,8 +30,8 @@ export function App({ api }: AppProps) {
   // Tests may inject a settings-only fake; the pipeline then falls back to the real client.
   const pipelineApi: PipelineApi =
     client && 'createDraft' in client && client.createDraft ? (client as PipelineApi) : defaultApi;
-  const jobsApi: Pick<ApiClient, 'listJobs' | 'getJob' | 'cancelJob' | 'approveDraft'> =
-    client && 'listJobs' in client && (client as ApiClient).listJobs ? (client as Pick<ApiClient, 'listJobs' | 'getJob' | 'cancelJob' | 'approveDraft'>) : defaultApi;
+  const jobsApi: Pick<ApiClient, 'listJobs' | 'getJob' | 'cancelJob' | 'approveDraft' | 'deleteJob'> =
+    client && 'listJobs' in client && (client as ApiClient).listJobs ? (client as Pick<ApiClient, 'listJobs' | 'getJob' | 'cancelJob' | 'approveDraft' | 'deleteJob'>) : defaultApi;
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [view, setView] = useState<View>(() => viewFromHash(window.location.hash));
 

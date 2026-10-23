@@ -49,6 +49,7 @@ export interface ApiClient {
   /** Job list; optional status filter and limit (backend caps limit at 200). */
   listJobs(params?: { status?: JobStatus; limit?: number }): Promise<Job[]>;
   cancelJob(id: string): Promise<{ cancelled: boolean }>;
+  deleteJob(id: string): Promise<{ deleted: boolean }>;
 }
 
 export interface ApiClientOptions {
@@ -163,6 +164,7 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
       return request<Job[]>('GET', `/api/jobs${q ? `?${q}` : ''}`);
     },
     cancelJob: (id) => request<{ cancelled: boolean }>('POST', `${jobPath(id)}/cancel`),
+    deleteJob: (id) => request<{ deleted: boolean }>('DELETE', jobPath(id)),
 
     async listMusic() {
       try {

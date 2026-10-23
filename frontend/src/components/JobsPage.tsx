@@ -5,7 +5,7 @@ import { useI18n, type MessageKey } from '../i18n';
 
 export interface JobsPageProps {
   /** `listJobs` to load the table, `getJob` for the retry options, `cancelJob` to stop queued/running jobs, `approveDraft` to retry failed/cancelled ones. */
-  api: Pick<ApiClient, 'listJobs' | 'getJob' | 'cancelJob' | 'approveDraft'>;
+  api: Pick<ApiClient, 'listJobs' | 'getJob' | 'cancelJob' | 'approveDraft' | 'deleteJob'>;
 }
 
 type Filter = 'all' | 'active' | 'done' | 'failed' | 'cancelled';
@@ -41,6 +41,8 @@ export function JobsPage({ api }: JobsPageProps) {
   const [filter, setFilter] = useState<Filter>('all');
   const [canceling, setCanceling] = useState<string | null>(null);
   const [retrying, setRetrying] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const generation = useRef(0);
 
   const load = useCallback(async () => {
@@ -68,6 +70,13 @@ export function JobsPage({ api }: JobsPageProps) {
     return () => clearInterval(timer);
   }, [anyActive, load]);
 
+  // An armed "click again to confirm" auto-forgets if the user walks away.
+  useEffect(() => {
+    if (confirmDelete === null) return;
+    const timer = setTimeout(() => setConfirmDelete(null), 4000);
+    return () => clearTimeout(timer);
+  }, [confirmDelete]);
+
   async function cancel(id: string) {
     setCanceling(id);
     setActionError(null);
@@ -79,6 +88,28 @@ export function JobsPage({ api }: JobsPageProps) {
       setCanceling(null);
     }
     await load();
+  }
+
+  /** Delete a finished job (row + its workDir on disk). The draft is kept. */
+  async function removeJob(id: string) {
+    setConfirmDelete(null);
+    setDeleting(id);
+    setActionError(null);
+    try {
+      await api.deleteJob(id);
+    } catch {
+      setActionError(t('jobs.deleteFailed'));
+    } finally {
+      setDeleting(null);
+    }
+    await load();
+  }
+
+  /** Two-click safety: the first click arms the button, the second executes. */
+  function onDelete(id: string) {
+    if (deleting) return;
+    if (confirmDelete === id) void removeJob(id);
+    else setConfirmDelete(id);
   }
 
   /**
@@ -224,6 +255,20 @@ export function JobsPage({ api }: JobsPageProps) {
                       onClick={() => void cancel(j.id)}
                     >
                       {canceling === j.id ? t('jobs.cancelling') : t('jobs.cancel')}
+                    </button>
+                  )}
+                  {!active && (
+                    <button
+                      type="button"
+                      className={`btn btn--danger ${confirmDelete === j.id ? 'btn--danger--armed' : ''}`}
+                      disabled={deleting === j.id}
+                      onClick={() => onDelete(j.id)}
+                    >
+                      {deleting === j.id
+                        ? t('jobs.deleting')
+                        : confirmDelete === j.id
+                          ? t('jobs.confirmDelete')
+                          : t('jobs.delete')}
                     </button>
                   )}
                 </div>

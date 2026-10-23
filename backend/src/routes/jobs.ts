@@ -1,9 +1,9 @@
-import { realpathSync, statSync } from 'node:fs';
+import { realpathSync, rmSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { Router, type Response } from 'express';
 import type { DatabaseSync } from 'node:sqlite';
 import type { EventHub } from '../jobs/eventHub';
-import { getJob, listJobs } from '../jobs/jobRepository';
+import { deleteJob, getJob, listJobs } from '../jobs/jobRepository';
 import type { JobRunner } from '../jobs/runner';
 import { TERMINAL_EVENT_TYPES, type Job, type JobEvent, type JobStatus } from '../jobs/types';
 
@@ -143,6 +143,33 @@ export function jobsRouter(deps: JobsDeps): Router {
       return;
     }
     res.json({ cancelled: await runner.cancel(job.id) });
+  });
+
+  router.delete('/:id', (req, res) => {
+    const job = getJob(db, req.params.id);
+    if (!job) {
+      res.status(404).json({ error: 'Job not found' });
+      return;
+    }
+    // Only terminal jobs can be deleted; cancelling a live job is a separate, explicit act.
+    if (job.status === 'queued' || job.status === 'running') {
+      res.status(409).json({ error: `Job is ${job.status}; cancel it before deleting` });
+      return;
+    }
+    const deleted = deleteJob(db, job.id);
+    if (deleted === 0) {
+      res.status(404).json({ error: 'Job not found' });
+      return;
+    }
+    // Best-effort cleanup of the job's workDir (artifacts, cache). A failure here must not
+    // fail the delete — retention will reap any stragglers. The draft is intentionally kept.
+    try {
+      rmSync(join(runner.workDir, job.id), { recursive: true, force: true });
+    } catch {
+      /* ignore best-effort workdir removal errors */
+    }
+    hub.clear(job.id);
+    res.json({ deleted: true });
   });
 
   router.get('/:id/output', (req, res) => {

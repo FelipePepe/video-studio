@@ -37,6 +37,7 @@ function makeApi(jobs: Job[]) {
     }),
     cancelJob: vi.fn(async () => ({ cancelled: true })),
     approveDraft,
+    deleteJob: vi.fn(async () => ({ deleted: true })),
   };
 }
 
@@ -71,6 +72,29 @@ describe('JobsPage retry', () => {
     renderJobs(api);
     await screen.findByText('Hecha');
     expect(screen.queryByRole('button', { name: 'Reintentar trabajo' })).not.toBeInTheDocument();
+  });
+});
+
+describe('JobsPage delete', () => {
+  it('arms on the first click and deletes on the second, only for finished jobs', async () => {
+    const api = makeApi([job({ id: 'jd', status: 'done', progress: 1 }), job({ id: 'jr', status: 'running' })]);
+    renderJobs(api);
+    await screen.findByText('Hecha');
+    expect(screen.getAllByRole('button', { name: 'Eliminar' })).toHaveLength(1);
+    await userEvent.click(screen.getByRole('button', { name: 'Eliminar' }));
+    expect(api.deleteJob).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: '¿Seguro?, eliminar' }));
+    expect(api.deleteJob).toHaveBeenCalledWith('jd');
+  });
+
+  it('shows an error when the delete fails', async () => {
+    const api = makeApi([job({ id: 'jd', status: 'done', progress: 1 })]);
+    api.deleteJob.mockRejectedValueOnce(new Error('boom'));
+    renderJobs(api);
+    await screen.findByText('Hecha');
+    await userEvent.click(screen.getByRole('button', { name: 'Eliminar' }));
+    await userEvent.click(screen.getByRole('button', { name: '¿Seguro?, eliminar' }));
+    expect(await screen.findByText('No se pudo eliminar el trabajo.')).toBeInTheDocument();
   });
 });
 
