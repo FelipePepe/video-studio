@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../src/App';
@@ -98,6 +98,21 @@ describe('App shell', () => {
 
       expect(await screen.findByRole('button', { name: 'Aprobar y generar' })).toBeInTheDocument();
       expect(fake.api.createDraft).toHaveBeenCalledTimes(1);
+    });
+
+    it('opens a job from Trabajos in the Pipeline tab and shows its video when done', async () => {
+      const user = userEvent.setup();
+      window.history.replaceState(null, '', '#trabajos');
+      const { fake, api } = fullApi();
+      const { container } = render(<App api={api} />);
+      await screen.findByText('Hecha');
+      await user.click(screen.getByRole('button', { name: 'Abrir en pipeline' }));
+
+      await waitFor(() => expect(fake.api.watchJob).toHaveBeenCalledWith('j1', expect.anything()));
+      expect(window.location.hash).toBe('#pipeline');
+      expect(screen.getByRole('heading', { name: 'Pipeline', level: 1 })).toBeInTheDocument();
+      act(() => fake.watch.emit({ type: 'done', outputUrl: '/api/jobs/j1/output' }));
+      await waitFor(() => expect(container.querySelector('video')).toHaveAttribute('src', '/api/jobs/j1/output'));
     });
 
     it('keeps what was typed in the form and the running render across tabs', async () => {

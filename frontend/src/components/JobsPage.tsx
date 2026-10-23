@@ -6,6 +6,8 @@ import { useI18n, type MessageKey } from '../i18n';
 export interface JobsPageProps {
   /** `listJobs` to load the table, `getJob` for the retry options, `cancelJob` to stop queued/running jobs, `approveDraft` to retry failed/cancelled ones. */
   api: Pick<ApiClient, 'listJobs' | 'getJob' | 'cancelJob' | 'approveDraft' | 'deleteJob'>;
+  /** Shows the job in the Pipeline tab (live progress, or the video when done). */
+  onOpen?: (jobId: string) => void;
 }
 
 type Filter = 'all' | 'active' | 'done' | 'failed' | 'cancelled';
@@ -32,7 +34,7 @@ function isActive(j: Job): boolean {
   return j.status === 'queued' || j.status === 'running';
 }
 
-export function JobsPage({ api }: JobsPageProps) {
+export function JobsPage({ api, onOpen }: JobsPageProps) {
   const { t, lang } = useI18n();
   const [jobs, setJobs] = useState<Job[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -227,6 +229,11 @@ export function JobsPage({ api }: JobsPageProps) {
                   {j.error && <p className="job__error">{j.error}</p>}
                 </div>
                 <div className="job__actions">
+                  {onOpen && (
+                    <button type="button" className="btn btn--ghost" onClick={() => onOpen(j.id)}>
+                      {t('jobs.open')}
+                    </button>
+                  )}
                   {(j.status === 'failed' || j.status === 'cancelled') && (
                     <button
                       type="button"

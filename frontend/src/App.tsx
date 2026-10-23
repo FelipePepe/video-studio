@@ -10,6 +10,7 @@ import { I18nProvider } from './i18n';
 export type View = 'pipeline' | 'jobs';
 
 const JOBS_HASH = '#trabajos';
+const PIPELINE_HASH = '#pipeline';
 
 function viewFromHash(hash: string): View {
   return hash === JOBS_HASH ? 'jobs' : 'pipeline';
@@ -60,7 +61,15 @@ function AppShell({ api }: AppProps) {
         <div hidden={view !== 'pipeline'}>
           <PipelinePage api={pipelineApi} pipeline={pipeline} />
         </div>
-        {view === 'jobs' && <JobsPage api={jobsApi} />}
+        {view === 'jobs' && (
+          <JobsPage
+            api={jobsApi}
+            onOpen={(id) => {
+              void pipeline.openJob(id);
+              window.location.hash = PIPELINE_HASH;
+            }}
+          />
+        )}
       </main>
       {settingsOpen && <SettingsModal api={client} onClose={() => setSettingsOpen(false)} />}
     </div>

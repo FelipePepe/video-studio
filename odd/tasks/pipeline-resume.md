@@ -1,6 +1,6 @@
 # pipeline-resume
 
-**Status:** in progress · **Updated:** 2026-10-24
+**Status:** implemented, PR pending · **Updated:** 2026-10-24
 **Repo:** `/mnt/nas/sources/ai-tools/video-studio/` · **Branch:** `feature/pipeline-resume` (stacked on PR #50 progress bar + PR #51 delete-job)
 **Engram mirror:** `odd/pipeline-resume/tasks` — PENDING (mem_save refused: project_transition_conflict personal vs video-studio; awaiting user project choice)
 
@@ -24,7 +24,7 @@ Inline (frontend only, ~5 files; mapping done inline in 3 reads). No delegation:
 - [x] **T1** API client: `watchJob(id, {onEvent, signal})` on `/api/jobs/:id/events`, SSE helper shared with `approveDraft`; fakeApi + client test.
 - [x] **T2** Hook: `follow()` extracted from `approve`, `openJob(jobId)`, localStorage persistence (`vs.pipeline`) + restore on mount; hook tests.
 - [x] **T3** Lift state: `App` owns `usePipeline` (inside I18nProvider via AppShell), `PipelinePage` receives it and stays mounted-but-hidden so ReviewPanel/PipelineForm local state survives too; `onOpen` wiring; App-level tab-switch test.
-- [ ] **T4** Jobs UI: "Open in pipeline" button on every row (`jobs.open` i18n); test.
+- [x] **T4** Jobs UI: "Open in pipeline" button on every row (`jobs.open` i18n); test.
 
 ## Acceptance
 Switching tabs mid-render keeps progress; reload resumes; opening a done job shows the video; failed job shows review panel with error. `pnpm test` + `pnpm typecheck` green.
@@ -33,4 +33,4 @@ Switching tabs mid-render keeps progress; reload resumes; opening a done job sho
 _(commit shas and check results per task go here)_
 
 ## Next step
-T4.
+Deliver (PR into develop, stacked on #50 and #51).
