@@ -44,6 +44,8 @@ export interface Job {
   progress: number;
   error: string | null;
   outputPath: string | null;
+  /** Approve-time options persisted by the backend (music, volume, subtitles, vertical) or null. */
+  options: ApproveBody | null;
   createdAt: string;
   updatedAt: string;
   startedAt: string | null;

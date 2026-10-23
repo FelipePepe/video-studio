@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { openDatabase } from '../src/db/connection';
+import { createJob, markCancelled, markDone, markFailed, markRunning } from '../src/jobs/jobRepository';
 import {
   createDraft,
   getDraft,
@@ -59,6 +60,36 @@ test('markApproved locks the draft', () => {
   assert.throws(() => updateEscaleta(db, d.id, escaleta), DraftLockedError);
   assert.throws(() => markApproved(db, d.id), DraftLockedError);
   assert.equal(getDraft(db, d.id)?.status, 'approved');
+});
+
+test('updateEscaleta unlocks when the latest job is failed or cancelled (X1)', () => {
+  const failedScenario = (mark: (db: Parameters<typeof markFailed>[0], id: string) => unknown) => {
+    const db = openDatabase(':memory:');
+    const d = createDraft(db, input);
+    markApproved(db, d.id);
+    const job = createJob(db, d.id);
+    mark(db, job.id);
+    const next = [{ ...escaleta[0], title: 'retried' }];
+    const u = updateEscaleta(db, d.id, next);
+    assert.equal(u.escaleta[0].title, 'retried');
+    assert.equal(u.status, 'approved');
+  };
+  const markFailedNow = (db: Parameters<typeof markFailed>[0], id: string) => markFailed(db, id, 'boom');
+  failedScenario(markFailedNow);
+  failedScenario(markCancelled);
+});
+
+test('updateEscaleta stays locked while the latest job is running or done (X1)', () => {
+  const mk = (mark: (db: Parameters<typeof markFailed>[0], id: string) => unknown) => {
+    const db = openDatabase(':memory:');
+    const d = createDraft(db, input);
+    markApproved(db, d.id);
+    mark(db, createJob(db, d.id).id);
+    assert.throws(() => updateEscaleta(db, d.id, escaleta), DraftLockedError);
+  };
+  const markRunningNow = (db: Parameters<typeof markFailed>[0], id: string) => markRunning(db, id);
+  mk(markRunningNow);
+  mk((db, id) => markDone(db, id, 'out.mp4')); // a successful ('done') job keeps the draft locked
 });
 
 test('unknown ids throw DraftNotFoundError', () => {
