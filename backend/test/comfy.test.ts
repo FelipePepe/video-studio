@@ -425,12 +425,18 @@ test('B2: interrupt() without a prompt_id sends a bodyless POST', async () => {
   assert.equal(calls[0].init?.body, undefined);
 });
 
-test('B2: queueIds parses the running and pending prompt ids', async () => {
+test('B2: queueIds parses the running and pending prompt ids (real /queue format, id at index 1)', async () => {
   const { fetchImpl, calls } = fakeFetch([
-    json({ queue_running: [['r1', {}]], queue_pending: [['q1', {}], ['q2', {}]] }),
+    // Real ComfyUI 0.28.0 /queue entry: [position, prompt_id, prompt, client_id].
+    // position is a NUMBER (index 0); the prompt_id is the string at index 1.
+    json({
+      queue_running: [[0, 'r1', {}, 'client-a']],
+      queue_pending: [[0, 'q1', {}, 'client-b'], [1, 'q2', {}, 'client-c']],
+    }),
   ]);
   const client = new ComfyClient('http://c', { fetchImpl });
   const q = await client.queueIds();
+  // prompt_id must be extracted from index 1 even though index 0 is a numeric position
   assert.deepEqual(q, { running: ['r1'], pending: ['q1', 'q2'] });
   assert.equal(calls[0].url, 'http://c/queue');
 });
@@ -460,7 +466,8 @@ test('B3: waitForCompletion fails fast when history stays empty and the prompt i
     json({}),
     json({}),
     json({}),
-    json({ queue_running: [], queue_pending: [] }),
+    // other prompts are queued/present, but p1 is genuinely absent -> fail fast
+    json({ queue_running: [[0, 'other1', {}, 'c1']], queue_pending: [[0, 'other2', {}, 'c2']] }),
   ]);
   const client = new ComfyClient('http://c', { fetchImpl, sleep: noSleep });
   await assert.rejects(
@@ -475,7 +482,8 @@ test('B3: waitForCompletion keeps waiting when history is empty but the prompt i
     json({}),
     json({}),
     json({}),
-    json({ queue_running: [], queue_pending: [['p1', {}]] }),
+    // p1 still in the queue (real format: [position, prompt_id, prompt, client_id]) -> keep waiting
+    json({ queue_running: [[0, 'other', {}, 'c1']], queue_pending: [[0, 'p1', {}, 'client-a']] }),
     json({}),
     json({}),
     json({ p1: { status: { status_str: 'success' }, outputs } }),
