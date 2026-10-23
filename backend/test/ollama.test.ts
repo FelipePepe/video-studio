@@ -25,6 +25,7 @@ test('chatJson posts a non-streaming json chat and parses message.content', asyn
     model: 'm1',
     stream: false,
     format: 'json',
+    keep_alive: '0s',
     messages: [
       { role: 'system', content: 'sys' },
       { role: 'user', content: 'usr' },
@@ -81,6 +82,39 @@ test('num_ctx falls back to OLLAMA_NUM_CTX and ignores invalid values', async ()
   } finally {
     if (prev === undefined) delete process.env.OLLAMA_NUM_CTX;
     else process.env.OLLAMA_NUM_CTX = prev;
+  }
+});
+
+test('keep_alive defaults to "0s" so the model is released after the escaleta (frees VRAM for ComfyUI)', async () => {
+  const prev = process.env.OLLAMA_KEEP_ALIVE;
+  try {
+    delete process.env.OLLAMA_KEEP_ALIVE;
+    const { fetchImpl, calls } = fakeFetch(reply('{}'));
+    await new OllamaClient('http://o', { fetchImpl }).chatJson({ system: 's', user: 'u' });
+    assert.equal(JSON.parse(String(calls[0].init?.body)).keep_alive, '0s');
+  } finally {
+    if (prev === undefined) delete process.env.OLLAMA_KEEP_ALIVE;
+    else process.env.OLLAMA_KEEP_ALIVE = prev;
+  }
+});
+
+test('keepAlive option and OLLAMA_KEEP_ALIVE override the default keep_alive', async () => {
+  const prev = process.env.OLLAMA_KEEP_ALIVE;
+  const bodyFor = async (opts: { keepAlive?: string } = {}) => {
+    const f = fakeFetch(reply('{}'));
+    await new OllamaClient('http://o', { fetchImpl: f.fetchImpl, ...opts }).chatJson({ system: 's', user: 'u' });
+    return JSON.parse(String(f.calls[0].init?.body));
+  };
+  try {
+    assert.equal((await bodyFor()).keep_alive, '0s', 'default when unset');
+    process.env.OLLAMA_KEEP_ALIVE = '5m';
+    assert.equal((await bodyFor()).keep_alive, '5m', 'env wins');
+    assert.equal((await bodyFor({ keepAlive: '1m' })).keep_alive, '1m', 'option wins over env');
+    process.env.OLLAMA_KEEP_ALIVE = '   ';
+    assert.equal((await bodyFor()).keep_alive, '0s', 'blank env ignored');
+  } finally {
+    if (prev === undefined) delete process.env.OLLAMA_KEEP_ALIVE;
+    else process.env.OLLAMA_KEEP_ALIVE = prev;
   }
 });
 
