@@ -6,8 +6,36 @@ import { useI18n } from '../i18n';
 
 export type PipelineApi = Pick<
   ApiClient,
-  'createDraft' | 'approveDraft' | 'cancelJob' | 'putSegments' | 'listMusic' | 'listVoices'
+  'createDraft' | 'approveDraft' | 'cancelJob' | 'putSegments' | 'listMusic' | 'listVoices' | 'getJob' | 'getDraft' | 'watchJob'
 >;
+
+/** Survives tab switches and reloads: just enough to re-fetch the draft and re-follow its job. */
+const STORAGE_KEY = 'vs.pipeline';
+interface StoredPipeline {
+  draftId: string;
+  jobId?: string;
+}
+
+function readStored(): StoredPipeline | null {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<StoredPipeline>;
+    if (typeof parsed.draftId !== 'string' || !parsed.draftId) return null;
+    return { draftId: parsed.draftId, ...(typeof parsed.jobId === 'string' && parsed.jobId ? { jobId: parsed.jobId } : {}) };
+  } catch {
+    return null;
+  }
+}
+
+function writeStored(value: StoredPipeline | null): void {
+  try {
+    if (value) localStorage.setItem(STORAGE_KEY, JSON.stringify(value));
+    else localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // Storage unavailable (private mode, quota): the pipeline still works, it just won't resume.
+  }
+}
 
 export type PipelineState = 'idle' | 'drafting' | 'review' | 'rendering' | 'done' | 'failed';
 
@@ -37,6 +65,8 @@ export interface UsePipeline {
   createDraft(req: DraftRequest): Promise<void>;
   saveSegments(escaleta: Scene[]): Promise<boolean>;
   approve(options?: { body?: ApproveBody }): Promise<void>;
+  /** Loads an existing job (and its draft) into the pipeline view and follows its progress. */
+  openJob(jobId: string): Promise<void>;
   cancel(): Promise<void>;
   reset(): void;
 }
@@ -75,6 +105,15 @@ export function usePipeline(api: PipelineApi): UsePipeline {
   const draftRef = useRef<DraftCreated | null>(null);
   const activeStage = useRef<StageId | null>(null);
   const terminal = useRef(false);
+  // Bumped per openJob() so only the latest open wins while earlier ones are still loading.
+  const openSeq = useRef(0);
+  // True until the saved session (if any) has been re-opened; keeps the persist effect from wiping it.
+  const restoring = useRef(false);
+  const stored = useRef<StoredPipeline | null | undefined>(undefined);
+  if (stored.current === undefined) {
+    stored.current = readStored();
+    restoring.current = stored.current !== null;
+  }
   // Always the latest translator, so callbacks stay stable across language changes.
   const tRef = useRef(t);
   tRef.current = t;
@@ -197,16 +236,10 @@ export function usePipeline(api: PipelineApi): UsePipeline {
     }
   }, [setState]);
 
-  const approve = useCallback(
-    async (options?: { body?: ApproveBody }) => {
-    const current = draftRef.current;
-    if (!current) {
-      setError(tRef.current('error.noDraft'));
-      return;
-    }
+  /** Claims the pipeline view for a new stream: aborts the previous one and resets progress state. */
+  const startRun = useCallback(() => {
     controller.current?.abort();
     const run = ++runId.current;
-    const isStale = () => run !== runId.current;
     const ctrl = new AbortController();
     controller.current = ctrl;
     terminal.current = false;
@@ -220,28 +253,147 @@ export function usePipeline(api: PipelineApi): UsePipeline {
     setJobId(null);
     setOutputUrl(null);
     setState('rendering');
-    try {
-      await api.approveDraft(current.id, {
-        onEvent: (event) => {
-          if (!isStale()) applyEvent(event);
-        },
-        signal: ctrl.signal,
-        body: options?.body,
-      });
-      jobsLog.info('draft approved / stream ended', { draftId: current.id });
-      if (!mounted.current || isStale() || ctrl.signal.aborted || terminal.current) return;
-      terminal.current = true;
-      setError(tRef.current('error.streamEnded'));
-      setState('failed');
-    } catch (e) {
-      if (!mounted.current || isStale() || ctrl.signal.aborted || terminal.current) return;
-      jobsLog.error('approve failed', { draftId: current.id, conflict: e instanceof ApiError && e.status === 409, err: e as Error });
-      terminal.current = true;
-      setError(e instanceof ApiError && e.status === 409 ? tRef.current('error.conflict') : errorMessage(e));
-      setState('failed');
-    }
+    return { ctrl, isStale: () => run !== runId.current };
+  }, [setState]);
+
+  /** Feeds a job event stream into `applyEvent`; a stream that ends without a terminal event is a failure. */
+  const consume = useCallback(
+    async (
+      run: { ctrl: AbortController; isStale: () => boolean },
+      stream: (onEvent: (event: JobEvent) => void, signal: AbortSignal) => Promise<unknown>,
+      what: string,
+    ) => {
+      try {
+        await stream((event) => {
+          if (!run.isStale()) applyEvent(event);
+        }, run.ctrl.signal);
+        jobsLog.info(`${what}: stream ended`);
+        if (!mounted.current || run.isStale() || run.ctrl.signal.aborted || terminal.current) return;
+        terminal.current = true;
+        setError(tRef.current('error.streamEnded'));
+        setState('failed');
+      } catch (e) {
+        if (!mounted.current || run.isStale() || run.ctrl.signal.aborted || terminal.current) return;
+        jobsLog.error(`${what} failed`, { conflict: e instanceof ApiError && e.status === 409, err: e as Error });
+        terminal.current = true;
+        setError(e instanceof ApiError && e.status === 409 ? tRef.current('error.conflict') : errorMessage(e));
+        setState('failed');
+      }
+    },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [api, applyEvent, setState]);
+    [applyEvent, setState],
+  );
+
+  const approve = useCallback(
+    async (options?: { body?: ApproveBody }) => {
+      const current = draftRef.current;
+      if (!current) {
+        setError(tRef.current('error.noDraft'));
+        return;
+      }
+      const run = startRun();
+      await consume(
+        run,
+        (onEvent, signal) => api.approveDraft(current.id, { onEvent, signal, body: options?.body }),
+        `approve draft ${current.id}`,
+      );
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [api, startRun, consume],
+  );
+
+  /** Fetches job + draft and claims the view; resolves before the stream is followed. Null on failure. */
+  const loadJob = useCallback(
+    async (id: string) => {
+      const seq = ++openSeq.current;
+      try {
+        const job = await api.getJob(id);
+        const full = await api.getDraft(job.draftId);
+        if (!mounted.current || seq !== openSeq.current) return null;
+        const loaded = { id: full.id, escaleta: full.escaleta, status: full.status };
+        draftRef.current = loaded;
+        setDraft(loaded);
+        const run = startRun();
+        jobIdRef.current = job.id;
+        setJobId(job.id);
+        jobsLog.info('job opened', { jobId: job.id, draftId: job.draftId });
+        return { job, run };
+      } catch (e) {
+        if (mounted.current && seq === openSeq.current) {
+          jobsLog.warn('opening job failed', { jobId: id, err: e as Error });
+          setError(errorMessage(e));
+        }
+        return null;
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [api, startRun],
+  );
+
+  const follow = useCallback(
+    (loaded: NonNullable<Awaited<ReturnType<typeof loadJob>>>) =>
+      consume(loaded.run, (onEvent, signal) => api.watchJob(loaded.job.id, { onEvent, signal }), `watch job ${loaded.job.id}`),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [api, consume],
+  );
+
+  const openJob = useCallback(
+    async (id: string) => {
+      if (jobIdRef.current === id && (stateRef.current === 'rendering' || stateRef.current === 'done')) return;
+      const loaded = await loadJob(id);
+      if (loaded) await follow(loaded);
+    },
+    [loadJob, follow],
+  );
+
+  // Re-open the saved session once on mount (reload): a running/finished job, or a draft in review.
+  useEffect(() => {
+    const saved = stored.current;
+    if (!saved || stateRef.current !== 'idle') {
+      restoring.current = false;
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      let ok = false;
+      try {
+        if (saved.jobId) {
+          const loaded = await loadJob(saved.jobId);
+          if (loaded) {
+            ok = true;
+            restoring.current = false;
+            await follow(loaded);
+          }
+        } else {
+          const full = await api.getDraft(saved.draftId);
+          if (cancelled || !mounted.current || stateRef.current !== 'idle') return;
+          const loaded = { id: full.id, escaleta: full.escaleta, status: full.status };
+          draftRef.current = loaded;
+          setDraft(loaded);
+          setState('review');
+          ok = true;
+        }
+      } catch {
+        // Stale session (draft deleted, server down): fall through to the empty view.
+      } finally {
+        restoring.current = false;
+        if (!ok && !cancelled) writeStored(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (restoring.current) return;
+    if (!draft || state === 'idle' || state === 'drafting') {
+      writeStored(null);
+      return;
+    }
+    writeStored({ draftId: draft.id, ...(jobId ? { jobId } : {}) });
+  }, [state, draft, jobId]);
 
   const cancel = useCallback(async () => {
     const id = jobIdRef.current;
@@ -276,7 +428,7 @@ export function usePipeline(api: PipelineApi): UsePipeline {
   }, [setState]);
 
   return useMemo(
-    () => ({ state, draft, error, stages, progress, warnings, substep, jobId, outputUrl, createDraft, saveSegments, approve, cancel, reset }),
-    [state, draft, error, stages, progress, warnings, substep, jobId, outputUrl, createDraft, saveSegments, approve, cancel, reset],
+    () => ({ state, draft, error, stages, progress, warnings, substep, jobId, outputUrl, createDraft, saveSegments, approve, openJob, cancel, reset }),
+    [state, draft, error, stages, progress, warnings, substep, jobId, outputUrl, createDraft, saveSegments, approve, openJob, cancel, reset],
   );
 }

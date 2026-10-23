@@ -22,7 +22,7 @@ Inline (frontend only, ~5 files; mapping done inline in 3 reads). No delegation:
 
 ## Tasks
 - [x] **T1** API client: `watchJob(id, {onEvent, signal})` on `/api/jobs/:id/events`, SSE helper shared with `approveDraft`; fakeApi + client test.
-- [ ] **T2** Hook: `follow()` extracted from `approve`, `openJob(jobId)`, localStorage persistence (`vs.pipeline`) + restore on mount; hook tests.
+- [x] **T2** Hook: `follow()` extracted from `approve`, `openJob(jobId)`, localStorage persistence (`vs.pipeline`) + restore on mount; hook tests.
 - [ ] **T3** Lift state: `App` owns `usePipeline`, `PipelinePage` receives it; `onOpen` wiring; App-level tab-switch test.
 - [ ] **T4** Jobs UI: "Open in pipeline" button on every row (`jobs.open` i18n); test.
 
@@ -33,4 +33,4 @@ Switching tabs mid-render keeps progress; reload resumes; opening a done job sho
 _(commit shas and check results per task go here)_
 
 ## Next step
-T2.
+T3.
