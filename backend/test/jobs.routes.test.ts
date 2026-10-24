@@ -2,7 +2,7 @@ import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import request from 'supertest';
@@ -129,6 +129,34 @@ test('POST /api/jobs/:id/cancel cancels a queued job, 404 unknown, 409 finished'
   assert.equal((await request(app).get(`/api/jobs/${queued.id}`)).body.status, 'cancelled');
   assert.equal((await request(app).post(`/api/jobs/${queued.id}/cancel`)).status, 409);
   assert.equal((await request(app).post('/api/jobs/nope/cancel')).status, 404);
+});
+
+test('DELETE /api/jobs/:id deletes a terminal job + workdir, 404 unknown, 409 active', async () => {
+  const { app, db, draftId, workDir } = setup();
+
+  const done = createJob(db, draftId);
+  mkdirSync(join(workDir, done.id));
+  writeFileSync(join(workDir, done.id, 'final.mp4'), Buffer.from('x'));
+  markDone(db, done.id, join(workDir, done.id, 'final.mp4'));
+
+  const running = createJob(db, draftId);
+  markRunning(db, running.id);
+
+  // done + on disk: 200, row gone, workdir removed
+  let res = await request(app).delete(`/api/jobs/${done.id}`);
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.body, { deleted: true });
+  assert.equal((await request(app).get(`/api/jobs/${done.id}`)).status, 404);
+  assert.equal(existsSync(join(workDir, done.id)), false, 'workdir removed');
+
+  // running: 409 (active)
+  res = await request(app).delete(`/api/jobs/${running.id}`);
+  assert.equal(res.status, 409);
+  assert.equal((await request(app).get(`/api/jobs/${running.id}`)).status, 200);
+
+  // unknown: 404
+  res = await request(app).delete('/api/jobs/nope');
+  assert.equal(res.status, 404);
 });
 
 test('GET /api/jobs/:id/output serves the mp4 bytes with Range support', async () => {

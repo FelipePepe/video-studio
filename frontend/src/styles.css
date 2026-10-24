@@ -177,6 +177,12 @@ body {
 .btn--ghost { background: transparent; }
 .btn--ghost:hover:not(:disabled) { background: var(--toned-2); }
 
+/* destructive action: neutral until armed (2-click confirm), then filled red */
+.btn--danger { color: var(--danger); }
+.btn--danger:hover:not(:disabled) { background: var(--toned-2); }
+.btn--danger--armed { background: var(--danger); color: var(--danger-ink); }
+.btn--danger--armed:hover:not(:disabled) { background: var(--danger); }
+
 .btn--primary { background: var(--accent); color: var(--accent-ink); }
 .btn--primary:hover:not(:disabled) { background: var(--accent); }
 
