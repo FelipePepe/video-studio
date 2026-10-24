@@ -112,7 +112,7 @@ export async function generateDraft(input: DraftInput, deps: DraftDeps): Promise
   let article: string;
   if (url !== undefined) {
     try {
-      article = await fetchArticleText(url, { fetchImpl: deps.fetchImpl });
+      article = await fetchArticleText(url, { fetchImpl: deps.fetchImpl, signal: deps.signal });
     } catch (e) {
       if (e instanceof ArticleInputError) throw new DraftInputError(e.message);
       throw e;

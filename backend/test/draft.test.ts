@@ -63,6 +63,23 @@ test('generateDraft fetches the article for url input', async () => {
   assert.match(ollama.calls[0].user, /Desde la web/);
 });
 
+test('generateDraft forwards deps.signal to the article fetch', async () => {
+  let sent: AbortSignal | undefined;
+  const fetchImpl = ((_u: unknown, init?: RequestInit) => {
+    sent = init?.signal as AbortSignal;
+    return new Promise((_resolve, reject) => {
+      sent?.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+    });
+  }) as typeof fetch;
+  const ac = new AbortController();
+  const p = generateDraft({ url: 'https://example.com/a' }, { ollama: fakeOllama({}), fetchImpl, signal: ac.signal });
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(sent?.aborted, false);
+  ac.abort();
+  await assert.rejects(p, (e: Error) => e.name === 'AbortError');
+  assert.equal(sent?.aborted, true);
+});
+
 test('input must have exactly one of url or text', async () => {
   const ollama = fakeOllama({ scenes: scenes(1) });
   await assert.rejects(generateDraft({}, { ollama }), DraftInputError);

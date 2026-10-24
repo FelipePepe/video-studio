@@ -124,13 +124,15 @@ export function pipelineRouter(deps: PipelineDeps): Router {
       activeDrafts--;
     };
     const controller = abortOnClose(res);
-    res.on('close', release);
     try {
       const generated = await generateDraft(body, {
         ollama: deps.resolveOllama(),
         fetchImpl: deps.fetchImpl,
         signal: controller.signal,
       });
+      // The client went away while the model worked: nobody will receive this draft, so do not save it.
+      // The slot is held until the upstream work stops (see `finally`), not merely until the disconnect.
+      if (controller.signal.aborted) return;
       const draft = createDraft(deps.db, generated);
       res.status(201).json({ id: draft.id, escaleta: draft.escaleta, status: draft.status });
     } catch (e) {

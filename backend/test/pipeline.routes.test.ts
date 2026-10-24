@@ -223,6 +223,60 @@ test('DRAFT_MAX_CONCURRENCY sets the limit; empty or invalid values fall back to
   }
 });
 
+test('the draft slot stays taken after a disconnect until the upstream work really stops', async () => {
+  // An Ollama fake that ignores the abort: the slot must not be freed by the disconnect alone.
+  const releases: Array<() => void> = [];
+  let calls = 0;
+  const ollama = {
+    chatJson: () =>
+      new Promise((resolve) => {
+        calls++;
+        releases.push(() => resolve({ scenes }));
+        if (calls > 1) resolve({ scenes }); // later calls answer at once, so a missing 429 fails cleanly instead of hanging
+      }),
+  } as unknown as OllamaClient;
+  const { app } = makeApp(ollama, undefined, 1);
+  const server = await listen(app);
+  try {
+    const req = postDraft(server);
+    await until(() => calls === 1);
+    req.destroy();
+    await new Promise((r) => setTimeout(r, 50)); // let the server notice the close
+    const second = await request(app).post('/api/pipeline/draft').send({ text: 'y' });
+    assert.equal(second.status, 429, 'work is still in flight, so the slot must still be taken');
+    releases[0]();
+    await new Promise((r) => setTimeout(r, 50)); // the first generation finishes, then the slot is freed
+    const third = await request(app).post('/api/pipeline/draft').send({ text: 'z' });
+    assert.equal(third.status, 201, 'the slot is free again once the upstream work has stopped');
+  } finally {
+    server.closeAllConnections();
+    server.close();
+  }
+});
+
+test('a draft generated after the client went away is not saved', async () => {
+  const releases: Array<() => void> = [];
+  let calls = 0;
+  const ollama = {
+    chatJson: () => new Promise((resolve) => { calls++; releases.push(() => resolve({ scenes })); }),
+  } as unknown as OllamaClient;
+  const { db, app } = makeApp(ollama);
+  const server = await listen(app);
+  try {
+    const req = postDraft(server);
+    await until(() => calls === 1);
+    req.destroy();
+    await new Promise((r) => setTimeout(r, 50));
+    releases[0]();
+    await new Promise((r) => setTimeout(r, 100));
+    const count = (db.prepare('SELECT COUNT(*) AS c FROM drafts').get() as { c: number }).c;
+    assert.equal(count, 0, 'nobody will ever receive that draft');
+  } finally {
+    server.closeAllConnections();
+    server.close();
+  }
+});
+
 test('the draft slot is released after an Ollama error', async () => {
   let n = 0;
   const ollama = {

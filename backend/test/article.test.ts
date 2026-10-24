@@ -105,6 +105,23 @@ test('times out when the server never answers', async () => {
   await assert.rejects(fetchArticleText('https://example.com', { fetchImpl, timeoutMs: 20 }), /timed out/i);
 });
 
+test('a caller abort stops the article fetch and is reported as an AbortError, not a timeout', async () => {
+  const fetchImpl = ((_url: string | URL | Request, init?: RequestInit) =>
+    new Promise<Response>((_resolve, reject) => {
+      if (init?.signal?.aborted) reject(new Error('socket hang up'));
+      init?.signal?.addEventListener('abort', () => reject(new Error('socket hang up')));
+    })) as typeof fetch;
+  const ac = new AbortController();
+  const p = fetchArticleText('https://example.com', { fetchImpl, signal: ac.signal });
+  ac.abort();
+  await assert.rejects(p, (e: Error) => e.name === 'AbortError' && !(e instanceof ArticleFetchError));
+  // already aborted before the call
+  await assert.rejects(
+    fetchArticleText('https://example.com', { fetchImpl, signal: AbortSignal.abort() }),
+    (e: Error) => e.name === 'AbortError',
+  );
+});
+
 test('wraps network failures in ArticleFetchError', async () => {
   const { fetchImpl } = fakeFetch(new Error('ECONNREFUSED'));
   await assert.rejects(fetchArticleText('https://example.com', { fetchImpl }), (e: Error) => {
