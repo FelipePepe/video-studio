@@ -124,6 +124,10 @@ export class JobRunner {
     return this.stopPromise;
   }
 
+  /**
+   * Resolves when no job is running and nothing is left to start. NOTE: once `stop()` has been called
+   * it also resolves while jobs are still queued (they are intentionally left behind, see `stop()`).
+   */
   idle(): Promise<void> {
     if (!this.draining && (this.stopping || this.queue.length === 0)) return Promise.resolve();
     return new Promise((resolve) => this.idleWaiters.push(resolve));
