@@ -13,6 +13,7 @@ import { EventHub } from './jobs/eventHub';
 import { JobRunner } from './jobs/runner';
 import { makeTokenAuth } from './config/auth';
 import type { ExecuteFn } from './jobs/types';
+import { resolveCacheDir } from './pipeline/contentCache';
 import { createExecute, type FfmpegFn } from './pipeline/orchestrator';
 import { ComfyClient } from './clients/comfy';
 import { OllamaClient } from './clients/ollama';
@@ -91,7 +92,7 @@ export function buildApp(opts: AppOptions = {}): Express {
         resolveComfy: resolvers.resolveComfy,
         resolvePiper: resolvers.resolvePiper,
         ffmpeg: opts.ffmpeg,
-        cacheDir: resolvePath(opts.jobs?.cacheDir ?? 'data/cache'),
+        cacheDir: resolveCacheDir(opts.jobs?.cacheDir),
       }),
     workDir: resolvePath(opts.jobs?.workDir ?? 'data/jobs'),
   });

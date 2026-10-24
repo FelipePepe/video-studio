@@ -143,16 +143,23 @@ async function executeTTS(s: Shared): Promise<TTSResult> {
   for (let i = 0; i < n; i++) {
     guard();
     const key = s.cache?.key(TTS_CACHE_VERSION, escaleta[i].narration, escaleta[i].voice);
-    let wav: Buffer;
+    let wav: Buffer | undefined;
     if (s.cache && key && s.cache.has(key)) {
-      wav = s.cache.read(key);
-    } else {
+      try {
+        wav = s.cache.read(key);
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e; // pruned meanwhile: a miss
+      }
+    }
+    if (!wav) {
       try {
         wav = await piper.synthesize({ text: escaleta[i].narration, voice: escaleta[i].voice });
       } catch (e) {
         return fail('tts', `scene ${i + 1}`, e);
       }
-      if (s.cache && key) s.cache.store(key, wav);
+      // Validate before caching: an invalid WAV must never become a permanent hit.
+      const dur = wavDurationSec(wav);
+      if (s.cache && key && dur > 0) s.cache.store(key, wav);
     }
     durations.push(wavDurationSec(wav));
     const sceneFormat = parseWav(wav).format;
@@ -183,9 +190,7 @@ async function executeStills(s: Shared): Promise<StillsResult> {
     const png = sceneFile(stillsDir, 'scene', i, 'png');
     const prompt = stylePrompt(s.job.options?.style, escaleta[i].visualPrompt);
     const key = s.cache?.key(WORKFLOW_VERSION, 't2v', prompt, seed, DEFAULTS.width, DEFAULTS.height, 1, s.job.options?.useLightx2v);
-    if (s.cache && key && s.cache.has(key)) {
-      writeFileSync(png, s.cache.read(key));
-    } else {
+    if (!(s.cache && key && s.cache.has(key) && s.cache.copyTo(key, png))) {
       try {
         const id = await comfy.submit(
           buildT2VWorkflow({
@@ -203,7 +208,7 @@ async function executeStills(s: Shared): Promise<StillsResult> {
         const file = extractOutputFile(outputs);
         if (!file) throw new Error('ComfyUI returned no image output');
         writeFileSync(png, await comfy.download(file));
-        if (s.cache && key) s.cache.store(key, readFileSync(png));
+        if (s.cache && key) s.cache.storeFile(key, png);
       } catch (e) {
         return fail('images', `scene ${i + 1}`, e);
       }
@@ -236,10 +241,9 @@ async function executeTransitions(s: Shared, stills: StillsResult): Promise<Tran
     guard();
     const seed = seedFor(s.job.draftId, 1000 + i);
     const key = s.cache?.key(WORKFLOW_VERSION, 'i2v', stylePrompt(s.job.options?.style, escaleta[i].visualPrompt), stylePrompt(s.job.options?.style, escaleta[i + 1].visualPrompt), seed, frames, s.job.options?.useLightx2v);
-    if (s.cache && key && s.cache.has(key)) {
-      const out = sceneFile(transDir, 'trans', i, 'mp4');
-      writeFileSync(out, s.cache.read(key));
-      transitions.push(out);
+    const hitOut = sceneFile(transDir, 'trans', i, 'mp4');
+    if (s.cache && key && s.cache.has(key) && s.cache.copyTo(key, hitOut)) {
+      transitions.push(hitOut);
     } else {
       try {
         const start = await uploadStill(i);
@@ -263,7 +267,7 @@ async function executeTransitions(s: Shared, stills: StillsResult): Promise<Tran
         const out = sceneFile(transDir, 'trans', i, 'mp4');
         await comfy.downloadToFile(file, out);
         transitions.push(out);
-        if (s.cache && key) s.cache.store(key, readFileSync(out));
+        if (s.cache && key) s.cache.storeFile(key, out);
       } catch (e) {
         guard();
         transitions.push(undefined);
