@@ -4,6 +4,8 @@ import type { ApproveOptions } from '../pipeline/types';
 import { Job, JobStatus } from './types';
 
 export type Clock = () => Date;
+
+export type UpdateJobFn = (db: DatabaseSync, id: string, patch: JobPatch, clock: Clock) => Job | undefined;
 export type IdFactory = () => string;
 
 interface JobRow {

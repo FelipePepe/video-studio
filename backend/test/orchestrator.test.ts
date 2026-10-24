@@ -17,6 +17,7 @@ import {
   muxAudioArgs,
   musicMixArgs,
   normalizeClipArgs,
+  verticalBurnSubtitlesArgs,
   verticalCropArgs,
   xfadeArgs,
 } from '../src/media/ffmpeg';
@@ -302,8 +303,22 @@ test('assembles Ken Burns clips with the WAV durations, alternating with transit
   assert.ok(readFileSync(join(h.workDir, 'subtitles.srt'), 'utf8').includes('narration 0'));
 
   const cover = h.ffmpegCalls[h.ffmpegCalls.length - 1];
-  assert.equal(cover[1], join(h.workDir, 'muxed.mp4'), 'cover from the subtitle-free base (no burned subs)');
+  assert.equal(cover[0], '-ss', 'cover fast-seeks on the input side');
+  assert.equal(cover[0], '-ss', 'fast seek on the input side');
+  assert.equal(cover[2], '-i');
+  assert.equal(cover[3], join(h.workDir, 'muxed.mp4'), 'cover from the subtitle-free base (no burned subs)');
   assert.equal(cover[cover.length - 1], join(h.workDir, 'cover.jpg'));
+
+  // Vertical variant: crop + scale + subtitles in a SINGLE pass (no intermediate base_v).
+  const h2 = harness();
+  h2.job.options = { vertical: true };
+  await h2.execute(h2.job, h2.ctx);
+  const vCall = h2.ffmpegCalls.find((a) => a[a.length - 1] === join(h2.workDir, 'final_v.mp4'))!;
+  assert.ok(vCall, 'vertical deliverable produced');
+  const vFilt = vCall[vCall.indexOf('-vf') + 1];
+  assert.ok(/^crop=ih\*9\/16:ih,scale=720:1280,subtitles=/.test(vFilt), 'one chained filter, not two encodes');
+  assert.equal(h2.ffmpegCalls.filter((a) => a[a.length - 1] === join(h2.workDir, 'base_v.mp4')).length, 0, 'no intermediate vertical base');
+  assert.match(vFilt, /force_style=/ , 'vertical style applied in the same pass');
 });
 
 test('a failed transition degrades to a hard cut and is reported', async () => {
@@ -584,6 +599,7 @@ test('every ffmpeg args builder ends with the output path (contract used by the 
     burnSubtitlesArgs: burnSubtitlesArgs({ input: 'v', srt: 's.srt', out }),
     burnSubtitlesStyled: burnSubtitlesArgs({ input: 'v', srt: 's.srt', out, style: 'Fontsize=20' }),
     verticalCropArgs: verticalCropArgs({ input: 'v', out }),
+    verticalBurnSubtitlesArgs: verticalBurnSubtitlesArgs({ input: 'v', srt: 's.srt', out }),
     coverArgs: coverArgs({ input: 'v', atSec: 1, out }),
     normalizeClipArgs: normalizeClipArgs({ input: 'v', out }),
   };

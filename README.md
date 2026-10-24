@@ -76,6 +76,7 @@ curl http://localhost:20014/api/config   # health check through the proxy
 - `GET /api/jobs`, `GET /api/jobs/:id`, `GET /api/jobs/:id/events` (SSE), `POST /api/jobs/:id/cancel`
 - `GET /api/jobs/:id/output` — `?variant=vertical` (9:16, `final_v.mp4`) o `?variant=cover` (`cover.jpg`)
 - Jobs carry a `warnings` array (max 50 entries of 500 chars). A transition that fails is replaced by a hard cut and a warning is recorded; the job is aborted only after 2 consecutive ComfyUI infrastructure failures (unreachable, timeout, lost prompt, HTTP 5xx). A prompt ComfyUI rejects (4xx, execution error) never counts toward the abort.
+- Render is x264 `-preset veryfast` throughout; the vertical 9:16 variant with subtitles is a SINGLE `crop → scale → subtitles` pass (no intermediate re-encode); the cover seeks input-side (`-ss` before `-i`). Progress persistence is throttled (stage change or a ≥1% progress move) and stage events are pinned in the SSE replay buffer.
 - `GET/PATCH /api/config` — ComfyUI / Ollama / Piper hosts
 
 ## Workflow
