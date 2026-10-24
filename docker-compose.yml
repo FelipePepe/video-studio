@@ -1,0 +1,54 @@
+# video-studio stack: backend + web.
+#
+# Topology: the browser talks only to `web` (nginx), which serves the SPA and
+# proxies /api/ to `backend` over the compose network. The backend has no
+# published port. Ollama, ComfyUI and Piper run elsewhere and are reached
+# through COMFY_HOST / OLLAMA_HOST / PIPER_HOST.
+#
+# Exposure trade-off: web is published on WEB_BIND:WEB_PORT. The default
+# 0.0.0.0 makes the UI reachable from the LAN; set WEB_BIND=127.0.0.1 to
+# restrict it to the host itself.
+#
+# Copy .env.example to .env to override any value below.
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+    restart: unless-stopped
+    init: true
+    environment:
+      # HOST, PORT and DB_PATH are fixed by the image / default to /app/data.
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma4:26b}
+      OLLAMA_NUM_CTX: ${OLLAMA_NUM_CTX:-}
+      OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-}
+      COMFY_HOST: ${COMFY_HOST:-}
+      OLLAMA_HOST: ${OLLAMA_HOST:-}
+      PIPER_HOST: ${PIPER_HOST:-}
+      MUSIC_DIR: ${MUSIC_DIR:-}
+      RETENTION_MIN_AGE_DAYS: ${RETENTION_MIN_AGE_DAYS:-}
+      RETENTION_KEEP_RECENT: ${RETENTION_KEEP_RECENT:-}
+      # API_TOKEN is intentionally not passed through: the SPA never sends it,
+      # so enabling it breaks the UI. It is only useful for non-UI clients on a
+      # directly published backend.
+    volumes:
+      # Bind mount (not a named volume) so job output and the SQLite DB survive
+      # Docker volume loss after an unclean reboot.
+      - "${DATA_DIR:-./data}:/app/data"
+      # Optional: expose a music library read-only and point MUSIC_DIR at it.
+      # - "/path/to/music:/music:ro"
+    expose:
+      - "3001"
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/web.Dockerfile
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${WEB_BIND:-0.0.0.0}:${WEB_PORT:-20014}:80"
