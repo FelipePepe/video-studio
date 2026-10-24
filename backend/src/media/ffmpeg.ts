@@ -3,6 +3,17 @@ import { spawn as nodeSpawn } from 'node:child_process';
 export interface RunFfmpegOptions {
   spawnImpl?: typeof nodeSpawn;
   signal?: AbortSignal;
+  /** Watchdog: kill ffmpeg after this many ms. Defaults to FFMPEG_TIMEOUT_MS, then 30 minutes. */
+  timeoutMs?: number;
+}
+
+const DEFAULT_FFMPEG_TIMEOUT_MS = 1_800_000;
+
+function resolveTimeoutMs(option: number | undefined): number {
+  if (typeof option === 'number' && Number.isFinite(option) && option > 0) return option;
+  const raw = (process.env.FFMPEG_TIMEOUT_MS ?? '').trim();
+  const parsed = raw === '' ? NaN : Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_FFMPEG_TIMEOUT_MS;
 }
 
 const STDERR_TAIL_LINES = 15;
@@ -17,16 +28,25 @@ export function runFfmpeg(args: string[], opts: RunFfmpegOptions = {}): Promise<
     proc.stderr?.on('data', (d: Buffer) => {
       stderr = (stderr + d.toString()).slice(-8192);
     });
-    const onAbort = () => {
+    const timeoutMs = resolveTimeoutMs(opts.timeoutMs);
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      proc.kill('SIGKILL');
+      reject(new Error(`ffmpeg timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+    function onAbort() {
+      clearTimeout(timer);
       proc.kill('SIGKILL');
       reject(new Error('ffmpeg aborted'));
-    };
+    }
     signal?.addEventListener('abort', onAbort, { once: true });
     proc.on('error', (e: Error) => {
+      clearTimeout(timer);
       signal?.removeEventListener('abort', onAbort);
       reject(new Error(`ffmpeg failed to start: ${e.message}`));
     });
     proc.on('close', (code: number | null) => {
+      clearTimeout(timer);
       signal?.removeEventListener('abort', onAbort);
       if (code === 0) return resolve();
       const tail = stderr.trim().split('\n').slice(-STDERR_TAIL_LINES).join('\n');
