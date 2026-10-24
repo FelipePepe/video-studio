@@ -390,9 +390,24 @@ export class ComfyClient {
   async queueIds(): Promise<{ running: string[]; pending: string[] }> {
     const res = await this.request('/queue');
     if (!res.ok) return this.fail('/queue', res);
-    const data = (await res.json()) as { queue_running?: Array<[unknown, unknown]>; queue_pending?: Array<[unknown, unknown]> };
-    const ids = (arr: Array<[unknown, unknown]> | undefined): string[] =>
-      (arr ?? []).map((p) => p?.[0]).filter((x): x is string => typeof x === 'string');
+    const data = (await res.json()) as {
+      queue_running?: Array<unknown>;
+      queue_pending?: Array<unknown>;
+    };
+    // Real ComfyUI /queue entries are [position, prompt_id, prompt, client_id].
+    // position (index 0) is a number; the prompt_id is the FIRST string in the entry.
+    // Selecting "first string" is robust to the position/client_id layout rather than
+    // assuming a fixed index (old code read index 0 = position, so it always returned []
+    // and a healthy running prompt was wrongly treated as "lost / server restart").
+    const promptIdOf = (entry: unknown): string | undefined => {
+      if (!Array.isArray(entry)) return undefined;
+      for (const value of entry) {
+        if (typeof value === 'string') return value;
+      }
+      return undefined;
+    };
+    const ids = (arr: Array<unknown> | undefined): string[] =>
+      (arr ?? []).map((e) => promptIdOf(e)).filter((x): x is string => typeof x === 'string');
     return { running: ids(data.queue_running), pending: ids(data.queue_pending) };
   }
 
