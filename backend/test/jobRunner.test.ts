@@ -294,3 +294,16 @@ test('stop is safe to call twice and resolves immediately on an idle runner', as
   await started.promise;
   await Promise.all([busy.runner.stop(), busy.runner.stop()]);
 });
+
+test('F6: a warning emitted through ctx.emit is persisted on the job', async () => {
+  const { runner, db, draftId } = setup(async (_job, ctx) => {
+    ctx.emit({ type: 'progress', stage: 'transitions', progress: 0.6, message: 'transition 0 failed, using a hard cut: x', warning: true });
+    ctx.emit({ type: 'progress', stage: 'transitions', progress: 0.7, message: 'plain progress note' });
+    ctx.emit({ type: 'progress', stage: 'transitions', progress: 0.8, warning: true });
+    return { outputPath: join(ctx.workDir, 'o.mp4') };
+  });
+  runner.start();
+  const job = runner.enqueue(draftId);
+  await runner.idle();
+  assert.deepEqual(getJob(db, job.id)?.warnings, ['transition 0 failed, using a hard cut: x']);
+});

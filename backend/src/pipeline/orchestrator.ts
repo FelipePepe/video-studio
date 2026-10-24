@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { join, resolve, sep } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { ComfyClient, ProgressInfo } from '../clients/comfy';
-import { extractVideoOutput, extractOutputFile } from '../clients/comfy';
+import { extractVideoOutput, extractOutputFile, isComfyUnavailable } from '../clients/comfy';
 import { logger } from '../lib/logger';
 import type { PiperClient } from '../clients/piper';
 import { buildI2VWorkflow, buildT2VWorkflow, DEFAULTS } from '../comfy/workflows';
@@ -38,6 +38,8 @@ export interface OrchestratorDeps {
   framesPerTransition?: number;
   /** Directory for the content cache of rendered artifacts; off when omitted. App default: data/cache. */
   cacheDir?: string;
+  /** Consecutive ComfyUI infrastructure failures on transitions that abort the job. Default 2. */
+  transitionInfraAbortAfter?: number;
 }
 
 export type Stage = 'tts' | 'images' | 'transitions' | 'assemble';
@@ -116,6 +118,7 @@ interface Shared {
   piper: PiperClient;
   ffmpeg: FfmpegFn;
   frames: number;
+  infraAbortAfter: number;
   cache?: ContentCache;
   audioDir: string;
   stillsDir: string;
@@ -127,6 +130,8 @@ interface Shared {
   fail: (stage: Stage, what: string, e: unknown) => never;
   emit: (partial: EmitInput) => void;
   begin: (stage: Stage, msg?: string) => void;
+  /** Non-fatal degradation: shown live (message) and persisted on the job (warning flag). */
+  warn: (stage: Stage, text: string) => void;
   step: (stage: Stage, done: number, total: number) => void;
   comfyStep: (stage: Stage, info: ProgressInfo) => void;
   sceneFile: (dir: string, name: string, i: number, ext: string) => string;
@@ -220,11 +225,14 @@ async function executeStills(s: Shared): Promise<StillsResult> {
 }
 
 // Stage 3 — I2V transitions between consecutive stills. A failed transition degrades to a hard
-// cut (an undefined slot) with a stage-event message. Cache key:
+// cut (an undefined slot) with a persisted warning. A prompt ComfyUI rejected counts as "not
+// infrastructure"; `infraAbortAfter` consecutive infrastructure failures (ComfyUI down) abort the
+// job instead of rendering a video of hard cuts. Cache key:
 // (WORKFLOW_VERSION, 'i2v', startPrompt, targetPrompt, seed, frames).
 async function executeTransitions(s: Shared, stills: StillsResult): Promise<TransitionMap> {
   const { n, escaleta, comfy, guard, sceneFile, transDir, prefix, frames } = s;
   const transitions: TransitionMap = [];
+  let infraStreak = 0;
   s.begin('transitions');
   // Each still is uploaded to ComfyUI at most once per run (transitions share a still
   // as end/i+1 and start/i+2); we just reference the name on subsequent transitions.
@@ -268,10 +276,15 @@ async function executeTransitions(s: Shared, stills: StillsResult): Promise<Tran
         await comfy.downloadToFile(file, out);
         transitions.push(out);
         if (s.cache && key) s.cache.storeFile(key, out);
+        infraStreak = 0;
       } catch (e) {
         guard();
+        infraStreak = isComfyUnavailable(e) ? infraStreak + 1 : 0;
+        if (infraStreak >= s.infraAbortAfter) {
+          throw new Error(`ComfyUI is unavailable: ${infraStreak} consecutive transition failures (last: ${message(e)})`);
+        }
         transitions.push(undefined);
-        s.begin('transitions', `transition ${i} failed, using a hard cut: ${message(e)}`);
+        s.warn('transitions', `transition ${i} failed, using a hard cut: ${message(e)}`);
       }
     }
     s.step('transitions', i + 1, n - 1);
@@ -452,6 +465,8 @@ export function createExecute(deps: OrchestratorDeps): ExecuteFn {
       throw new Error(`${_stage} failed for ${what}: ${message(e)}`);
     };
     const begin = (stage: Stage, msg?: string) => emit({ type: 'stage', stage, progress: advance(RANGES[stage][0]), ...(msg ? { message: msg } : {}) });
+    const warn = (stage: Stage, text: string) =>
+      emit({ type: 'progress', stage, progress: advance(RANGES[stage][0]), message: text, warning: true });
     const step = (stage: Stage, done: number, total: number) => {
       const [lo, hi] = RANGES[stage];
       emit({ type: 'progress', stage, progress: advance(lo + ((hi - lo) * done) / total) });
@@ -488,6 +503,7 @@ export function createExecute(deps: OrchestratorDeps): ExecuteFn {
       piper,
       ffmpeg,
       frames,
+      infraAbortAfter: Math.max(1, deps.transitionInfraAbortAfter ?? 2),
       cache,
       audioDir,
       stillsDir,
@@ -499,6 +515,7 @@ export function createExecute(deps: OrchestratorDeps): ExecuteFn {
       fail,
       emit,
       begin,
+      warn,
       step,
       comfyStep,
       sceneFile: (dir, name, i, ext) => join(dir, `${name}_${pad(i)}.${ext}`),

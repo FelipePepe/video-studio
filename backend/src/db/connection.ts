@@ -55,6 +55,15 @@ export const MIGRATIONS: Migration[] = [
       db.exec('CREATE INDEX IF NOT EXISTS idx_jobs_status_created ON jobs(status, created_at)');
     },
   },
+  {
+    version: 3,
+    name: 'jobs-warnings',
+    up(db) {
+      // JSON array of non-fatal warnings; fresh databases already have the column from SCHEMA_SQL.
+      const columns = (db.prepare('PRAGMA table_info(jobs)').all() as { name: string }[]).map((c) => c.name);
+      if (!columns.includes('warnings')) db.exec('ALTER TABLE jobs ADD COLUMN warnings TEXT');
+    },
+  },
 ];
 
 export function runMigrations(db: DatabaseSync, migrations: Migration[] = MIGRATIONS): void {
