@@ -454,7 +454,7 @@ async function failFirstFfmpeg(mode: FailMode) {
       target = args[args.length - 1];
       writeFileSync(target, 'partial');
       if (mode === 'abort') h.controller.abort();
-      throw new Error(mode === 'timeout' ? 'ffmpeg timed out after 20ms' : mode === 'abort' ? 'ffmpeg aborted' : 'ffmpeg exited with code 1');
+      throw new Error(mode === 'timeout' ? 'ffmpeg stalled: no output for 20ms' : mode === 'abort' ? 'ffmpeg aborted' : 'ffmpeg exited with code 1');
     },
   });
   const err = await execute(h.job, h.ctx).then(
@@ -464,11 +464,11 @@ async function failFirstFfmpeg(mode: FailMode) {
   return { err, target, workDir: h.workDir };
 }
 
-for (const mode of ['exit', 'timeout'] as const) {
+for (const mode of ['exit', 'timeout'] as const) { // 'timeout' = the stall watchdog fired
   test(`ffmpeg ${mode} failure removes the partial output inside workDir and surfaces the original error`, async () => {
     const { err, target, workDir } = await failFirstFfmpeg(mode);
     assert.ok(err);
-    assert.match(err.message, mode === 'timeout' ? /timed out after 20ms/ : /exited with code 1/);
+    assert.match(err.message, mode === 'timeout' ? /stalled: no output for 20ms/ : /exited with code 1/);
     assert.ok(target.startsWith(workDir));
     assert.equal(existsSync(target), false);
   });
