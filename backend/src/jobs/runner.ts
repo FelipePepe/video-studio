@@ -5,6 +5,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { ApproveOptions } from '../pipeline/types';
 import type { EventHub } from './eventHub';
 import {
+  addJobWarning,
   createJob,
   failInterruptedJobs,
   getJob,
@@ -181,6 +182,7 @@ export class JobRunner {
           if (partial.stage !== undefined || partial.progress !== undefined) {
             updateJob(this.db, id, { stage: partial.stage, progress: partial.progress }, this.clock);
           }
+          if (partial.warning && partial.message) addJobWarning(this.db, id, partial.message, this.clock);
           this.publish({ ...partial, jobId: id });
         },
       };

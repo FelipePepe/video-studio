@@ -16,6 +16,8 @@ export interface Job {
   updatedAt: string;
   startedAt: string | null;
   finishedAt: string | null;
+  /** Non-fatal degradations recorded while the job ran (newest last, capped). Always an array. */
+  warnings: string[];
 }
 
 /**
@@ -28,6 +30,8 @@ export interface JobEvent {
   stage?: string;
   progress?: number;
   message?: string;
+  /** The `message` is a non-fatal degradation: the runner persists it on the job. */
+  warning?: boolean;
   /** Fine-grained progress inside the current stage (e.g. ComfyUI sampler step value/max). */
   substep?: { value: number; max: number };
   outputUrl?: string;

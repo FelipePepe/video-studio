@@ -21,7 +21,7 @@ import {
   xfadeArgs,
 } from '../src/media/ffmpeg';
 import { parseWav, wavDurationSec, wavFromPcm } from '../src/media/wav';
-import type { ComfyClient } from '../src/clients/comfy';
+import { ComfyUnavailableError, type ComfyClient } from '../src/clients/comfy';
 import type { PiperClient } from '../src/clients/piper';
 import type { EmitInput, Job } from '../src/jobs/types';
 import type { Escaleta } from '../src/pipeline/types';
@@ -47,6 +47,11 @@ const scenes = (n: number): Escaleta =>
 interface Opts {
   sceneCount?: number;
   failI2V?: number[];
+  /** Per-I2V-call error thrown by submit (undefined entries succeed). */
+  i2vErrors?: Array<Error | undefined>;
+  /** Abort the job while an I2V prompt is waiting, with an infrastructure-shaped error. */
+  abortDuringI2V?: boolean;
+  transitionInfraAbortAfter?: number;
   failT2V?: number;
   failTts?: number;
   abortAfterTts?: number;
@@ -94,6 +99,7 @@ function harness(opts: Opts = {}) {
       const isI2V = Object.values(wf).some((n) => n.class_type === 'WanVideoImageToVideoEncode');
       const idx = isI2V ? i2vCalls++ : t2vCalls++;
       if (isI2V && opts.failI2V?.includes(idx)) throw new Error('GPU exploded');
+      if (isI2V && opts.i2vErrors?.[idx]) throw opts.i2vErrors[idx];
       if (!isI2V && opts.failT2V === idx) throw new Error('out of memory');
       const id = `p${workflows.length}`;
       pending.set(id, isI2V);
@@ -105,6 +111,10 @@ function harness(opts: Opts = {}) {
       o?.onProgress?.({ node: '7' });
       o?.onProgress?.({ done: true });
       if (o?.signal?.aborted) throw abortErr('aborted before wait');
+      if (opts.abortDuringI2V && pending.get(id)) {
+        controller.abort();
+        throw new ComfyUnavailableError('ComfyUI unreachable at http://c: aborted');
+      }
       if (opts.abortDuringWait) {
         controller.abort();
         throw abortErr('aborted during wait');
@@ -153,6 +163,7 @@ function harness(opts: Opts = {}) {
     resolvePiper: () => piper as unknown as PiperClient,
     ffmpeg,
     cacheDir: opts.cacheDir,
+    transitionInfraAbortAfter: opts.transitionInfraAbortAfter,
   });
   const list = (name: string) =>
     readFileSync(join(workDir, name), 'utf8')
@@ -302,7 +313,8 @@ test('a failed transition degrades to a hard cut and is reported', async () => {
   assert.deepEqual(h.list('audio.txt'), ['scene_00.wav', 'scene_01.wav', 'silence_01.wav', 'scene_02.wav']);
   const msg = h.events.find((e) => e.message)?.message;
   assert.match(msg ?? '', /transition 0 failed, using a hard cut: GPU exploded/);
-  assert.equal(h.events.find((e) => e.message)?.type, 'stage');
+  assert.equal(h.events.find((e) => e.message)?.type, 'progress');
+  assert.equal(h.events.find((e) => e.message)?.warning, true);
 });
 
 test('all transitions failing still yields a hard-cut video', async () => {
@@ -578,4 +590,72 @@ test('every ffmpeg args builder ends with the output path (contract used by the 
   for (const [name, args] of Object.entries(cases)) {
     assert.equal(args[args.length - 1], out, `${name} must end with the output path`);
   }
+});
+
+// F6: transition failure policy. A prompt ComfyUI rejected degrades to a hard cut; an
+// infrastructure failure also degrades, but N consecutive ones abort the job.
+const infra = (m = 'ComfyUI unreachable at http://c: ECONNREFUSED') => new ComfyUnavailableError(m);
+const rejected = () => new Error('ComfyUI /prompt failed: 400 bad workflow');
+const warnings = (h: ReturnType<typeof harness>) => h.events.filter((e) => e.warning);
+
+test('F6: a single infrastructure failure degrades to a hard cut with one warning and the job finishes', async () => {
+  const h = harness({ i2vErrors: [infra()] });
+  const res = await h.execute(h.job, h.ctx);
+  assert.ok(res.outputPath);
+  assert.deepEqual(h.list('video.txt'), ['kb_00.mp4', 'kb_01.mp4', 'tr_01.mp4', 'kb_02.mp4']);
+  const w = warnings(h);
+  assert.equal(w.length, 1);
+  assert.equal(w[0].type, 'progress');
+  assert.equal(w[0].stage, 'transitions');
+  assert.match(w[0].message ?? '', /transition 0 failed, using a hard cut: ComfyUI unreachable/);
+});
+
+test('F6: two consecutive infrastructure failures abort the job before assemble', async () => {
+  const h = harness({ sceneCount: 4, i2vErrors: [infra('ComfyUI unreachable at http://c: first'), infra('ComfyUI unreachable at http://c: second')] });
+  await assert.rejects(
+    h.execute(h.job, h.ctx),
+    /ComfyUI is unavailable: 2 consecutive transition failures \(last: ComfyUI unreachable at http:\/\/c: second\)/,
+  );
+  assert.equal(h.ffmpegCalls.length, 0, 'assemble must not run');
+  assert.equal(h.workflows.filter((w) => Object.values(w).some((n) => n.class_type === 'WanVideoImageToVideoEncode')).length, 2, 'no third attempt');
+  assert.equal(warnings(h).length, 1, 'the first failure was degraded and warned; the second aborted');
+  assert.ok(!h.events.some((e) => e.stage === 'assemble'));
+});
+
+test('F6: infra, rejected, infra does not abort (a rejection resets the counter)', async () => {
+  const h = harness({ sceneCount: 4, i2vErrors: [infra(), rejected(), infra()] });
+  await h.execute(h.job, h.ctx);
+  assert.equal(warnings(h).length, 3);
+  assert.deepEqual(h.list('video.txt'), ['kb_00.mp4', 'kb_01.mp4', 'kb_02.mp4', 'kb_03.mp4']);
+});
+
+test('F6: infra, success, infra does not abort (a success resets the counter)', async () => {
+  const h = harness({ sceneCount: 4, i2vErrors: [infra(), undefined, infra()] });
+  await h.execute(h.job, h.ctx);
+  assert.equal(warnings(h).length, 2);
+  assert.deepEqual(h.list('video.txt'), ['kb_00.mp4', 'kb_01.mp4', 'tr_01.mp4', 'kb_02.mp4', 'kb_03.mp4']);
+});
+
+test('F6: only rejected failures never abort and warn once per hard cut', async () => {
+  const h = harness({ sceneCount: 5, i2vErrors: [rejected(), rejected(), rejected(), rejected()] });
+  await h.execute(h.job, h.ctx);
+  assert.equal(warnings(h).length, 4);
+  assert.deepEqual(h.list('video.txt'), ['kb_00.mp4', 'kb_01.mp4', 'kb_02.mp4', 'kb_03.mp4', 'kb_04.mp4']);
+});
+
+test('F6: cancellation during a transition is neither counted nor warned', async () => {
+  const h = harness({ sceneCount: 4, abortDuringI2V: true });
+  await assert.rejects(h.execute(h.job, h.ctx), (e: Error) => e.name === 'AbortError');
+  assert.equal(warnings(h).length, 0);
+  assert.ok(!h.events.some((e) => /unavailable/.test(e.message ?? '')));
+});
+
+test('F6: the abort threshold is injectable', async () => {
+  const three = harness({ sceneCount: 5, transitionInfraAbortAfter: 3, i2vErrors: [infra(), infra(), infra()] });
+  await assert.rejects(three.execute(three.job, three.ctx), /ComfyUI is unavailable: 3 consecutive transition failures/);
+  assert.equal(warnings(three).length, 2);
+
+  const lenient = harness({ sceneCount: 4, transitionInfraAbortAfter: 3, i2vErrors: [infra(), infra()] });
+  await lenient.execute(lenient.job, lenient.ctx);
+  assert.equal(warnings(lenient).length, 2);
 });

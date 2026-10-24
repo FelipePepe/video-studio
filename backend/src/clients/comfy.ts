@@ -112,7 +112,23 @@ function executionError(entry: HistoryEntry): string | undefined {
   return undefined;
 }
 
-class TransientPollError extends Error {}
+/**
+ * ComfyUI itself is unavailable or misbehaving (unreachable, timed out, lost the prompt, HTTP 5xx),
+ * as opposed to rejecting or failing one specific prompt (HTTP 4xx, execution_error). Callers use
+ * it to tell a bad prompt (degrade) from a dead server (abort after repeated failures).
+ */
+export class ComfyUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ComfyUnavailableError';
+  }
+}
+
+export function isComfyUnavailable(e: unknown): boolean {
+  return e instanceof ComfyUnavailableError;
+}
+
+class TransientPollError extends ComfyUnavailableError {}
 
 export class ComfyClient {
   private readonly fetchImpl: typeof fetch;
@@ -144,13 +160,14 @@ export class ComfyClient {
     try {
       return await this.fetchImpl(this.url(path), { signal: AbortSignal.timeout(timeoutMs), ...init });
     } catch (e) {
-      throw new Error(`ComfyUI unreachable at ${this.host}: ${(e as Error).message}`);
+      throw new ComfyUnavailableError(`ComfyUI unreachable at ${this.host}: ${(e as Error).message}`);
     }
   }
 
   private async fail(what: string, res: Response): Promise<never> {
     const body = await res.text().catch(() => '');
-    throw new Error(`ComfyUI ${what} failed: ${res.status}${body ? ` ${body}` : ''}`);
+    const msg = `ComfyUI ${what} failed: ${res.status}${body ? ` ${body}` : ''}`;
+    throw res.status >= 500 ? new ComfyUnavailableError(msg) : new Error(msg);
   }
 
   async submit(workflow: object): Promise<string> {
@@ -263,10 +280,10 @@ export class ComfyClient {
         // B3: timeout is measured in real elapsed time, not in summed intervalMs — the /history
         // calls themselves take wall time a busy server/event loop can stretch well past timeoutMs.
         if (Date.now() - started > timeoutMs) {
-          throw new Error(`ComfyUI prompt ${promptId} timed out after ${timeoutMs}ms`);
+          throw new ComfyUnavailableError(`ComfyUI prompt ${promptId} timed out after ${timeoutMs}ms`);
         }
         if (elapsed + intervalMs > timeoutMs) {
-          throw new Error(`ComfyUI prompt ${promptId} timed out after ${timeoutMs}ms`);
+          throw new ComfyUnavailableError(`ComfyUI prompt ${promptId} timed out after ${timeoutMs}ms`);
         }
         let entry: HistoryEntry | undefined;
         try {
@@ -297,7 +314,7 @@ export class ComfyClient {
             /* queue check failed (transient) — keep polling */
           }
           if (confirmedGone) {
-            throw new Error(
+            throw new ComfyUnavailableError(
               `ComfyUI prompt ${promptId}: no history entry and not in the queue (lost — server restart?); aborting wait after ${emptyHistoryLimit} empty polls`,
             );
           }

@@ -239,3 +239,56 @@ test('the schema no longer lives in a schema.sql file read from disk', () => {
   assert.ok(columnNames(db, 'jobs').includes('options'));
   db.close();
 });
+
+test('F6: migration 3 adds jobs.warnings to a version-2 database and keeps its rows', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'video-studio-'));
+  try {
+    const file = join(dir, 'v2.sqlite');
+    const old = new DatabaseSync(file);
+    old.exec(`CREATE TABLE drafts (
+      id TEXT PRIMARY KEY, source_kind TEXT NOT NULL, source_ref TEXT NOT NULL, language TEXT NOT NULL,
+      voice_a TEXT NOT NULL, voice_b TEXT NOT NULL, mix INTEGER NOT NULL DEFAULT 0, escaleta TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'draft', created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    );
+    CREATE TABLE jobs (
+      id TEXT PRIMARY KEY, draft_id TEXT NOT NULL, status TEXT NOT NULL, stage TEXT NOT NULL DEFAULT '',
+      progress REAL NOT NULL DEFAULT 0, error TEXT, output_path TEXT, options TEXT,
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL, started_at TEXT, finished_at TEXT
+    );
+    INSERT INTO drafts VALUES ('d1','text','x','es','a','b',0,'{}','draft','t','t');
+    INSERT INTO jobs (id, draft_id, status, created_at, updated_at) VALUES ('j1','d1','done','t','t');
+    PRAGMA user_version = 2;`);
+    assert.ok(!columnNames(old, 'jobs').includes('warnings'));
+    old.close();
+
+    const db = openDatabase(file);
+    try {
+      assert.ok(columnNames(db, 'jobs').includes('warnings'));
+      assert.equal(userVersion(db), LATEST);
+      assert.ok(LATEST >= 3);
+      const row = db.prepare("SELECT id, status, warnings FROM jobs WHERE id = 'j1'").get() as {
+        id: string;
+        status: string;
+        warnings: string | null;
+      };
+      assert.deepEqual({ ...row }, { id: 'j1', status: 'done', warnings: null });
+    } finally {
+      db.close();
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('F6: migration 3 is a no-op on a database that already has jobs.warnings', () => {
+  const db = openDatabase();
+  try {
+    assert.ok(columnNames(db, 'jobs').includes('warnings'));
+    db.exec('PRAGMA user_version = 2');
+    runMigrations(db);
+    assert.equal(userVersion(db), LATEST);
+    assert.equal(columnNames(db, 'jobs').filter((c) => c === 'warnings').length, 1);
+  } finally {
+    db.close();
+  }
+});
