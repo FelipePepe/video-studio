@@ -19,7 +19,7 @@ services:
     restart: unless-stopped
     init: true
     environment:
-      # HOST, PORT and DB_PATH are fixed by the image / default to /app/data.
+      # HOST, PORT and DB_PATH are fixed by the image / default to /app/backend/data.
       LOG_LEVEL: ${LOG_LEVEL:-info}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma4:26b}
       OLLAMA_NUM_CTX: ${OLLAMA_NUM_CTX:-}
@@ -36,7 +36,7 @@ services:
     volumes:
       # Bind mount (not a named volume) so job output and the SQLite DB survive
       # Docker volume loss after an unclean reboot.
-      - "${DATA_DIR:-./data}:/app/data"
+      - "${DATA_DIR:-./data}:/app/backend/data"
       # Optional: expose a music library read-only and point MUSIC_DIR at it.
       # - "/path/to/music:/music:ro"
     expose:

@@ -5,16 +5,16 @@ FROM node:22-slim AS build
 
 RUN corepack enable
 
-# lefthook's postinstall (git hooks) is meaningless inside the image.
-ENV LEFTHOOK=0
-
 WORKDIR /app
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 COPY backend/package.json backend/package.json
 COPY frontend/package.json frontend/package.json
 
-RUN pnpm install --frozen-lockfile --filter @video-studio/frontend...
+# The root `prepare` script runs `lefthook install`, which needs git (absent here) and is
+# meaningless in an image, so install scripts are skipped. esbuild (used by tsx / vite) does not
+# need its postinstall: it resolves the native binary from its platform package.
+RUN pnpm install --frozen-lockfile --ignore-scripts --filter @video-studio/frontend...
 
 COPY tsconfig.base.json ./
 COPY frontend frontend
