@@ -73,10 +73,24 @@ export function ReviewPanel({ draft, api, error, onSave, onApprove, onBack }: Re
   const [musicCustom, setMusicCustom] = useState(false);
   const [musicPath, setMusicPath] = useState('');
   const [musicVolume, setMusicVolume] = useState(DEFAULT_MUSIC_VOLUME);
+  const [musicError, setMusicError] = useState<string | null>(null);
   const [subtitles, setSubtitles] = useState(true);
   const [vertical, setVertical] = useState(false);
   const library = useMusicLibrary(api);
   const voices = useVoices(api);
+
+  // A non-empty library pre-selects its first track (never overwriting a user choice),
+  // so "enable BGM + Approve" is not a silent no-op (F2).
+  useEffect(() => {
+    if (library !== null && library !== undefined && library.files.length > 0 && musicPath === '') {
+      setMusicPath(library.files[0].path);
+    }
+  }, [library, musicPath]);
+
+  // A valid path (or switched off) clears the pending required-track message.
+  useEffect(() => {
+    setMusicError(null);
+  }, [musicOn, musicPath]);
 
   // The local copy belongs to one draft: start over when another one arrives.
   if (syncedId !== draft.id) {
@@ -103,7 +117,11 @@ export function ReviewPanel({ draft, api, error, onSave, onApprove, onBack }: Re
     if (musicOn) {
       const track = library?.files.find((f) => f.path === musicPath);
       const path = track ? track.path : musicPath.trim();
-      if (!path) return; // nothing to mix with: the backend would 400
+      if (!path) {
+        // Nothing to mix with: surface it instead of silently doing nothing (F2).
+        setMusicError(t('review.musicRequired'));
+        return;
+      }
       body.music = path;
       body.musicVolume = musicVolume;
     }
@@ -160,6 +178,7 @@ export function ReviewPanel({ draft, api, error, onSave, onApprove, onBack }: Re
                 onChange={(e) => setMusicVolume(Number(e.target.value))}
               />
             </div>
+            {musicError && <p className="form-error">{musicError}</p>}
           </div>
         )}
 

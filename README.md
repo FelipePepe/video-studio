@@ -9,7 +9,7 @@ Pipeline, in two phases:
 
 An optional standalone **PipelineAgent** (`backend/src/pipeline/agent.ts`) is the dynamic alternative to the static workflow builder: it runs Ollama tool-calling (`submit_workflow`) with a system prompt that encodes the Wan2.2 know-how, and is not wired to the orchestrator yet.
 
-This project is a recreation of a previous repo that was lost (searched on 2026-10-04: not found); the spec comes from the Atlas note `Proyectos/video-studio`. The repo was recreated on 2026-10-04 and lives at this path; remote: `FelipePepe/video-studio` (private).
+This project is a recreation of a previous repo that was lost (searched on 2026-10-04: not found); the spec comes from the Atlas note `Proyectos/video-studio`. The repo was recreated on 2026-10-04 and lives at this path; remote: `FelipePepe/video-studio` (public).
 
 ## Stack
 
@@ -34,10 +34,17 @@ This project is a recreation of a previous repo that was lost (searched on 2026-
 
 ```bash
 pnpm install
-pnpm -r test        # 230 backend (node:test) / 120 frontend (Vitest)
+pnpm -r test        # backend (node:test) / frontend (Vitest)
 pnpm -r typecheck
 pnpm --filter @video-studio/backend dev   # backend :3001
 ```
+
+## Logging
+
+- **Backend** (`backend/src/lib/logger`): structured line `ISO_ts level [scope] message {meta-json}` written to `data/logs/video-studio.log` (rotated to `video-studio.log.old` at 5 MB) and echoed to the console. Scope per module: `app.http`, `app.server`, `app.jobs`, `app.events`, `app.pipeline`. Levels: `debug|info|warn|error`, set with `LOG_LEVEL` (default `info`). Error entries include the stack trace in `meta.err`.
+- **HTTP**: every request logs `method`, `path`, `status` and `ms`; unhandled 500s are logged with the error.
+- **Frontend** (`frontend/src/lib/logger`): in-memory ring buffer (last 500) + browser console. Inspectable in DevTools via `window.__vsLogs.getLogs()`. No new network endpoint.
+- Logs are in `data/logs/` (already gitignored); nothing leaves the box.
 
 ## API
 

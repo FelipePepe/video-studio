@@ -31,14 +31,22 @@ const es = {
   'jobs.status.cancelled': 'Cancelada',
   'jobs.cancel': 'Cancelar',
   'jobs.cancelling': 'Cancelando…',
+  'jobs.cancelFailed': 'No se pudo cancelar.',
+  'jobs.open': 'Abrir en pipeline',
   'jobs.output': 'Ver video',
   'jobs.cover': 'Portada',
+  'jobs.delete': 'Eliminar',
+  'jobs.deleting': 'Eliminando…',
+  'jobs.confirmDelete': '¿Seguro?, eliminar',
+  'jobs.deleteFailed': 'No se pudo eliminar el trabajo.',
   'sidebar.settings': 'Ajustes',
   'sidebar.language': 'Idioma',
   'lang.es': 'ES',
   'lang.en': 'EN',
   'pipeline.title': 'Pipeline',
+  'pipeline.newVideo': 'Nuevo vídeo',
   'pipeline.reviewTitle': 'Revisión de la escaleta',
+  'pipeline.failedAt': 'Falló en la etapa «{stage}»: {error}',
   'form.title': 'Nuevo vídeo',
   'form.sourceKind': 'Fuente',
   'form.sourceUrl': 'URL',
@@ -65,6 +73,7 @@ const es = {
   'stage.tts': 'Voz (TTS)',
   'stage.images': 'Imágenes',
   'stage.transitions': 'Transiciones',
+  'progress.substep': 'Paso ComfyUI {value}/{max}',
   'stage.assemble': 'Montaje',
   'stage.state.pending': 'pendiente',
   'stage.state.active': 'en curso',
@@ -104,6 +113,7 @@ const es = {
   'review.saving': 'Guardando…',
   'review.dirty': 'Cambios sin guardar',
   'review.invalid': 'Corrige los campos marcados antes de continuar.',
+  'review.musicRequired': 'Selecciona una canción o escribe una ruta de audio.',
   'review.confirmTitle': 'Hay cambios sin guardar',
   'review.confirmBody': 'Si vuelves ahora se perderán los cambios de la escaleta.',
   'review.discard': 'Descartar cambios',
@@ -156,14 +166,22 @@ const en: Record<MessageKey, string> = {
   'jobs.status.cancelled': 'Cancelled',
   'jobs.cancel': 'Cancel',
   'jobs.cancelling': 'Cancelling…',
+  'jobs.cancelFailed': 'Could not cancel the job.',
+  'jobs.open': 'Open in pipeline',
   'jobs.output': 'Watch video',
   'jobs.cover': 'Cover',
+  'jobs.delete': 'Delete',
+  'jobs.deleting': 'Deleting…',
+  'jobs.confirmDelete': 'Sure? Delete',
+  'jobs.deleteFailed': 'Could not delete the job.',
   'sidebar.settings': 'Settings',
   'sidebar.language': 'Language',
   'lang.es': 'ES',
   'lang.en': 'EN',
   'pipeline.title': 'Pipeline',
+  'pipeline.newVideo': 'New video',
   'pipeline.reviewTitle': 'Script review',
+  'pipeline.failedAt': 'Failed at the “{stage}” stage: {error}',
   'form.title': 'New video',
   'form.sourceKind': 'Source',
   'form.sourceUrl': 'URL',
@@ -194,6 +212,7 @@ const en: Record<MessageKey, string> = {
   'stage.state.pending': 'pending',
   'stage.state.active': 'in progress',
   'stage.state.done': 'done',
+  'progress.substep': 'ComfyUI step {value}/{max}',
   'stage.state.failed': 'failed',
   'video.title': 'Video',
   'video.placeholder': 'The video will appear here',
@@ -229,6 +248,7 @@ const en: Record<MessageKey, string> = {
   'review.saving': 'Saving…',
   'review.dirty': 'Unsaved changes',
   'review.invalid': 'Fix the highlighted fields to continue.',
+  'review.musicRequired': 'Choose a track or type an audio file path.',
   'review.confirmTitle': 'You have unsaved changes',
   'review.confirmBody': 'If you go back now, your script changes will be lost.',
   'review.discard': 'Discard changes',
@@ -263,7 +283,7 @@ export function format(message: string, params: Record<string, string | number>)
 export interface I18n {
   lang: Lang;
   setLang: (lang: Lang) => void;
-  t: (key: MessageKey) => string;
+  t: (key: MessageKey, params?: Record<string, string | number>) => string;
 }
 
 function isLang(value: unknown): value is Lang {
@@ -291,7 +311,7 @@ function writeStoredLang(lang: Lang): void {
 const defaultI18n: I18n = {
   lang: DEFAULT_LANG,
   setLang: () => {},
-  t: (key) => dictionaries[DEFAULT_LANG][key],
+  t: (key, params) => (params ? format(dictionaries[DEFAULT_LANG][key], params) : dictionaries[DEFAULT_LANG][key]),
 };
 
 const I18nContext = createContext<I18n>(defaultI18n);
@@ -305,7 +325,11 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo<I18n>(
-    () => ({ lang, setLang, t: (key) => dictionaries[lang][key] }),
+    () => ({
+      lang,
+      setLang,
+      t: (key, params) => (params ? format(dictionaries[lang][key], params) : dictionaries[lang][key]),
+    }),
     [lang, setLang],
   );
 

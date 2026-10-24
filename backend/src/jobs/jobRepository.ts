@@ -69,6 +69,21 @@ export function getLatestJobForDraft(db: DatabaseSync, draftId: string): Job | u
   return row ? fromRow(row) : undefined;
 }
 
+// Minimal job shape needed by the work-dir retention planner (id, status, finishedAt).
+export interface RetentionJobInfo {
+  id: string;
+  status: string;
+  finishedAt: string | null;
+}
+export function retentionJobs(db: DatabaseSync): RetentionJobInfo[] {
+  const rows = db.prepare('SELECT id, status, finished_at FROM jobs').all() as unknown as Array<{
+    id: string;
+    status: string;
+    finished_at: string | null;
+  }>;
+  return rows.map((r) => ({ id: r.id, status: r.status, finishedAt: r.finished_at }));
+}
+
 export function listJobs(db: DatabaseSync, opts: { limit?: number; status?: JobStatus } = {}): Job[] {
   const { limit = 50, status } = opts;
   const rows = status
@@ -113,6 +128,15 @@ export function markFailed(db: DatabaseSync, id: string, error: string, clock: C
 
 export function markCancelled(db: DatabaseSync, id: string, clock: Clock = now): Job | undefined {
   return patchJob(db, id, { status: 'cancelled', finishedAt: clock().toISOString() }, clock);
+}
+
+/**
+ * Delete a job's row. Returns the number of rows removed (1 when the job existed,
+ * 0 otherwise). Does NOT touch the linked draft — a draft stays re-approvable.
+ */
+export function deleteJob(db: DatabaseSync, id: string): number {
+  const res = db.prepare('DELETE FROM jobs WHERE id = ?').run(id);
+  return Number(res.changes);
 }
 
 export function failInterruptedJobs(db: DatabaseSync, clock: Clock = now): number {

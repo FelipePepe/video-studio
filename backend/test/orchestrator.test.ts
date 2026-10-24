@@ -1,6 +1,6 @@
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { openDatabase } from '../src/db/connection';
@@ -37,6 +37,11 @@ interface Opts {
   failT2V?: number;
   failTts?: number;
   abortAfterTts?: number;
+  abortDuringWait?: boolean;
+  queueRunning?: boolean;
+  queuePending?: boolean;
+  cacheDir?: string;
+  comfySteps?: Array<{ value: number; max: number }>;
 }
 
 function harness(opts: Opts = {}) {
@@ -61,8 +66,15 @@ function harness(opts: Opts = {}) {
   let t2vCalls = 0;
   let i2vCalls = 0;
   const pending = new Map<string, boolean>();
+  const abortErr = (m: string) => {
+    const e = new Error(m);
+    e.name = 'AbortError';
+    return e;
+  };
   const comfy = {
-    interrupted: 0,
+    lastWaitId: null as string | null,
+    interrupts: [] as Array<string | null>,
+    deleteCalls: [] as string[],
     uploads: [] as string[],
     submit: async (wf: (typeof workflows)[number]) => {
       workflows.push(wf);
@@ -74,15 +86,36 @@ function harness(opts: Opts = {}) {
       pending.set(id, isI2V);
       return id;
     },
-    waitForCompletion: async (id: string) => ({ '9': { gifs: [{ filename: `${id}.mp4`, subfolder: 's', type: 'output' }] } }),
+    waitForCompletion: async (id: string, o?: { signal?: AbortSignal; onProgress?: (i: { value?: number; max?: number; node?: string; done?: boolean }) => void }) => {
+      comfy.lastWaitId = id;
+      for (const step of opts.comfySteps ?? []) o?.onProgress?.(step);
+      o?.onProgress?.({ node: '7' });
+      o?.onProgress?.({ done: true });
+      if (o?.signal?.aborted) throw abortErr('aborted before wait');
+      if (opts.abortDuringWait) {
+        controller.abort();
+        throw abortErr('aborted during wait');
+      }
+      return { '9': { images: [{ filename: `${id}.png`, subfolder: 's', type: 'output' }], gifs: [{ filename: `${id}.mp4`, subfolder: 's', type: 'output' }] } };
+    },
     download: async (file: { filename: string }) => Buffer.from(`bytes:${file.filename}`),
+    downloadToFile: async (file: { filename: string }, dest: string) => {
+      writeFileSync(dest, Buffer.from(`bytes:${file.filename}`));
+    },
     uploadImage: async (_data: Buffer, name: string) => {
       comfy.uploads.push(name);
       return `up_${name}`;
     },
-    interrupt: async () => {
-      comfy.interrupted++;
+    queueIds: async () => ({
+      running: opts.queueRunning !== false ? [comfy.lastWaitId ?? 'p1'] : [],
+      pending: opts.queuePending ? [comfy.lastWaitId ?? 'p1'] : [],
+    }),
+    interrupt: async (pid?: string) => {
+      comfy.interrupts.push(pid ?? null);
       throw new Error('interrupt unreachable');
+    },
+    deletePrompt: async (pid: string) => {
+      comfy.deleteCalls.push(pid);
     },
   };
   let ttsCalls = 0;
@@ -106,6 +139,7 @@ function harness(opts: Opts = {}) {
     resolveComfy: () => comfy as unknown as ComfyClient,
     resolvePiper: () => piper as unknown as PiperClient,
     ffmpeg,
+    cacheDir: opts.cacheDir,
   });
   const list = (name: string) =>
     readFileSync(join(workDir, name), 'utf8')
@@ -138,6 +172,16 @@ test('runs tts, images, transitions and assemble in order and returns final.mp4'
   assert.deepEqual(wavs.map(wavDurationSec), SCENE_SECONDS);
 });
 
+test('reports ComfyUI sampler steps as structured substep events, not messages', async () => {
+  const h = harness({ sceneCount: 1, comfySteps: [{ value: 3, max: 20 }] });
+  await h.execute(h.job, h.ctx);
+  const sub = h.events.filter((e) => e.substep);
+  assert.ok(sub.length > 0);
+  assert.deepEqual(sub[0].substep, { value: 3, max: 20 });
+  assert.ok(sub.every((e) => e.type === 'progress' && e.message === undefined));
+  assert.ok(h.events.every((e) => !e.message?.startsWith('comfy:')), 'node-only/done infos must not emit anything');
+});
+
 test('uses single-frame T2V stills and 33-frame I2V transitions with the next scene prompt', async () => {
   const h = harness();
   await h.execute(h.job, h.ctx);
@@ -151,7 +195,18 @@ test('uses single-frame T2V stills and 33-frame I2V transitions with the next sc
   assert.equal(prompt(h.workflows[0]), 'visual 0');
   assert.equal(prompt(h.workflows[3]), 'visual 1');
   assert.equal(prompt(h.workflows[4]), 'visual 2');
-  assert.deepEqual(h.comfy.uploads.map((u) => u.replace(/^vs_[^_]+_/, '')), ['scene_00.png', 'scene_01.png', 'scene_01.png', 'scene_02.png']);
+  assert.deepEqual(h.comfy.uploads.map((u) => u.replace(/^vs_[^_]+_/, '')), ['scene_00.png', 'scene_01.png', 'scene_02.png']);
+});
+
+test('varies Ken Burns per scene (not all identical) for rhythmic variety', async () => {
+  const h = harness(); // 3 scenes
+  await h.execute(h.job, h.ctx);
+  const specs = h.ffmpegCalls
+    .map((args) => args[args.indexOf('-vf') + 1])
+    .filter((vf): vf is string => typeof vf === 'string' && vf.includes('zoompan'));
+  assert.equal(specs.length, 3, 'one Ken Burns per scene');
+  assert.ok(new Set(specs).size >= 2,
+    `expected >=2 distinct Ken Burns specs for variety, got ${[...new Set(specs)].length}`);
 });
 
 test('seeds are deterministic per draft and scene', async () => {
@@ -173,13 +228,31 @@ test('seeds are deterministic per draft and scene', async () => {
   assert.deepEqual(seedsOf(a.workflows), seeds);
 });
 
+test('global style injects into every visual prompt (still + transition target)', async () => {
+  const h = harness(); // 3 stills + 2 transition targets
+  h.job.options = { style: 'cinematic, consistent warm lighting, 35mm grain' };
+  await h.execute(h.job, h.ctx);
+  const all = JSON.stringify(h.workflows);
+  const count = (all.match(/cinematic, consistent warm lighting, 35mm grain/g) ?? []).length;
+  assert.equal(count, 5, `style applied to all 3 stills + 2 transition targets; got ${count}`);
+});
+
+test('without a style set the prompts are the raw visualPrompt (backward compat)', async () => {
+  const h = harness();
+  await h.execute(h.job, h.ctx);
+  const all = JSON.stringify(h.workflows);
+  assert.ok(!all.includes('cinematic, consistent warm lighting'), 'no injected style without the option');
+});
+
 test('assembles Ken Burns clips with the WAV durations, alternating with transitions', async () => {
   const h = harness();
   await h.execute(h.job, h.ctx);
   const kb = h.ffmpegCalls.filter((a) => a.includes('-loop'));
   assert.equal(kb.length, 3);
   assert.deepEqual(kb.map((a) => a[a.indexOf('-t') + 1]), ['0.5', '0.75', '1']);
-  assert.ok(kb.every((a) => /zoompan=z='min\(1\+[\d.]+\*on,1\.08\)'/.test(a[a.indexOf('-vf') + 1])));
+  const isZoom = (vf: string) =>
+    /zoompan=z='min\(1\+[\d.]+\*on,[\d.]+\)'/.test(vf) || /zoompan=z='max\([\d.]+-[\d.]+\*on,1\)'/.test(vf);
+  assert.ok(kb.every((a) => isZoom(a[a.indexOf('-vf') + 1])), 'each Ken Burns uses a zoom-in or zoom-out spec');
   assert.ok(kb.every((a) => a[a.indexOf('-vf') + 1].includes('s=1280x720')));
 
   const norm = h.ffmpegCalls.filter((a) => a[1]?.includes('transitions') || a[1]?.includes('trans_'));
@@ -205,7 +278,7 @@ test('assembles Ken Burns clips with the WAV durations, alternating with transit
   assert.ok(readFileSync(join(h.workDir, 'subtitles.srt'), 'utf8').includes('narration 0'));
 
   const cover = h.ffmpegCalls[h.ffmpegCalls.length - 1];
-  assert.equal(cover[1], join(h.workDir, 'final.mp4'));
+  assert.equal(cover[1], join(h.workDir, 'muxed.mp4'), 'cover from the subtitle-free base (no burned subs)');
   assert.equal(cover[cover.length - 1], join(h.workDir, 'cover.jpg'));
 });
 
@@ -233,12 +306,28 @@ test('a single-scene draft skips transitions', async () => {
   assert.deepEqual(h.list('video.txt'), ['kb_00.mp4']);
 });
 
-test('cancellation interrupts ComfyUI and throws AbortError', async () => {
+test('B2: cancellation during TTS throws AbortError without touching shared ComfyUI (no prompt in flight)', async () => {
   const h = harness({ abortAfterTts: 0 });
   await assert.rejects(h.execute(h.job, h.ctx), (e: Error) => e.name === 'AbortError');
-  assert.equal(h.comfy.interrupted, 1);
+  assert.deepEqual(h.comfy.interrupts, [], 'no in-flight prompt must not trigger /interrupt on a shared server');
+  assert.deepEqual(h.comfy.deleteCalls, []);
   assert.equal(h.workflows.length, 0);
   assert.equal(h.ffmpegCalls.length, 0);
+});
+
+test('B2: cancellation while the job\'s prompt is running interrupts with that prompt\'s id', async () => {
+  const h = harness({ abortDuringWait: true });
+  await assert.rejects(h.execute(h.job, h.ctx), (e: Error) => e.name === 'AbortError');
+  assert.deepEqual(h.comfy.interrupts, ['p1'], 'interrupt must target the in-flight prompt');
+  assert.deepEqual(h.comfy.deleteCalls, []);
+  assert.equal(h.workflows.length, 1, 'the in-flight scene was submitted');
+});
+
+test('B2: cancellation while the prompt is only queued deletes that prompt (no global interrupt)', async () => {
+  const h = harness({ abortDuringWait: true, queueRunning: false, queuePending: true });
+  await assert.rejects(h.execute(h.job, h.ctx), (e: Error) => e.name === 'AbortError');
+  assert.deepEqual(h.comfy.interrupts, [], 'a queued prompt must not force a global /interrupt');
+  assert.deepEqual(h.comfy.deleteCalls, ['p1']);
 });
 
 test('cancellation before start throws without touching clients', async () => {
@@ -269,10 +358,16 @@ test('disables pingpong in every submitted workflow so clips keep numFrames / 16
   const h = harness();
   await h.execute(h.job, h.ctx);
   assert.equal(h.workflows.length, 5);
+  // Stills save via SaveImage; transitions render video (VHS_VideoCombine) — any video node must have pingpong off.
+  let sawVideo = false;
   for (const w of h.workflows) {
-    const combine = Object.values(w).find((n) => n.class_type === 'VHS_VideoCombine')!;
-    assert.equal(combine.inputs.pingpong, false);
+    const combine = Object.values(w).find((n) => n.class_type === 'VHS_VideoCombine');
+    if (combine) {
+      sawVideo = true;
+      assert.equal(combine.inputs.pingpong, false);
+    }
   }
+  assert.ok(sawVideo);
 });
 
 test('progress never decreases when a transition fails', async () => {
@@ -298,4 +393,36 @@ test('fails clearly when scene WAVs have different formats', async () => {
   );
   assert.equal(h.comfy.uploads.length, 0);
   assert.equal(h.workflows.length, 0);
+});
+
+test('chapters: writes a chapters.json aligned to the narration timeline', async () => {
+  const h = harness();
+  const res = await h.execute(h.job, h.ctx);
+  assert.ok(res.chaptersPath);
+  assert.ok(existsSync(res.chaptersPath));
+  const chs = JSON.parse(readFileSync(res.chaptersPath, 'utf8')) as Array<{ index: number; title: string; startSec: number; durationSec: number }>;
+  const scenes = h.draft.escaleta.length;
+  assert.equal(chs.length, scenes);
+  assert.equal(chs[0].startSec, 0);
+  assert.deepEqual(chs.map((c) => c.index), Array.from({ length: scenes }, (_, i) => i));
+  assert.ok(chs.every((c) => c.durationSec > 0 && Number.isFinite(c.startSec)));
+  assert.ok(Array.isArray(res.chapters));
+  assert.equal(res.chapters!.length, scenes);
+});
+
+test('with a cacheDir, a second run reuses TTS/stills/transitions without new client work', async () => {
+  const cacheDir = mkdtempSync(join(tmpdir(), 'vs-cache-hit-'));
+  dirs.push(cacheDir);
+  const h = harness({ cacheDir });
+  await h.execute(h.job, h.ctx);
+  const tts1 = h.ttsInputs.length;
+  const stills1 = h.workflows.filter((w) => Object.values(w).some((n) => n.class_type === 'WanVideoEmptyEmbeds')).length;
+  const uploads1 = h.comfy.uploads.length;
+  assert.ok(tts1 >= 3, 'run produced >= 3 TTS items');
+  assert.ok(stills1 >= 3, 'run rendered >= 3 stills');
+  assert.ok(uploads1 >= 3, `run uploaded the still set once (got ${uploads1})`);
+  await h.execute(h.job, h.ctx);
+  assert.equal(h.ttsInputs.length, tts1, 'TTS cached: no new synthesize on the 2nd run');
+  assert.equal(h.workflows.filter((w) => Object.values(w).some((n) => n.class_type === 'WanVideoEmptyEmbeds')).length, stills1, 'still cached: no new T2V on the 2nd run');
+  assert.equal(h.comfy.uploads.length, uploads1, 'transitions cached: no new uploads on the 2nd run');
 });

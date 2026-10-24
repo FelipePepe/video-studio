@@ -1,9 +1,11 @@
-import { existsSync } from 'node:fs';
+import { realpathSync, statSync } from 'node:fs';
+import { isAbsolute, relative, resolve, sep as pathSep } from 'node:path';
 import { Router } from 'express';
 import type { DatabaseSync } from 'node:sqlite';
 import type { OllamaClient } from '../clients/ollama';
 import { DraftInputError, DraftValidationError, generateDraft, validateEscaleta } from '../pipeline/draft';
 import { createDraft, DraftLockedError, getDraft, markApproved, updateEscaleta } from '../pipeline/draftRepository';
+import { generatePublishMetadata, PublishInputError } from '../pipeline/publish';
 import { getLatestJobForDraft } from '../jobs/jobRepository';
 import type { ApproveOptions } from '../pipeline/types';
 import type { Job, JobEvent } from '../jobs/types';
@@ -18,23 +20,42 @@ export interface PipelineDeps {
   runner: JobRunner;
   hub: EventHub;
   heartbeatMs?: number;
+  /** Music library root — music paths at approve must live inside this dir. Empty = library disabled. */
+  musicDir?: () => string;
 }
 
 class ApproveOptionsError extends Error {}
 
-function parseApproveOptions(body: unknown): ApproveOptions | null {
+function parseApproveOptions(body: unknown, musicDir?: string): ApproveOptions | null {
   if (body === undefined || body === null) return null;
   if (typeof body !== 'object' || Array.isArray(body)) throw new ApproveOptionsError('Body must be a JSON object');
   const o = body as Record<string, unknown>;
   for (const key of Object.keys(o)) {
-    if (key !== 'music' && key !== 'musicVolume' && key !== 'subtitles' && key !== 'vertical') throw new ApproveOptionsError(`Unknown approve option: ${key}`);
+    if (key !== 'music' && key !== 'musicVolume' && key !== 'subtitles' && key !== 'vertical' && key !== 'style' && key !== 'useLightx2v') throw new ApproveOptionsError(`Unknown approve option: ${key}`);
   }
   if (Object.keys(o).length === 0) return null;
   const opts: ApproveOptions = {};
   if (o.music !== undefined) {
     if (typeof o.music !== 'string' || o.music.length === 0) throw new ApproveOptionsError('music must be a non-empty path');
-    if (!existsSync(o.music)) throw new ApproveOptionsError(`Music file not found: ${o.music}`);
-    opts.music = o.music;
+    const dir = (musicDir ?? '').trim();
+    if (!dir) throw new ApproveOptionsError('music must come from a configured library (set MUSIC_DIR)');
+    const allowedRoot = realpathSync(resolve(dir));
+    // Resolve the file too: a symlink pointing outside the library resolves to
+    // its real location (rejected below) and a MUSIC_DIR reached via symlinks
+    // accepts the library's own files.
+    let musicFile: string;
+    try {
+      musicFile = realpathSync(resolve(o.music));
+    } catch {
+      throw new ApproveOptionsError(`Music file not found: ${o.music}`);
+    }
+    const rel = relative(allowedRoot, musicFile);
+    // '..' or '../x' escape the library; '..foo.mp3' is a legitimate file name.
+    if (isAbsolute(rel) || rel === '..' || rel.startsWith('..' + pathSep)) {
+      throw new ApproveOptionsError('music path escapes the configured music library directory');
+    }
+    if (!statSync(musicFile).isFile()) throw new ApproveOptionsError(`Music path is not a file: ${o.music}`);
+    opts.music = musicFile;
   }
   if (o.musicVolume !== undefined) {
     if (typeof o.musicVolume !== 'number' || !Number.isFinite(o.musicVolume) || o.musicVolume <= 0 || o.musicVolume > 1) {
@@ -49,6 +70,14 @@ function parseApproveOptions(body: unknown): ApproveOptions | null {
   if (o.vertical !== undefined) {
     if (typeof o.vertical !== 'boolean') throw new ApproveOptionsError('vertical must be a boolean');
     opts.vertical = o.vertical;
+  }
+  if (o.style !== undefined) {
+    if (typeof o.style !== 'string' || o.style.trim().length === 0) throw new ApproveOptionsError('style must be a non-empty string');
+    opts.style = o.style.trim();
+  }
+  if (o.useLightx2v !== undefined) {
+    if (typeof o.useLightx2v !== 'boolean') throw new ApproveOptionsError('useLightx2v must be a boolean');
+    opts.useLightx2v = o.useLightx2v;
   }
   return opts;
 }
@@ -88,6 +117,28 @@ export function pipelineRouter(deps: PipelineDeps): Router {
     res.json(draft);
   });
 
+  // doc §7 — publication metadata (title/description/tags/hashtags + hook + cta) for the draft's video.
+  router.get('/draft/:id/publish', async (req, res) => {
+    const draft = getDraft(deps.db, req.params.id);
+    if (!draft) {
+      res.status(404).json({ error: 'Draft not found' });
+      return;
+    }
+    try {
+      const meta = await generatePublishMetadata(
+        { language: draft.language, escaleta: draft.escaleta },
+        { ollama: deps.resolveOllama() },
+      );
+      res.json(meta);
+    } catch (e) {
+      if (e instanceof PublishInputError) {
+        res.status(422).json({ error: e.message });
+        return;
+      }
+      res.status(502).json({ error: 'publish metadata generation failed' });
+    }
+  });
+
   router.put('/draft/:id/segments', (req, res) => {
     const draft = getDraft(deps.db, req.params.id);
     if (!draft) {
@@ -117,7 +168,7 @@ export function pipelineRouter(deps: PipelineDeps): Router {
   router.post('/draft/:id/approve', (req, res) => {
     let opts: ApproveOptions | null;
     try {
-      opts = parseApproveOptions(req.body);
+      opts = parseApproveOptions(req.body, deps.musicDir?.());
     } catch (e) {
       res.status(400).json({ error: e instanceof Error ? e.message : 'Invalid approve options' });
       return;

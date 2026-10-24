@@ -4,8 +4,10 @@ import type { Job, JobStatus } from '../api/types';
 import { useI18n, type MessageKey } from '../i18n';
 
 export interface JobsPageProps {
-  /** `listJobs` to load the table, `cancelJob` to stop queued/running jobs, `approveDraft` to retry failed/cancelled ones. */
-  api: Pick<ApiClient, 'listJobs' | 'cancelJob' | 'approveDraft'>;
+  /** `listJobs` to load the table, `getJob` for the retry options, `cancelJob` to stop queued/running jobs, `approveDraft` to retry failed/cancelled ones. */
+  api: Pick<ApiClient, 'listJobs' | 'getJob' | 'cancelJob' | 'approveDraft' | 'deleteJob'>;
+  /** Shows the job in the Pipeline tab (live progress, or the video when done). */
+  onOpen?: (jobId: string) => void;
 }
 
 type Filter = 'all' | 'active' | 'done' | 'failed' | 'cancelled';
@@ -32,13 +34,17 @@ function isActive(j: Job): boolean {
   return j.status === 'queued' || j.status === 'running';
 }
 
-export function JobsPage({ api }: JobsPageProps) {
+export function JobsPage({ api, onOpen }: JobsPageProps) {
   const { t, lang } = useI18n();
   const [jobs, setJobs] = useState<Job[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** Action-level failures (retry / cancel): shown even while the list is loaded. */
+  const [actionError, setActionError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>('all');
   const [canceling, setCanceling] = useState<string | null>(null);
   const [retrying, setRetrying] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const generation = useRef(0);
 
   const load = useCallback(async () => {
@@ -66,40 +72,72 @@ export function JobsPage({ api }: JobsPageProps) {
     return () => clearInterval(timer);
   }, [anyActive, load]);
 
+  // An armed "click again to confirm" auto-forgets if the user walks away.
+  useEffect(() => {
+    if (confirmDelete === null) return;
+    const timer = setTimeout(() => setConfirmDelete(null), 4000);
+    return () => clearTimeout(timer);
+  }, [confirmDelete]);
+
   async function cancel(id: string) {
     setCanceling(id);
+    setActionError(null);
     try {
       await api.cancelJob(id);
+    } catch {
+      setActionError(t('jobs.cancelFailed'));
     } finally {
       setCanceling(null);
     }
     await load();
   }
 
-  /**
-   * Retry a failed/cancelled job by re-approving its draft (the server allows exactly this).
-   * The first SSE event (`queued` + `jobId`) is the server's acceptance; the rest of the
-   * stream is left to run, and the list poller then observes the new job.
-   */
-  async function retryJob(jobId: string, draftId: string) {
-    setRetrying(jobId);
+  /** Delete a finished job (row + its workDir on disk). The draft is kept. */
+  async function removeJob(id: string) {
+    setConfirmDelete(null);
+    setDeleting(id);
+    setActionError(null);
     try {
+      await api.deleteJob(id);
+    } catch {
+      setActionError(t('jobs.deleteFailed'));
+    } finally {
+      setDeleting(null);
+    }
+    await load();
+  }
+
+  /** Two-click safety: the first click arms the button, the second executes. */
+  function onDelete(id: string) {
+    if (deleting) return;
+    if (confirmDelete === id) void removeJob(id);
+    else setConfirmDelete(id);
+  }
+
+  /**
+   * Retry a failed/cancelled job by re-approving its draft (the server allows exactly this)
+   * and re-sending the options that job was rendered with (music, volume, subtitles, vertical
+   * would otherwise be lost). The first SSE event (`queued` + `jobId`) is the server's
+   * acceptance: we resolve on it and leave the rest of the stream running; the list poller
+   * then observes the new job. Any rejection (HTTP error, network) is surfaced, so the
+   * button never gets stuck on 'Retrying…'.
+   */
+  async function retryJob(job: Job) {
+    setRetrying(job.id);
+    setActionError(null);
+    try {
+      const previous = await api.getJob(job.id).catch(() => undefined);
+      const options = previous?.options ?? undefined;
       await new Promise<void>((resolve, reject) => {
-        const to = setTimeout(() => reject(new Error('retry timeout')), 6000);
         void api
-          .approveDraft(draftId, {
-            onEvent: () => {
-              clearTimeout(to);
-              resolve();
-            },
+          .approveDraft(job.draftId, {
+            onEvent: () => resolve(),
+            body: options,
           })
-          .catch((e) => {
-            clearTimeout(to);
-            reject(e);
-          });
+          .catch(reject);
       });
     } catch {
-      setError(t('jobs.retryFailed'));
+      setActionError(t('jobs.retryFailed'));
     } finally {
       setRetrying(null);
     }
@@ -150,6 +188,11 @@ export function JobsPage({ api }: JobsPageProps) {
           </button>
         </div>
       )}
+      {actionError && (
+        <div className="panel jobs__alert" role="alert">
+          <p>{actionError}</p>
+        </div>
+      )}
       {jobs === null && !error && <p className="placeholder">{t('jobs.loading')}</p>}
       {showEmpty && (
         <p className="placeholder">
@@ -186,12 +229,17 @@ export function JobsPage({ api }: JobsPageProps) {
                   {j.error && <p className="job__error">{j.error}</p>}
                 </div>
                 <div className="job__actions">
+                  {onOpen && (
+                    <button type="button" className="btn btn--ghost" onClick={() => onOpen(j.id)}>
+                      {t('jobs.open')}
+                    </button>
+                  )}
                   {(j.status === 'failed' || j.status === 'cancelled') && (
                     <button
                       type="button"
                       className="btn"
                       disabled={retrying === j.id}
-                      onClick={() => void retryJob(j.id, j.draftId)}
+                      onClick={() => void retryJob(j)}
                     >
                       {retrying === j.id ? t('jobs.retrying') : t('jobs.retryJob')}
                     </button>
@@ -214,6 +262,20 @@ export function JobsPage({ api }: JobsPageProps) {
                       onClick={() => void cancel(j.id)}
                     >
                       {canceling === j.id ? t('jobs.cancelling') : t('jobs.cancel')}
+                    </button>
+                  )}
+                  {!active && (
+                    <button
+                      type="button"
+                      className={`btn btn--danger ${confirmDelete === j.id ? 'btn--danger--armed' : ''}`}
+                      disabled={deleting === j.id}
+                      onClick={() => onDelete(j.id)}
+                    >
+                      {deleting === j.id
+                        ? t('jobs.deleting')
+                        : confirmDelete === j.id
+                          ? t('jobs.confirmDelete')
+                          : t('jobs.delete')}
                     </button>
                   )}
                 </div>

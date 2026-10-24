@@ -25,6 +25,31 @@ test('htmlToText drops script/style/noscript, strips tags, decodes entities, col
   assert.equal(text, `Tom & Jerry 1 < 2 > 0 "q" it's ok &lt; stays`);
 });
 
+test('htmlToText uses Readability for full articles: drops nav/cookie/footer and decodes all entities', () => {
+  const article = 'El café de la esquina'
+    + '\u003cp\u003eLa historia de cómo un barrio de Sevilla evolucionó su cultura del café durante el siglo veinte: del café con leche &amp; chocolate, al &ntilde;apolitano, hasta los &#8217;hablemos un rato&#8217; que hoy siguen vivos en cada cafetería de barrio. Ese es, sin duda, el corazón de la vida cotidiana en muchas ciudades del sur de España, un paisaje que se conserva igual.\u003c/p\u003e'
+    + '\u003cp\u003eCada mañana, los vecinos se encuentran en la misma mesa del rincón. La sobremesa es larga y las voces, altas; el azúcar, justo. Detrás de cada taza hay una vida entera, un barrio entero, una ciudad entera que sigue latiendo a ritmo de cafetería de barrio. Eso es lo que no se puede perder: la memoria, la conversación, la rutina que nos da identidad y sentido de pertenencia.\u003c/p\u003e';
+  const html = `<html><head><title>Ejemplo</title></head><body>
+    <nav><a href="/">Home</a> <a href="/about">About</a> <a href="/login">Login</a></nav>
+    <div class="cookie-banner">We use cookies for analytics and tracking of your visit.</div>
+    <article><h1>${article}</h1>${article}</article>
+    <footer>&copy; Ejemplo 2026 · Privacidad · Cookies · Contactar · Suscríbase</footer>
+    </body></html>`;
+  const text = htmlToText(html);
+  // Core article content is present…
+  assert.match(text, /El caf\u00e9 de la esquina/);
+  assert.match(text, /Sevilla/);
+  assert.match(text, /cafeter\u00eda de barrio/);
+  // …AND all HTML entities are decoded by linkedom's textContent (accent, ñ, curly quote, &amp;):
+  assert.match(text, /caf\u00e9 con leche & chocolate/, 'ampersand decoded');
+  assert.match(text, /\u00f1apolitano/, 'ntilde decoded');
+  assert.match(text, /\u2019hablemos un rato\u2019|'hablemos un rato'/, 'curly apostrophe (numeric) decoded');
+  // …AND the boilerplate chrome (nav, cookie banner, footer) is dropped by Readability:
+  assert.doesNotMatch(text, /cookie/i, 'cookie banner dropped');
+  assert.doesNotMatch(text, /Privacidad/, 'footer links dropped');
+  assert.doesNotMatch(text, /Home\s+About\s+Login/i, 'nav dropped');
+});
+
 test('fetchArticleText returns plain text and follows redirects', async () => {
   const { fetchImpl, calls } = fakeFetch(html('<p>Hola   mundo</p>'));
   const text = await fetchArticleText('https://example.com/a', { fetchImpl });

@@ -43,20 +43,25 @@ export interface KenBurnsOptions {
   height?: number;
   fps?: number;
   zoomTo?: number;
+  direction?: 'zoom-in' | 'zoom-out';
 }
 
 export function kenBurnsArgs(o: KenBurnsOptions): string[] {
-  const { image, durationSec, out, width = 1280, height = 720, fps = 24, zoomTo = 1.15 } = o;
+  const { image, durationSec, out, width = 1280, height = 720, fps = 24, zoomTo = 1.15, direction = 'zoom-in' } = o;
   if (!(durationSec > 0)) throw new Error('kenBurns duration must be greater than 0');
   if (!(zoomTo >= 1)) throw new Error('kenBurns zoomTo must be at least 1');
   const inc = num((zoomTo - 1) / (fps * durationSec));
+  // zoom-in: starts at 1×, ends at zoomTo. zoom-out: starts at zoomTo, ends at 1×.
+  const z = direction === 'zoom-out'
+    ? `max(${num(zoomTo)}-${inc}*on,1)`
+    : `min(1+${inc}*on,${num(zoomTo)})`;
   const vf =
     `scale=${width * 2}:${height * 2}:force_original_aspect_ratio=increase,crop=${width * 2}:${height * 2},` +
-    `zoompan=z='min(1+${inc}*on,${num(zoomTo)})':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${width}x${height}:fps=${fps},format=yuv420p`;
+    `zoompan=z='${z}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${width}x${height}:fps=${fps},format=yuv420p`;
   return [
     '-loop', '1', '-framerate', String(fps), '-i', image,
     '-vf', vf,
-    '-t', num(durationSec), '-c:v', 'libx264', '-pix_fmt', 'yuv420p', out,
+    '-t', num(durationSec), '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p', out,
   ];
 }
 
@@ -151,10 +156,13 @@ function escapeFilterPath(p: string): string {
 }
 
 /** Re-encodes the video stream to burn a subtitle track (SRT) in; audio is copied. */
-export function burnSubtitlesArgs(o: { input: string; srt: string; out: string }): string[] {
+export function burnSubtitlesArgs(o: { input: string; srt: string; out: string; style?: string }): string[] {
+  const vf = o.style
+    ? `subtitles=${escapeFilterPath(o.srt)}:force_style='${o.style.replace(/'/g, '')}'`
+    : `subtitles=${escapeFilterPath(o.srt)}`;
   return [
     '-i', o.input,
-    '-vf', `subtitles=${escapeFilterPath(o.srt)}`,
+    '-vf', vf,
     '-c:v', 'libx264', '-crf', '19', '-pix_fmt', 'yuv420p',
     '-c:a', 'copy',
     o.out,
@@ -192,5 +200,5 @@ export function normalizeClipArgs(o: NormalizeClipOptions): string[] {
   const vf =
     `scale=${width}:${height}:force_original_aspect_ratio=decrease,` +
     `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,fps=${fps},setsar=1,format=yuv420p`;
-  return ['-i', input, '-vf', vf, '-an', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', out];
+  return ['-i', input, '-vf', vf, '-an', '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p', out];
 }

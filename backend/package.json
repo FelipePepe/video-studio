@@ -1,6 +1,6 @@
 {
   "name": "@video-studio/backend",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "main": "src/server.ts",
   "scripts": {
@@ -10,7 +10,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "express": "^4.21.0"
+    "@mozilla/readability": "^0.6.0",
+    "express": "^4.21.0",
+    "linkedom": "^0.18.13"
   },
   "devDependencies": {
     "@types/express": "^4.17.21",

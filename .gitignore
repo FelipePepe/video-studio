@@ -9,6 +9,9 @@ coverage/
 # vite/vitest cache
 .vite/
 
+# local agent skill registry (atl)
+.atl/
+
 # runtime data (sqlite db, generated media)
 data/
 *.sqlite

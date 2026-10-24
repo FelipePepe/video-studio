@@ -13,6 +13,7 @@ const job = (over: Partial<Job> = {}): Job => ({
   progress: 0.4,
   error: null,
   outputPath: null,
+  options: null,
   createdAt: '2026-10-17T10:00:00.000Z',
   updatedAt: '2026-10-17T10:05:00.000Z',
   startedAt: '2026-10-17T10:01:00.000Z',
@@ -26,16 +27,23 @@ function makeApi(jobs: Job[]) {
     options?.onEvent?.({ type: 'stage', stage: 'queued', jobId: 'jr1', progress: 0, at: new Date().toISOString() } as JobEvent);
     return undefined;
   });
+  const byId = new Map(jobs.map((j) => [j.id, j]));
   return {
     listJobs: vi.fn(async () => jobs),
+    getJob: vi.fn(async (id: string) => {
+      const j = byId.get(id);
+      if (!j) throw new Error('Job not found');
+      return j;
+    }),
     cancelJob: vi.fn(async () => ({ cancelled: true })),
     approveDraft,
+    deleteJob: vi.fn(async () => ({ deleted: true })),
   };
 }
 
-const renderJobs = (api: ReturnType<typeof makeApi>) => render(
+const renderJobs = (api: ReturnType<typeof makeApi>, onOpen?: (id: string) => void) => render(
     <I18nProvider>
-      <JobsPage api={api} />
+      <JobsPage api={api} onOpen={onOpen} />
     </I18nProvider>,
   );
 
@@ -64,6 +72,93 @@ describe('JobsPage retry', () => {
     renderJobs(api);
     await screen.findByText('Hecha');
     expect(screen.queryByRole('button', { name: 'Reintentar trabajo' })).not.toBeInTheDocument();
+  });
+});
+
+describe('JobsPage open in pipeline', () => {
+  it('offers "Abrir en pipeline" on every job and reports the chosen id', async () => {
+    const api = makeApi([job({ id: 'ja', status: 'done', progress: 1 }), job({ id: 'jb', status: 'running' }), job({ id: 'jc', status: 'failed' })]);
+    const onOpen = vi.fn();
+    renderJobs(api, onOpen);
+    await screen.findByText('Hecha');
+    const buttons = screen.getAllByRole('button', { name: 'Abrir en pipeline' });
+    expect(buttons).toHaveLength(3);
+    await userEvent.click(within(screen.getByText('jb').closest('li')!).getByRole('button', { name: 'Abrir en pipeline' }));
+    expect(onOpen).toHaveBeenCalledWith('jb');
+  });
+
+  it('hides the button when no onOpen handler is given', async () => {
+    renderJobs(makeApi([job({ id: 'ja', status: 'done', progress: 1 })]));
+    await screen.findByText('Hecha');
+    expect(screen.queryByRole('button', { name: 'Abrir en pipeline' })).not.toBeInTheDocument();
+  });
+});
+
+describe('JobsPage delete', () => {
+  it('arms on the first click and deletes on the second, only for finished jobs', async () => {
+    const api = makeApi([job({ id: 'jd', status: 'done', progress: 1 }), job({ id: 'jr', status: 'running' })]);
+    renderJobs(api);
+    await screen.findByText('Hecha');
+    expect(screen.getAllByRole('button', { name: 'Eliminar' })).toHaveLength(1);
+    await userEvent.click(screen.getByRole('button', { name: 'Eliminar' }));
+    expect(api.deleteJob).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: '¿Seguro?, eliminar' }));
+    expect(api.deleteJob).toHaveBeenCalledWith('jd');
+  });
+
+  it('shows an error when the delete fails', async () => {
+    const api = makeApi([job({ id: 'jd', status: 'done', progress: 1 })]);
+    api.deleteJob.mockRejectedValueOnce(new Error('boom'));
+    renderJobs(api);
+    await screen.findByText('Hecha');
+    await userEvent.click(screen.getByRole('button', { name: 'Eliminar' }));
+    await userEvent.click(screen.getByRole('button', { name: '¿Seguro?, eliminar' }));
+    expect(await screen.findByText('No se pudo eliminar el trabajo.')).toBeInTheDocument();
+  });
+});
+
+describe('JobsPage retry options and error handling (F8/F9)', () => {
+  it('passes the failed job options (music, volume, subtitles, vertical) to the retry approval (F8)', async () => {
+    const opts = { music: '/lib/a.mp3', musicVolume: 0.25, subtitles: false, vertical: true };
+    const failed = job({ id: 'jf', draftId: 'd9', status: 'failed', stage: 'images', options: opts });
+    const api = makeApi([failed]);
+    renderJobs(api);
+    const row = (await screen.findByText('Fallido')).closest('li')!;
+    await userEvent.click(within(row).getByRole('button', { name: 'Reintentar trabajo' }));
+    expect(api.getJob).toHaveBeenCalledWith('jf');
+    expect(api.approveDraft).toHaveBeenCalledWith('d9', expect.objectContaining({ body: opts }));
+  });
+
+  it('retries without a body when the job has no options (F8)', async () => {
+    const api = makeApi([job({ id: 'jn', draftId: 'd7', status: 'failed' })]);
+    renderJobs(api);
+    const row = (await screen.findByText('Fallido')).closest('li')!;
+    await userEvent.click(within(row).getByRole('button', { name: 'Reintentar trabajo' }));
+    expect(api.approveDraft).toHaveBeenCalledWith('d7', expect.objectContaining({ body: undefined }));
+  });
+
+  it('survives a rejected retry: shows the error and the button is usable again (F8)', async () => {
+    const api = makeApi([job({ id: 'fe', draftId: 'd5', status: 'failed' })]);
+    vi.spyOn(api, 'approveDraft').mockRejectedValue(new Error('409 conflict'));
+    renderJobs(api);
+    const row = (await screen.findByText('Fallido')).closest('li')!;
+    await userEvent.click(within(row).getByRole('button', { name: 'Reintentar trabajo' }));
+    expect(await screen.findByText('No se pudo relanzar')).toBeInTheDocument();
+    const btn = within(row).getByRole('button', { name: 'Reintentar trabajo' });
+    expect(btn).toBeEnabled();
+  });
+
+  it('reports a cancel failure instead of an unhandled rejection and stays usable (F9)', async () => {
+    const api = makeApi([job()]);
+    vi.spyOn(api, 'cancelJob').mockRejectedValue(new Error('409 too late to cancel'));
+    renderJobs(api);
+    const btn = await screen.findByRole('button', { name: 'Cancelar' });
+    await userEvent.click(btn);
+    expect(await screen.findByText('No se pudo cancelar.')).toBeInTheDocument();
+    await waitFor(() => expect(api.listJobs).toHaveBeenCalledTimes(2));
+    // the row is still active — cancel stays enabled, not stuck on 'Cancelando…'
+    expect(btn).toBeEnabled();
+    expect(btn).toHaveTextContent('Cancelar');
   });
 });
 

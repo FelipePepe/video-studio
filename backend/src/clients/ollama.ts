@@ -1,6 +1,14 @@
 export interface OllamaClientOptions {
   fetchImpl?: typeof fetch;
   model?: string;
+  /** Context window sent as `options.num_ctx`; falls back to env OLLAMA_NUM_CTX, else the server default. */
+  numCtx?: number;
+  /** Ollama `keep_alive` duration. Default `"0s"` = release the model right after the call (frees VRAM/RAM for ComfyUI). Override via option or env OLLAMA_KEEP_ALIVE. */
+  keepAlive?: string;
+}
+
+function parsePositiveInt(value: string | undefined): number | undefined {
+  return value !== undefined && /^[1-9]\d*$/.test(value) ? Number(value) : undefined;
 }
 
 export interface ChatJsonOptions {
@@ -13,6 +21,8 @@ export interface ChatJsonOptions {
 export class OllamaClient {
   private readonly fetchImpl: typeof fetch;
   private readonly model?: string;
+  private readonly numCtx?: number;
+  private readonly keepAlive?: string;
 
   constructor(
     readonly host: string,
@@ -20,6 +30,8 @@ export class OllamaClient {
   ) {
     this.fetchImpl = opts.fetchImpl ?? fetch;
     this.model = opts.model;
+    this.numCtx = opts.numCtx;
+    this.keepAlive = opts.keepAlive;
   }
 
   /** Lists the model names (Ollama `/api/tags`), skipping entries without a name. */
@@ -42,7 +54,11 @@ export class OllamaClient {
   }
 
   async chatJson<T = unknown>(opts: ChatJsonOptions): Promise<T> {
-    const model = opts.model ?? this.model ?? process.env.OLLAMA_MODEL ?? 'qwen3:8b';
+    const model = opts.model ?? this.model ?? process.env.OLLAMA_MODEL ?? 'gemma4:26b';
+    const numCtx = this.numCtx ?? parsePositiveInt(process.env.OLLAMA_NUM_CTX);
+    // Default to "0s" so the model is released as soon as the escaleta is done, freeing
+    // VRAM/RAM on the (memory-constrained) host for ComfyUI. Override: option, then OLLAMA_KEEP_ALIVE.
+    const keepAlive = this.keepAlive ?? (process.env.OLLAMA_KEEP_ALIVE?.trim() || '0s');
     let res: Response;
     try {
       res = await this.fetchImpl(`${this.host.replace(/\/+$/, '')}/api/chat`, {
@@ -53,6 +69,8 @@ export class OllamaClient {
           model,
           stream: false,
           format: 'json',
+          keep_alive: keepAlive,
+          ...(numCtx ? { options: { num_ctx: numCtx } } : {}),
           messages: [
             { role: 'system', content: opts.system },
             { role: 'user', content: opts.user },

@@ -6,13 +6,15 @@ export interface PipelineFormProps {
   drafting: boolean;
   error: string | null;
   onSubmit: (req: DraftRequest) => void;
+  /** Page-level guard: the pipeline owns the form while a run is in flight or finished. */
+  disabled?: boolean;
 }
 
 type SourceKind = 'url' | 'text';
 
 const VOICES = ['male', 'female'] as const;
 
-export function PipelineForm({ drafting, error, onSubmit }: PipelineFormProps) {
+export function PipelineForm({ drafting, error, onSubmit, disabled = false }: PipelineFormProps) {
   const { t } = useI18n();
   const id = useId();
   const [source, setSource] = useState<SourceKind>('url');
@@ -24,7 +26,7 @@ export function PipelineForm({ drafting, error, onSubmit }: PipelineFormProps) {
   const [mix, setMix] = useState(false);
 
   const value = (source === 'url' ? url : text).trim();
-  const canSubmit = value !== '' && !drafting;
+  const canSubmit = value !== '' && !drafting && !disabled;
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();

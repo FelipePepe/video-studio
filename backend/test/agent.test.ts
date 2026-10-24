@@ -112,7 +112,7 @@ test('generate uses the OLLAMA_MODEL env chain and a default when unset', async 
       comfy: fakeComfy(async () => 'p'),
     });
     await agent.generate(baseReq);
-    assert.equal(calls[0].body.model, 'qwen3:8b');
+    assert.equal(calls[0].body.model, 'gemma4:26b');
     void captured;
   } finally {
     if (model === undefined) delete process.env.OLLAMA_MODEL;

@@ -39,10 +39,19 @@ export function listMusicDir(dir: string): MusicFile[] {
     if (e instanceof MusicLibraryError) throw e;
     throw new MusicLibraryError(`Music directory not accessible: ${dir}`);
   }
+  // Resolve the directory so every returned path is its true, symlink-free form.
+  // Without this, a MUSIC_DIR under a symlink makes /approve reject the library's
+  // own files (it compares against realpathSync(dir)) or hand out unstable paths.
+  let root: string;
+  try {
+    root = fs.realpathSync(dir);
+  } catch {
+    throw new MusicLibraryError(`Music directory not accessible: ${dir}`);
+  }
   const files = entries
     .filter(isAudioFile)
     .map((name) => {
-      const full = path.join(dir, name);
+      const full = path.join(root, name);
       const stat = fs.statSync(full);
       if (!stat.isFile()) return null;
       return { name, path: full, size: stat.size, mtime: stat.mtime.toISOString() };

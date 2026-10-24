@@ -12,10 +12,15 @@ import {
   markDone,
   markFailed,
   markRunning,
+  retentionJobs,
   updateJob,
   type Clock,
 } from './jobRepository';
+import { pruneWorkDirs, retentionConfigFromEnv } from './retention';
+import { logger } from '../lib/logger';
 import type { EmitInput, ExecuteFn, Job, JobContext, JobEvent } from './types';
+
+const log = logger.child('jobs');
 
 export interface JobRunnerOptions {
   db: DatabaseSync;
@@ -57,6 +62,14 @@ export class JobRunner {
     if (this.started) return;
     this.started = true;
     failInterruptedJobs(this.db, this.clock);
+    // doc §5.1: prune old job workDirs (best-effort, never blocks startup).
+    try {
+      const { pruned } = pruneWorkDirs(this.workDir, retentionJobs(this.db), retentionConfigFromEnv());
+      if (pruned.length) log.info(`pruned ${pruned.length} old job workdir(s)`);
+    } catch (e) {
+      // best-effort: a prune error must never prevent the runner from starting
+      log.warn('prune failed at startup', { err: e, workDir: this.workDir });
+    }
     this.kick();
   }
 
@@ -112,7 +125,7 @@ export class JobRunner {
       try {
         await this.runOne(id);
       } catch (e) {
-        console.error(`job ${id} runner error`, e);
+        log.error('runner error', { jobId: id, err: e });
       }
     }
     this.draining = false;
@@ -137,6 +150,7 @@ export class JobRunner {
       const job = markRunning(this.db, id, this.clock) as Job;
       const workDir = join(this.workDir, id);
       mkdirSync(workDir, { recursive: true });
+      log.info('job started', { jobId: id, draftId: job.draftId, workDir });
       const ctx: JobContext = {
         signal: controller.signal,
         workDir,
@@ -154,6 +168,7 @@ export class JobRunner {
         if (controller.signal.aborted) this.finishCancelled(id);
         else {
           markDone(this.db, id, outputPath, this.clock);
+          log.info('job done', { jobId: id, draftId: job.draftId, output: outputPath });
           this.publish({ type: 'done', jobId: id, progress: 1, outputUrl: `/api/jobs/${id}/output` });
         }
       } catch (e) {
@@ -161,6 +176,7 @@ export class JobRunner {
         if (controller.signal.aborted) this.finishCancelled(id);
         else {
           const message = e instanceof Error ? e.message : String(e);
+          log.error('job failed', { jobId: id, draftId: job.draftId, err: e });
           markFailed(this.db, id, message, this.clock);
           this.publish({ type: 'error', jobId: id, message });
         }
@@ -168,12 +184,12 @@ export class JobRunner {
     } catch (e) {
       settled = true;
       const message = e instanceof Error ? e.message : String(e);
-      console.error(`job ${id} failed to run`, e);
+      log.error('job failed to run', { jobId: id, err: e });
       try {
         markFailed(this.db, id, message, this.clock);
         this.publish({ type: 'error', jobId: id, message });
       } catch (inner) {
-        console.error(`job ${id} could not be marked failed`, inner);
+        log.error('job could not be marked failed', { jobId: id, err: inner });
       }
     } finally {
       this.current = undefined;

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import type { Draft, Escaleta } from './types';
+import { getLatestJobForDraft } from '../jobs/jobRepository';
 
 export class DraftLockedError extends Error {}
 export class DraftNotFoundError extends Error {}
@@ -75,8 +76,18 @@ export function updateEscaleta(db: DatabaseSync, id: string, escaleta: Escaleta,
   const res = db
     .prepare("UPDATE drafts SET escaleta = ?, updated_at = ? WHERE id = ? AND status = 'draft'")
     .run(JSON.stringify(escaleta), clock().toISOString(), id);
-  if (res.changes === 0) failUnchanged(db, id);
-  return getDraft(db, id) as Draft;
+  if (res.changes > 0) return getDraft(db, id) as Draft;
+  if (!getDraft(db, id)) throw new DraftNotFoundError(`Draft ${id} not found`);
+  // Already approved: unlocking for the retry loop — the user may fix the
+  // escaleta (segments) and approve again when the last attempt did not produce
+  // video. While a job is queued/running/done the draft stays locked.
+  const latest = getLatestJobForDraft(db, id);
+  if (latest && (latest.status === 'failed' || latest.status === 'cancelled')) {
+    const unlocked = db.prepare('UPDATE drafts SET escaleta = ?, updated_at = ? WHERE id = ?')
+      .run(JSON.stringify(escaleta), clock().toISOString(), id);
+    if (unlocked.changes > 0) return getDraft(db, id) as Draft;
+  }
+  throw new DraftLockedError(`Draft ${id} is already approved`);
 }
 
 export function markApproved(db: DatabaseSync, id: string, clock: Clock = now): Draft {

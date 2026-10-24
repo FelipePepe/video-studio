@@ -1,6 +1,6 @@
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import request from 'supertest';
@@ -53,8 +53,9 @@ const fakeOllama = {
 } as unknown as OllamaClient;
 const fakeComfy = {
   submit: async () => 'p1',
-  waitForCompletion: async () => ({ '9': { gifs: [{ filename: 'o.mp4' }] } }),
+  waitForCompletion: async () => ({ '9': { images: [{ filename: 'o.png' }], gifs: [{ filename: 'o.mp4' }] } }),
   download: async () => Buffer.from('video'),
+  downloadToFile: async (_f: unknown, dest: string) => { writeFileSync(dest, 'video'); },
   uploadImage: async (_d: Buffer, name: string) => name,
   interrupt: async () => {},
 } as unknown as ComfyClient;
@@ -62,7 +63,7 @@ const fakePiper = {
   synthesize: async () => wavFromPcm(Buffer.alloc(8000), { rate: 16000, width: 2, channels: 1 }),
 } as unknown as PiperClient;
 
-function setup() {
+function setup(opts?: { musicDir?: string }) {
   const dir = mkdtempSync(join(tmpdir(), 'vs-music-r-'));
   dirs.push(dir);
   const app = buildApp({
@@ -72,6 +73,7 @@ function setup() {
     comfy: fakeComfy,
     piper: fakePiper,
     ffmpeg: async (a: string[]) => writeFileSync(a[a.length - 1], 'fake'),
+    musicDir: opts?.musicDir,
     jobs: { workDir: dir, autoStart: false },
   });
   return app;
@@ -83,10 +85,13 @@ async function draftId(app: ReturnType<typeof buildApp>): Promise<string> {
   return res.body.id as string;
 }
 
-test('approve with music persists it on the job and rejects when the file is missing', async () => {
-  const app = setup();
+test('approve with music persisted only when inside the library; rejects outside / missing', async () => {
+  const musicDir = mkdtempSync(join(tmpdir(), 'vs-music-lib-'));
+  dirs.push(musicDir);
+  const app = setup({ musicDir });
   const id = await draftId(app);
-  const music = tmp('bgm.mp3');
+  const music = join(musicDir, 'bgm.mp3');
+  writeFileSync(music, 'audio-bytes');
 
   const ok = await request(app).post(`/api/pipeline/draft/${id}/approve`).set('Accept', 'application/json').send({ music });
   assert.equal(ok.status, 202, ok.text);
@@ -94,14 +99,102 @@ test('approve with music persists it on the job and rejects when the file is mis
   assert.equal(job.status, 200);
   assert.equal(job.body.options?.music, music);
 
-  // A second draft: missing file is rejected at the API boundary.
+  // A file inside the library that is missing → 400.
   const id2 = await draftId(app);
   const missing = await request(app)
     .post(`/api/pipeline/draft/${id2}/approve`)
     .set('Accept', 'application/json')
-    .send({ music: '/definitely/not/here.mp3' });
+    .send({ music: join(musicDir, 'nope.mp3') });
   assert.equal(missing.status, 400);
   assert.match(missing.body.error, /music/i);
+
+  // A path that escapes the library dir → 400 (the §5.2 hardening).
+  const id3 = await draftId(app);
+  const outside = await request(app)
+    .post(`/api/pipeline/draft/${id3}/approve`)
+    .set('Accept', 'application/json')
+    .send({ music: join(__dirname, '..', 'outside-the-library.mp3') });
+  assert.equal(outside.status, 400);
+  assert.match(outside.body.error, /escape|outside|configured/i);
+});
+
+test('approve accepts the library files when MUSIC_DIR is a symlink (F5)', async () => {
+  const realDir = mkdtempSync(join(tmpdir(), 'vs-music-real-'));
+  dirs.push(realDir);
+  const music = join(realDir, 'bgm.mp3');
+  writeFileSync(music, 'audio-bytes');
+  const link = mkdtempSync(join(tmpdir(), 'vs-music-link-'));
+  dirs.push(link);
+  rmSync(link, { recursive: true });
+  symlinkSync(realDir, link);
+
+  const app = setup({ musicDir: link });
+  const id = await draftId(app);
+  const res = await request(app)
+    .post(`/api/pipeline/draft/${id}/approve`)
+    .set('Accept', 'application/json')
+    .send({ music: join(link, 'bgm.mp3') });
+  assert.equal(res.status, 202, res.text);
+  const job = await request(app).get(`/api/jobs/${res.body.jobId}`);
+  assert.equal(job.status, 200);
+  assert.equal(job.body.options?.music, music, 'persisted path must be the resolved one');
+});
+
+test('approve rejects a symlink inside the library that points outside (F5)', async () => {
+  const musicDir = mkdtempSync(join(tmpdir(), 'vs-music-lib-'));
+  dirs.push(musicDir);
+  const outside = mkdtempSync(join(tmpdir(), 'vs-music-out-'));
+  dirs.push(outside);
+  writeFileSync(join(outside, 'secret.mp3'), 'audio-bytes');
+  symlinkSync(join(outside, 'secret.mp3'), join(musicDir, 'innocent.mp3'));
+
+  const app = setup({ musicDir });
+  const id = await draftId(app);
+  const res = await request(app)
+    .post(`/api/pipeline/draft/${id}/approve`)
+    .set('Accept', 'application/json')
+    .send({ music: join(musicDir, 'innocent.mp3') });
+  assert.equal(res.status, 400);
+  assert.match(res.body.error, /escape|outside|configured/i);
+});
+
+test('approve rejects a directory and a file named ..* that is actually inside (F5)', async () => {
+  const musicDir = mkdtempSync(join(tmpdir(), 'vs-music-lib-'));
+  dirs.push(musicDir);
+  const subdir = join(musicDir, 'folder');
+  // A real directory inside the library.
+  mkdirSync(subdir);
+  writeFileSync(join(musicDir, '..tricky.mp3'), 'audio-bytes');
+
+  const app = setup({ musicDir });
+
+  const dirAsMusic = await (async () => {
+    const id = await draftId(app);
+    return request(app)
+      .post(`/api/pipeline/draft/${id}/approve`)
+      .set('Accept', 'application/json')
+      .send({ music: subdir });
+  })();
+  assert.equal(dirAsMusic.status, 400);
+
+  // The '..' prefix check must not false-positive on a legitimate file name.
+  const id2 = await draftId(app);
+  const ok = await request(app)
+    .post(`/api/pipeline/draft/${id2}/approve`)
+    .set('Accept', 'application/json')
+    .send({ music: join(musicDir, '..tricky.mp3') });
+  assert.equal(ok.status, 202, ok.text);
+});
+
+test('approve without a configured music library rejects the music option', async () => {
+  const app = setup(); // no musicDir
+  const id = await draftId(app);
+  const res = await request(app)
+    .post(`/api/pipeline/draft/${id}/approve`)
+    .set('Accept', 'application/json')
+    .send({ music: '/any/path.mp3' });
+  assert.equal(res.status, 400);
+  assert.match(res.body.error, /configured|library|MUSIC_DIR/i);
 });
 
 test('approve rejects out-of-range or wrong-typed musicVolume and unknown keys', async () => {

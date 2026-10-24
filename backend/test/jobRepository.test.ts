@@ -4,6 +4,7 @@ import { openDatabase } from '../src/db/connection';
 import { createDraft } from '../src/pipeline/draftRepository';
 import {
   createJob,
+  deleteJob,
   failInterruptedJobs,
   getJob,
   listJobs,
@@ -112,4 +113,13 @@ test('failInterruptedJobs fails running and queued jobs and returns the count', 
   assert.equal(getJob(db, 'job-3')?.status, 'done');
   assert.equal(getJob(db, 'job-4')?.status, 'cancelled');
   assert.equal(failInterruptedJobs(db, clock), 0);
+});
+
+test('deleteJob removes the row (1 when present, 0 otherwise) and keeps other jobs', () => {
+  const { db, draftId, ids, clock } = setup();
+  for (let i = 0; i < 3; i++) createJob(db, draftId, clock, ids);
+  assert.equal(deleteJob(db, 'job-1'), 1);
+  assert.equal(getJob(db, 'job-1'), undefined);
+  assert.ok(getJob(db, 'job-2'), 'other job survives');
+  assert.equal(deleteJob(db, 'missing'), 0);
 });
