@@ -307,7 +307,7 @@ export function usePipeline(api: PipelineApi): UsePipeline {
 
   /** Fetches job + draft and claims the view; resolves before the stream is followed. Null on failure. */
   const loadJob = useCallback(
-    async (id: string) => {
+    async (id: string, opts: { silent?: boolean } = {}) => {
       const seq = ++openSeq.current;
       try {
         const job = await api.getJob(id);
@@ -324,7 +324,8 @@ export function usePipeline(api: PipelineApi): UsePipeline {
       } catch (e) {
         if (mounted.current && seq === openSeq.current) {
           jobsLog.warn('opening job failed', { jobId: id, err: e as Error });
-          setError(errorMessage(e));
+          // A silent load (automatic restore) never reports: the user didn't ask for it.
+          if (!opts.silent) setError(errorMessage(e));
         }
         return null;
       }
@@ -370,7 +371,7 @@ export function usePipeline(api: PipelineApi): UsePipeline {
     void (async () => {
       let ok = false;
       const resume = async (jobId: string): Promise<boolean> => {
-        const loaded = await loadJob(jobId);
+        const loaded = await loadJob(jobId, { silent: true });
         if (!loaded) return false;
         ok = true;
         restoring.current = false;
@@ -398,11 +399,7 @@ export function usePipeline(api: PipelineApi): UsePipeline {
         // Stale session (draft deleted, server down): fall through to the empty view.
       } finally {
         restoring.current = false;
-        if (!ok && !cancelled) {
-          writeStored(null);
-          // An automatic restore that finds nothing must not leave an error the user never triggered.
-          if (stateRef.current === 'idle') setError(null);
-        }
+        if (!ok && !cancelled) writeStored(null);
       }
     })();
     return () => {

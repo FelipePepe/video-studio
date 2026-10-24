@@ -606,6 +606,83 @@ describe('usePipeline stale loads never override the user', () => {
     await waitFor(() => expect(localStorage.getItem(STORAGE_KEY)).toBeNull());
   });
 
+  /** getJob that stays pending until the test rejects it. */
+  function rejectableJob(fake = makeFakeApi()) {
+    let fail: () => void = () => {};
+    fake.api.getJob.mockImplementation(
+      () => new Promise((_resolve, reject) => (fail = () => reject(new ApiError(404, 'Job not found')))),
+    );
+    return { fake, fail: () => fail() };
+  }
+
+  it('keeps the createDraft error when a restore that was pending fails afterwards', async () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ draftId: 'd1', jobId: 'j7' }));
+    const { fake, fail } = rejectableJob();
+    fake.api.createDraft.mockRejectedValueOnce(new ApiError(502, 'Ollama is down'));
+    const hook = renderHook(() => usePipeline(fake.api));
+    await act(async () => {
+      await hook.result.current.createDraft({ url: 'u' });
+    });
+    expect(hook.result.current.error).toBe('Ollama is down');
+    await act(async () => fail());
+    await waitFor(() => expect(localStorage.getItem(STORAGE_KEY)).toBeNull());
+    expect(hook.result.current.error).toBe('Ollama is down');
+    expect(hook.result.current.state).toBe('idle');
+  });
+
+  it('a stale openJob rejection after reset() leaves error and state alone', async () => {
+    const { fake, fail } = rejectableJob();
+    const hook = renderHook(() => usePipeline(fake.api));
+    act(() => {
+      void hook.result.current.openJob('j7');
+    });
+    act(() => hook.result.current.reset());
+    await act(async () => fail());
+    expect(hook.result.current.error).toBeNull();
+    expect(hook.result.current.state).toBe('idle');
+  });
+
+  it('a stale openJob rejection after approve() does not touch the running render', async () => {
+    const { fake, hook } = await toReview();
+    const { fail } = rejectableJob(fake);
+    act(() => {
+      void hook.result.current.openJob('j7');
+    });
+    act(() => {
+      void hook.result.current.approve();
+    });
+    const approveSignal = fake.signal;
+    await act(async () => fail());
+    expect(hook.result.current.error).toBeNull();
+    expect(hook.result.current.state).toBe('rendering');
+    expect(approveSignal?.aborted).toBe(false);
+  });
+
+  it('a stale openJob rejection after createDraft() does not touch the new draft', async () => {
+    const { fake, fail } = rejectableJob();
+    const hook = renderHook(() => usePipeline(fake.api));
+    act(() => {
+      void hook.result.current.openJob('j7');
+    });
+    await act(async () => {
+      await hook.result.current.createDraft({ url: 'https://x.test/a' });
+    });
+    await act(async () => fail());
+    expect(hook.result.current.error).toBeNull();
+    expect(hook.result.current.state).toBe('review');
+    expect(hook.result.current.draft?.id).toBe('d1');
+  });
+
+  it('a user-initiated openJob on a missing job still reports the error', async () => {
+    const fake = makeFakeApi();
+    fake.api.getJob.mockRejectedValue(new ApiError(404, 'Job not found'));
+    const hook = renderHook(() => usePipeline(fake.api));
+    await act(async () => {
+      await hook.result.current.openJob('gone');
+    });
+    expect(hook.result.current.error).toBe('Job not found');
+  });
+
   it('restoring a saved job that was deleted clears storage and stays idle without an error', async () => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ draftId: 'd1', jobId: 'gone' }));
     const fake = makeFakeApi();
