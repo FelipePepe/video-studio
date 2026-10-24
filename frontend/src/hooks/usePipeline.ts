@@ -19,6 +19,11 @@ export interface StageInfo {
   status: StageStatus;
 }
 
+export interface Substep {
+  value: number;
+  max: number;
+}
+
 export interface UsePipeline {
   state: PipelineState;
   draft: DraftCreated | null;
@@ -26,6 +31,7 @@ export interface UsePipeline {
   stages: StageInfo[];
   progress: number;
   warnings: string[];
+  substep: Substep | null;
   jobId: string | null;
   outputUrl: string | null;
   createDraft(req: DraftRequest): Promise<void>;
@@ -51,6 +57,7 @@ export function usePipeline(api: PipelineApi): UsePipeline {
   const [stages, setStages] = useState<StageInfo[]>(pendingStages);
   const [progress, setProgress] = useState(0);
   const [warnings, setWarnings] = useState<string[]>([]);
+  const [substep, setSubstep] = useState<Substep | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const [outputUrl, setOutputUrl] = useState<string | null>(null);
 
@@ -161,12 +168,15 @@ export function usePipeline(api: PipelineApi): UsePipeline {
       const value = Math.min(1, Math.max(0, event.progress));
       setProgress((p) => Math.max(p, value));
     }
+    if (event.type === 'stage') setSubstep(null);
+    else if (event.type === 'progress' && event.substep) setSubstep(event.substep);
     if ((event.type === 'stage' || event.type === 'progress') && event.message) {
       const message = event.message;
       setWarnings((w) => (w.includes(message) ? w : [...w, message]));
     }
     if (event.type === 'done') {
       terminal.current = true;
+      setSubstep(null);
       const url = event.outputUrl || (jobIdRef.current ? `/api/jobs/${jobIdRef.current}/output` : null);
       if (!url) {
         setError(tRef.current('error.noOutput'));
@@ -179,6 +189,7 @@ export function usePipeline(api: PipelineApi): UsePipeline {
       setState('done');
     } else if (event.type === 'error' || event.type === 'cancelled') {
       terminal.current = true;
+      setSubstep(null);
       const active = activeStage.current;
       setStages((prev) => prev.map((s) => (s.id === active ? { id: s.id, status: 'failed' } : s)));
       setError(event.message || (event.type === 'cancelled' ? tRef.current('error.cancelled') : tRef.current('error.network')));
@@ -205,6 +216,7 @@ export function usePipeline(api: PipelineApi): UsePipeline {
     setStages(pendingStages());
     setProgress(0);
     setWarnings([]);
+    setSubstep(null);
     setJobId(null);
     setOutputUrl(null);
     setState('rendering');
@@ -257,13 +269,14 @@ export function usePipeline(api: PipelineApi): UsePipeline {
     setStages(pendingStages());
     setProgress(0);
     setWarnings([]);
+    setSubstep(null);
     setJobId(null);
     setOutputUrl(null);
     setState('idle');
   }, [setState]);
 
   return useMemo(
-    () => ({ state, draft, error, stages, progress, warnings, jobId, outputUrl, createDraft, saveSegments, approve, cancel, reset }),
-    [state, draft, error, stages, progress, warnings, jobId, outputUrl, createDraft, saveSegments, approve, cancel, reset],
+    () => ({ state, draft, error, stages, progress, warnings, substep, jobId, outputUrl, createDraft, saveSegments, approve, cancel, reset }),
+    [state, draft, error, stages, progress, warnings, substep, jobId, outputUrl, createDraft, saveSegments, approve, cancel, reset],
   );
 }

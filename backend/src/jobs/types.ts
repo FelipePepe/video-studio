@@ -28,6 +28,8 @@ export interface JobEvent {
   stage?: string;
   progress?: number;
   message?: string;
+  /** Fine-grained progress inside the current stage (e.g. ComfyUI sampler step value/max). */
+  substep?: { value: number; max: number };
   outputUrl?: string;
   at: string;
 }

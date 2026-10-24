@@ -101,6 +101,15 @@ describe('usePipeline', () => {
     expect(hook.result.current.warnings).toEqual(['Scene 2: hard cut']);
   });
 
+  it('tracks ComfyUI substeps without adding warnings, and clears them on the next stage', async () => {
+    const { fake, hook } = await toRendering();
+    act(() => fake.emit({ type: 'progress', stage: 'images', progress: 0.3, substep: { value: 3, max: 20 } }));
+    expect(hook.result.current.substep).toEqual({ value: 3, max: 20 });
+    expect(hook.result.current.warnings).toEqual([]);
+    act(() => fake.emit({ type: 'stage', stage: 'transitions', progress: 0.55 }));
+    expect(hook.result.current.substep).toBeNull();
+  });
+
   it('finishes with the event outputUrl or falls back to /api/jobs/:id/output', async () => {
     const a = await toRendering();
     act(() => a.fake.emit({ type: 'done', outputUrl: '/api/jobs/j1/output?x=1' }));

@@ -41,6 +41,7 @@ interface Opts {
   queueRunning?: boolean;
   queuePending?: boolean;
   cacheDir?: string;
+  comfySteps?: Array<{ value: number; max: number }>;
 }
 
 function harness(opts: Opts = {}) {
@@ -85,8 +86,11 @@ function harness(opts: Opts = {}) {
       pending.set(id, isI2V);
       return id;
     },
-    waitForCompletion: async (id: string, o?: { signal?: AbortSignal }) => {
+    waitForCompletion: async (id: string, o?: { signal?: AbortSignal; onProgress?: (i: { value?: number; max?: number; node?: string; done?: boolean }) => void }) => {
       comfy.lastWaitId = id;
+      for (const step of opts.comfySteps ?? []) o?.onProgress?.(step);
+      o?.onProgress?.({ node: '7' });
+      o?.onProgress?.({ done: true });
       if (o?.signal?.aborted) throw abortErr('aborted before wait');
       if (opts.abortDuringWait) {
         controller.abort();
@@ -166,6 +170,16 @@ test('runs tts, images, transitions and assemble in order and returns final.mp4'
   assert.deepEqual(h.ttsInputs.map((t) => t.voice), ['male', 'female', 'male']);
   const wavs = [0, 1, 2].map((i) => readFileSync(join(h.workDir, 'audio', `scene_0${i}.wav`)));
   assert.deepEqual(wavs.map(wavDurationSec), SCENE_SECONDS);
+});
+
+test('reports ComfyUI sampler steps as structured substep events, not messages', async () => {
+  const h = harness({ sceneCount: 1, comfySteps: [{ value: 3, max: 20 }] });
+  await h.execute(h.job, h.ctx);
+  const sub = h.events.filter((e) => e.substep);
+  assert.ok(sub.length > 0);
+  assert.deepEqual(sub[0].substep, { value: 3, max: 20 });
+  assert.ok(sub.every((e) => e.type === 'progress' && e.message === undefined));
+  assert.ok(h.events.every((e) => !e.message?.startsWith('comfy:')), 'node-only/done infos must not emit anything');
 });
 
 test('uses single-frame T2V stills and 33-frame I2V transitions with the next scene prompt', async () => {
