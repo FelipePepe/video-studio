@@ -1,12 +1,24 @@
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { openDatabase } from '../src/db/connection';
 import { createDraft } from '../src/pipeline/draftRepository';
 import { createJob } from '../src/jobs/jobRepository';
-import { createExecute } from '../src/pipeline/orchestrator';
+import { createExecute, removePartialFfmpegOutput } from '../src/pipeline/orchestrator';
+import {
+  burnSubtitlesArgs,
+  concatArgs,
+  coverArgs,
+  extractFrameArgs,
+  kenBurnsArgs,
+  muxAudioArgs,
+  musicMixArgs,
+  normalizeClipArgs,
+  verticalCropArgs,
+  xfadeArgs,
+} from '../src/media/ffmpeg';
 import { parseWav, wavDurationSec, wavFromPcm } from '../src/media/wav';
 import type { ComfyClient } from '../src/clients/comfy';
 import type { PiperClient } from '../src/clients/piper';
@@ -425,4 +437,89 @@ test('with a cacheDir, a second run reuses TTS/stills/transitions without new cl
   assert.equal(h.ttsInputs.length, tts1, 'TTS cached: no new synthesize on the 2nd run');
   assert.equal(h.workflows.filter((w) => Object.values(w).some((n) => n.class_type === 'WanVideoEmptyEmbeds')).length, stills1, 'still cached: no new T2V on the 2nd run');
   assert.equal(h.comfy.uploads.length, uploads1, 'transitions cached: no new uploads on the 2nd run');
+});
+
+
+// B6: when ffmpeg fails the partial output (LAST argument) inside workDir is removed best-effort.
+type FailMode = 'exit' | 'abort' | 'timeout';
+
+async function failFirstFfmpeg(mode: FailMode) {
+  const h = harness({ sceneCount: 1 });
+  let target = '';
+  const execute = createExecute({
+    db: h.db,
+    resolveComfy: () => h.comfy as unknown as ComfyClient,
+    resolvePiper: () => h.piper as unknown as PiperClient,
+    ffmpeg: async (args) => {
+      target = args[args.length - 1];
+      writeFileSync(target, 'partial');
+      if (mode === 'abort') h.controller.abort();
+      throw new Error(mode === 'timeout' ? 'ffmpeg timed out after 20ms' : mode === 'abort' ? 'ffmpeg aborted' : 'ffmpeg exited with code 1');
+    },
+  });
+  const err = await execute(h.job, h.ctx).then(
+    () => undefined,
+    (e: Error) => e,
+  );
+  return { err, target, workDir: h.workDir };
+}
+
+for (const mode of ['exit', 'timeout'] as const) {
+  test(`ffmpeg ${mode} failure removes the partial output inside workDir and surfaces the original error`, async () => {
+    const { err, target, workDir } = await failFirstFfmpeg(mode);
+    assert.ok(err);
+    assert.match(err.message, mode === 'timeout' ? /timed out after 20ms/ : /exited with code 1/);
+    assert.ok(target.startsWith(workDir));
+    assert.equal(existsSync(target), false);
+  });
+}
+
+test('ffmpeg abort removes the partial output and the job ends as an abort', async () => {
+  const { err, target } = await failFirstFfmpeg('abort');
+  assert.ok(err);
+  assert.equal(err.name, 'AbortError');
+  assert.equal(existsSync(target), false);
+});
+
+test('removePartialFfmpegOutput only removes files inside workDir', () => {
+  const root = mkdtempSync(join(tmpdir(), 'vs-clean-'));
+  dirs.push(root);
+  const workDir = join(root, 'job');
+  const sibling = join(root, 'job-sibling');
+  mkdirSync(workDir);
+  mkdirSync(sibling);
+  const inside = join(workDir, 'a.mp4');
+  const outside = join(sibling, 'b.mp4');
+  const optionLike = join(workDir, '-y');
+  for (const f of [inside, outside, optionLike]) writeFileSync(f, 'x');
+
+  removePartialFfmpegOutput(['-i', 'in', outside], workDir);
+  assert.equal(existsSync(outside), true, 'sibling dir sharing the prefix is kept');
+  removePartialFfmpegOutput(['-i', 'in', '-y'], workDir);
+  removePartialFfmpegOutput(['-i', 'in', ''], workDir);
+  removePartialFfmpegOutput([], workDir);
+  assert.equal(existsSync(optionLike), true, 'option-looking argument is never treated as output');
+  removePartialFfmpegOutput(['-i', 'in', join(workDir, 'missing.mp4')], workDir);
+  removePartialFfmpegOutput(['-i', 'in', inside], workDir);
+  assert.equal(existsSync(inside), false);
+});
+
+test('every ffmpeg args builder ends with the output path (contract used by the cleanup)', () => {
+  const out = '/work/out.mp4';
+  const cases: Record<string, string[]> = {
+    kenBurnsArgs: kenBurnsArgs({ image: 'i.png', durationSec: 2, out }),
+    xfadeArgs: xfadeArgs({ clips: ['a', 'b'], durationsSec: [3, 3], transitionSec: 1, out }),
+    concatArgs: concatArgs({ listFile: 'l.txt', out }),
+    muxAudioArgs: muxAudioArgs({ video: 'v', audio: 'a', out }),
+    musicMixArgs: musicMixArgs({ video: 'v', audio: 'a', music: 'm', out }),
+    extractFrameArgs: extractFrameArgs({ video: 'v', out }),
+    burnSubtitlesArgs: burnSubtitlesArgs({ input: 'v', srt: 's.srt', out }),
+    burnSubtitlesStyled: burnSubtitlesArgs({ input: 'v', srt: 's.srt', out, style: 'Fontsize=20' }),
+    verticalCropArgs: verticalCropArgs({ input: 'v', out }),
+    coverArgs: coverArgs({ input: 'v', atSec: 1, out }),
+    normalizeClipArgs: normalizeClipArgs({ input: 'v', out }),
+  };
+  for (const [name, args] of Object.entries(cases)) {
+    assert.equal(args[args.length - 1], out, `${name} must end with the output path`);
+  }
 });
