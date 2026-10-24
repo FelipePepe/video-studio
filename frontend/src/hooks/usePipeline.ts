@@ -6,7 +6,7 @@ import { useI18n } from '../i18n';
 
 export type PipelineApi = Pick<
   ApiClient,
-  'createDraft' | 'approveDraft' | 'cancelJob' | 'putSegments' | 'listMusic' | 'listVoices' | 'getJob' | 'getDraft' | 'watchJob'
+  'createDraft' | 'approveDraft' | 'cancelJob' | 'putSegments' | 'listMusic' | 'listVoices' | 'getJob' | 'getDraft' | 'watchJob' | 'listJobs'
 >;
 
 /** Survives tab switches and reloads: just enough to re-fetch the draft and re-follow its job. */
@@ -346,6 +346,16 @@ export function usePipeline(api: PipelineApi): UsePipeline {
     [loadJob, follow],
   );
 
+  /** Newest job of a draft (the list is newest first and has no draft filter); undefined if none or on failure. */
+  const latestJobId = async (draftId: string): Promise<string | undefined> => {
+    try {
+      const jobs = await api.listJobs({ limit: 200 });
+      return jobs.find((j) => j.draftId === draftId)?.id;
+    } catch {
+      return undefined;
+    }
+  };
+
   // Re-open the saved session once on mount (reload): a running/finished job, or a draft in review.
   useEffect(() => {
     const saved = stored.current;
@@ -356,17 +366,25 @@ export function usePipeline(api: PipelineApi): UsePipeline {
     let cancelled = false;
     void (async () => {
       let ok = false;
+      const resume = async (jobId: string): Promise<boolean> => {
+        const loaded = await loadJob(jobId);
+        if (!loaded) return false;
+        ok = true;
+        restoring.current = false;
+        await follow(loaded);
+        return true;
+      };
       try {
         if (saved.jobId) {
-          const loaded = await loadJob(saved.jobId);
-          if (loaded) {
-            ok = true;
-            restoring.current = false;
-            await follow(loaded);
-          }
+          await resume(saved.jobId);
         } else {
           const full = await api.getDraft(saved.draftId);
           if (cancelled || !mounted.current || stateRef.current !== 'idle') return;
+          // approve marks the draft approved in the same transaction that creates the job, i.e. before the
+          // first event can hand us a jobId: an approved draft means a job exists, so follow it, not review.
+          const jobId = full.status === 'approved' ? await latestJobId(full.id) : undefined;
+          if (cancelled || !mounted.current || stateRef.current !== 'idle') return;
+          if (jobId && (await resume(jobId))) return;
           const loaded = { id: full.id, escaleta: full.escaleta, status: full.status };
           draftRef.current = loaded;
           setDraft(loaded);

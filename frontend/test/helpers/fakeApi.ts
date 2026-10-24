@@ -13,7 +13,7 @@ export const draft: DraftCreated = {
 
 export type PipelineApi = Pick<
   ApiClient,
-  'createDraft' | 'approveDraft' | 'cancelJob' | 'putSegments' | 'listMusic' | 'listVoices' | 'getJob' | 'getDraft' | 'watchJob'
+  'createDraft' | 'approveDraft' | 'cancelJob' | 'putSegments' | 'listMusic' | 'listVoices' | 'getJob' | 'getDraft' | 'watchJob' | 'listJobs'
 >;
 
 export const fullDraft = (id: string, escaleta: Escaleta = draft.escaleta): Draft => ({
@@ -65,6 +65,7 @@ export function makeFakeApi() {
     ),
     cancelJob: vi.fn(async () => ({ cancelled: true })),
     getJob: vi.fn(async (id: string) => fakeJob({ id })),
+    listJobs: vi.fn(async () => [] as Job[]),
     getDraft: vi.fn(async (id: string) => fullDraft(id)),
     watchJob: vi.fn(
       (_id: string, opts: Pick<ApproveOptions, 'onEvent' | 'signal'>) =>
