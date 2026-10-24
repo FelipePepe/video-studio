@@ -1,5 +1,5 @@
 import { useI18n } from '../i18n';
-import { usePipeline, type PipelineApi } from '../hooks/usePipeline';
+import type { PipelineApi, UsePipeline } from '../hooks/usePipeline';
 import type { ApiClient } from '../api/client';
 import { EscaletaCards } from './EscaletaCards';
 import { GuideCard } from './GuideCard';
@@ -10,11 +10,12 @@ import { VideoPanel } from './VideoPanel';
 
 export interface PipelinePageProps {
   api: PipelineApi;
+  /** Owned by App so the pipeline survives tab switches. */
+  pipeline: UsePipeline;
 }
 
-export function PipelinePage({ api }: PipelinePageProps) {
+export function PipelinePage({ api, pipeline: p }: PipelinePageProps) {
   const { t } = useI18n();
-  const p = usePipeline(api);
   const rendering = p.state === 'rendering';
   const showProgress = rendering || p.state === 'done' || p.state === 'failed';
 

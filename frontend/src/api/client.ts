@@ -41,6 +41,8 @@ export interface ApiClient {
   getDraft(id: string): Promise<Draft>;
   putSegments(id: string, escaleta: Escaleta): Promise<Draft>;
   approveDraft(id: string, options: ApproveOptions): Promise<JobEvent | undefined>;
+  /** Follows an existing job's SSE stream (replays buffered events or a snapshot, then live). */
+  watchJob(id: string, options: Pick<ApproveOptions, 'onEvent' | 'signal'>): Promise<JobEvent | undefined>;
   /** Returns null when the music library is not configured (404). */
   listMusic(): Promise<MusicLibrary | null>;
   /** Piper roster; returns [] on failure so the UI can fall back to male/female. */
@@ -141,6 +143,29 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
   const draftPath = (id: string) => `/api/pipeline/draft/${encodeURIComponent(id)}`;
   const jobPath = (id: string) => `/api/jobs/${encodeURIComponent(id)}`;
 
+  /** Consumes an SSE job stream. Aborting only stops listening: resolves with whatever was seen so far. */
+  async function streamEvents(
+    url: string,
+    init: RequestInit,
+    onEvent: (event: JobEvent) => void,
+    signal?: AbortSignal,
+  ): Promise<JobEvent | undefined> {
+    let last: JobEvent | undefined;
+    try {
+      const res = await doFetch(url, init);
+      if (!res.ok) throw await toApiError(res);
+      if (!res.body) return undefined;
+      await parseSseStream(res.body, (data) => {
+        last = data as JobEvent;
+        onEvent(last);
+      });
+    } catch (e) {
+      if (signal?.aborted && !(e instanceof ApiError)) return last;
+      throw e;
+    }
+    return last;
+  }
+
   return {
     getConfig: () => request<Settings>('GET', '/api/config'),
     patchConfig: (partial) => request<Settings>('PATCH', '/api/config', partial),
@@ -184,30 +209,19 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
     },
 
     async approveDraft(id, { onEvent, signal, body }) {
-      let last: JobEvent | undefined;
-      try {
-        const init: RequestInit = {
-          method: 'POST',
-          headers: { Accept: 'text/event-stream' },
-          signal,
-        };
-        if (body !== undefined) {
-          init.headers = { Accept: 'text/event-stream', 'Content-Type': 'application/json' };
-          init.body = JSON.stringify(body);
-        }
-        const res = await doFetch(`${baseUrl}${draftPath(id)}/approve`, init);
-        if (!res.ok) throw await toApiError(res);
-        if (!res.body) return undefined;
-        await parseSseStream(res.body, (data) => {
-          last = data as JobEvent;
-          onEvent(last);
-        });
-      } catch (e) {
-        // Aborting only stops listening: resolve with whatever was seen so far.
-        if (signal?.aborted && !(e instanceof ApiError)) return last;
-        throw e;
+      const init: RequestInit = {
+        method: 'POST',
+        headers: { Accept: 'text/event-stream' },
+        signal,
+      };
+      if (body !== undefined) {
+        init.headers = { Accept: 'text/event-stream', 'Content-Type': 'application/json' };
+        init.body = JSON.stringify(body);
       }
-      return last;
+      return streamEvents(`${baseUrl}${draftPath(id)}/approve`, init, onEvent, signal);
     },
+
+    watchJob: (id, { onEvent, signal }) =>
+      streamEvents(`${baseUrl}${jobPath(id)}/events`, { headers: { Accept: 'text/event-stream' }, signal }, onEvent, signal),
   };
 }

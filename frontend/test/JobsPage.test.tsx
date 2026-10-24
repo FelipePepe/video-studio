@@ -41,9 +41,9 @@ function makeApi(jobs: Job[]) {
   };
 }
 
-const renderJobs = (api: ReturnType<typeof makeApi>) => render(
+const renderJobs = (api: ReturnType<typeof makeApi>, onOpen?: (id: string) => void) => render(
     <I18nProvider>
-      <JobsPage api={api} />
+      <JobsPage api={api} onOpen={onOpen} />
     </I18nProvider>,
   );
 
@@ -72,6 +72,25 @@ describe('JobsPage retry', () => {
     renderJobs(api);
     await screen.findByText('Hecha');
     expect(screen.queryByRole('button', { name: 'Reintentar trabajo' })).not.toBeInTheDocument();
+  });
+});
+
+describe('JobsPage open in pipeline', () => {
+  it('offers "Abrir en pipeline" on every job and reports the chosen id', async () => {
+    const api = makeApi([job({ id: 'ja', status: 'done', progress: 1 }), job({ id: 'jb', status: 'running' }), job({ id: 'jc', status: 'failed' })]);
+    const onOpen = vi.fn();
+    renderJobs(api, onOpen);
+    await screen.findByText('Hecha');
+    const buttons = screen.getAllByRole('button', { name: 'Abrir en pipeline' });
+    expect(buttons).toHaveLength(3);
+    await userEvent.click(within(screen.getByText('jb').closest('li')!).getByRole('button', { name: 'Abrir en pipeline' }));
+    expect(onOpen).toHaveBeenCalledWith('jb');
+  });
+
+  it('hides the button when no onOpen handler is given', async () => {
+    renderJobs(makeApi([job({ id: 'ja', status: 'done', progress: 1 })]));
+    await screen.findByText('Hecha');
+    expect(screen.queryByRole('button', { name: 'Abrir en pipeline' })).not.toBeInTheDocument();
   });
 });
 
