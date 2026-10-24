@@ -120,15 +120,19 @@ test('keepAlive option and OLLAMA_KEEP_ALIVE override the default keep_alive', a
 
 test('passes an abortable signal to fetch that follows the caller signal', async () => {
   let sent: AbortSignal | undefined;
-  const fetchImpl = ((_u: unknown, init?: RequestInit) => {
+  // The fake rejects on abort, so chatJson settles and its timeout timer is cleared
+  // (a never-settling fetch would keep the default 300 s timer alive after the test).
+  const inner = hangingFetch();
+  const fetchImpl = ((url: string | URL | Request, init?: RequestInit) => {
     sent = init?.signal as AbortSignal;
-    return new Promise(() => undefined);
+    return inner(url, init);
   }) as typeof fetch;
   const ac = new AbortController();
-  void new OllamaClient('http://o', { fetchImpl }).chatJson({ system: 's', user: 'u', signal: ac.signal }).catch(() => undefined);
+  const p = new OllamaClient('http://o', { fetchImpl }).chatJson({ system: 's', user: 'u', signal: ac.signal });
   assert.equal(sent?.aborted, false);
   ac.abort();
   assert.equal(sent?.aborted, true);
+  await assert.rejects(p, (e: Error) => e.name === 'AbortError');
 });
 
 test('throws on non-JSON content, non-2xx and network errors', async () => {
@@ -204,12 +208,24 @@ test('timeoutMs option wins over OLLAMA_TIMEOUT_MS; invalid or empty env falls b
     await assert.rejects(seen(undefined).chatJson({ system: 's', user: 'u' }), /timed out after 30ms/);
     await assert.rejects(seen(15).chatJson({ system: 's', user: 'u' }), /timed out after 15ms/);
   });
+});
+
+test('invalid or empty OLLAMA_TIMEOUT_MS falls back to the 300000ms default', async () => {
   for (const bad of ['', 'abc', '0', '-5']) {
     await withEnv('OLLAMA_TIMEOUT_MS', bad, async () => {
-      const ac = new AbortController();
-      const p = seen(undefined).chatJson({ system: 's', user: 'u', signal: ac.signal });
-      ac.abort();
-      await assert.rejects(p, (e: Error) => e.name === 'AbortError', `env ${JSON.stringify(bad)} must not fire early`);
+      const { fetchImpl } = fakeFetch(reply('{}'));
+      const orig = globalThis.setTimeout;
+      const delays: number[] = [];
+      globalThis.setTimeout = ((fn: () => void, ms?: number, ...a: unknown[]) => {
+        delays.push(ms ?? 0);
+        return orig(fn, ms, ...a);
+      }) as typeof setTimeout;
+      try {
+        await new OllamaClient('http://o', { fetchImpl }).chatJson({ system: 's', user: 'u' });
+      } finally {
+        globalThis.setTimeout = orig;
+      }
+      assert.ok(delays.includes(300000), `env ${JSON.stringify(bad)} -> delays: ${delays}`);
     });
   }
 });
