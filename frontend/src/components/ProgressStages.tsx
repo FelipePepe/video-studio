@@ -77,11 +77,11 @@ export function ProgressStages({ stages, progress, warnings, substep, cancellabl
       </ol>
 
       {warnings.length > 0 && (
-        <div className="warnings">
+        <div className="warnings" role="note">
           <h3>{t('progress.warnings')}</h3>
           <ul>
-            {warnings.map((w) => (
-              <li key={w}>{w}</li>
+            {warnings.map((w, i) => (
+              <li key={`${i}-${w}`}>{w}</li>
             ))}
           </ul>
         </div>

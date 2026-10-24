@@ -227,6 +227,16 @@ export function JobsPage({ api, onOpen }: JobsPageProps) {
                     </div>
                   )}
                   {j.error && <p className="job__error">{j.error}</p>}
+                  {j.warnings.length > 0 && (
+                    <div className="warnings" role="note">
+                      <h3>{t('jobs.warnings')}</h3>
+                      <ul>
+                        {j.warnings.map((w, i) => (
+                          <li key={`${i}-${w}`}>{w}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </div>
                 <div className="job__actions">
                   {onOpen && (
