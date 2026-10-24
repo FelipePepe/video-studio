@@ -55,6 +55,7 @@ curl http://localhost:20014/api/config   # health check through the proxy
 - **Data:** `DATA_DIR` (default `./data`) is bind-mounted at `/app/backend/data` (SQLite, jobs, cache, logs). It is a bind mount, not a named volume, so it survives a Docker reset.
 - **Hosts:** `COMFY_HOST`, `OLLAMA_HOST` and `PIPER_HOST` are only defaults: values saved from the Settings modal live in the database and take precedence.
 - **Ollama limits:** `OLLAMA_TIMEOUT_MS` (chat, default `300000`), `OLLAMA_TAGS_TIMEOUT_MS` (model list, default `5000`) and `DRAFT_MAX_CONCURRENCY` (simultaneous draft generations, default `2`; extra requests get `429` with `Retry-After`). Empty means default.
+- **ffmpeg watchdog and shutdown:** `FFMPEG_TIMEOUT_MS` (default `1800000`; empty means default) kills a stuck ffmpeg and removes its partial output. On `SIGTERM`/`SIGINT` the backend aborts the running job, closes the server and the database; compose sets `stop_grace_period: 15s`, above the 8 s hard-exit timeout.
 - **`API_TOKEN`:** not passed through. The SPA never sends it, so enabling it would break the UI; it only makes sense for non-UI clients on a directly published backend.
 - **Redeploy:** `git pull && docker compose up -d --build`.
 
