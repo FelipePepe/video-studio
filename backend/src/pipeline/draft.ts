@@ -17,6 +17,8 @@ export interface DraftInput {
 export interface DraftDeps {
   ollama: Pick<OllamaClient, 'chatJson'>;
   fetchImpl?: typeof fetch;
+  /** Aborts the Ollama call (client disconnect). */
+  signal?: AbortSignal;
 }
 
 export interface GeneratedDraft {
@@ -123,6 +125,7 @@ export async function generateDraft(input: DraftInput, deps: DraftDeps): Promise
   const raw = await deps.ollama.chatJson({
     system: systemPrompt(language),
     user: `<article>\n${article}\n</article>`,
+    signal: deps.signal,
   });
   const escaleta = validateEscaleta(raw, { voiceA, voiceB, mix });
   return {

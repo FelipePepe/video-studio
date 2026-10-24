@@ -32,6 +32,8 @@ export interface AppOptions {
   /** Music library directory (background music picker). Defaults to the MUSIC_DIR env var; empty = disabled. */
   musicDir?: string;
   apiKey?: string;
+  /** Max concurrent POST /draft generations. Defaults to env DRAFT_MAX_CONCURRENCY, else 2. */
+  draftConcurrency?: number;
   jobs?: { workDir?: string; execute?: ExecuteFn; autoStart?: boolean; heartbeatMs?: number; cacheDir?: string };
 }
 
@@ -97,7 +99,7 @@ export function buildApp(opts: AppOptions = {}): Express {
   Object.assign(app.locals, resolvers, { db, eventHub, jobRunner });
 
   app.use('/api/config', configRouter(db, envDefaults));
-  app.use('/api/ollama/models', ollamaModelsRouter({ listModels: () => resolvers.resolveOllama().listModels() }));
+  app.use('/api/ollama/models', ollamaModelsRouter({ listModels: (signal) => resolvers.resolveOllama().listModels({ signal }) }));
   app.use('/api/music', musicRouter({ musicDir: () => opts.musicDir ?? process.env.MUSIC_DIR ?? '' }));
   app.use('/api/pipeline/voices', voicesRouter({ listVoices: () => resolvers.resolvePiper().listVoices() }));
   app.use(
@@ -109,6 +111,7 @@ export function buildApp(opts: AppOptions = {}): Express {
       runner: jobRunner,
       hub: eventHub,
       heartbeatMs: opts.jobs?.heartbeatMs,
+      maxConcurrentDrafts: opts.draftConcurrency,
       musicDir: () => opts.musicDir ?? process.env.MUSIC_DIR ?? '',
     }),
   );

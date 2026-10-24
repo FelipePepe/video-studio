@@ -129,3 +129,16 @@ test('validateEscaleta ignores model-provided voices unless keepVoices is set', 
   assert.equal(validateEscaleta(input, voices)[0].voice, 'male');
   assert.equal(validateEscaleta(input, { ...voices, keepVoices: true })[0].voice, 'custom');
 });
+
+test('generateDraft forwards deps.signal to chatJson', async () => {
+  const seen: Array<AbortSignal | undefined> = [];
+  const ollama = {
+    chatJson: (async (opts: { signal?: AbortSignal }) => {
+      seen.push(opts.signal);
+      return { scenes: scenes(3) };
+    }) as never,
+  };
+  const ac = new AbortController();
+  await generateDraft({ text: 'x' }, { ollama, signal: ac.signal });
+  assert.equal(seen[0], ac.signal);
+});

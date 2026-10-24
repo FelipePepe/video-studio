@@ -18,6 +18,7 @@ export interface PublishMetadata {
 
 export interface PublishDeps {
   ollama: Pick<OllamaClient, 'chatJson'>;
+  signal?: AbortSignal;
 }
 
 export interface PublishInput {
@@ -101,6 +102,6 @@ function userPrompt(input: PublishInput): string {
 }
 
 export async function generatePublishMetadata(input: PublishInput, deps: PublishDeps): Promise<PublishMetadata> {
-  const raw = await deps.ollama.chatJson({ system: systemPrompt(input.language), user: userPrompt(input) });
+  const raw = await deps.ollama.chatJson({ system: systemPrompt(input.language), user: userPrompt(input), signal: deps.signal });
   return validatePublishMetadata(raw);
 }

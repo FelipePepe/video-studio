@@ -1,8 +1,8 @@
 import { realpathSync, statSync } from 'node:fs';
 import { isAbsolute, relative, resolve, sep as pathSep } from 'node:path';
-import { Router } from 'express';
+import { Router, type Response } from 'express';
 import type { DatabaseSync } from 'node:sqlite';
-import type { OllamaClient } from '../clients/ollama';
+import { OllamaTimeoutError, type OllamaClient } from '../clients/ollama';
 import { DraftInputError, DraftValidationError, generateDraft, validateEscaleta } from '../pipeline/draft';
 import { createDraft, DraftLockedError, getDraft, markApproved, updateEscaleta } from '../pipeline/draftRepository';
 import { generatePublishMetadata, PublishInputError } from '../pipeline/publish';
@@ -22,6 +22,26 @@ export interface PipelineDeps {
   heartbeatMs?: number;
   /** Music library root — music paths at approve must live inside this dir. Empty = library disabled. */
   musicDir?: () => string;
+  /** Max concurrent POST /draft generations; defaults to env DRAFT_MAX_CONCURRENCY, else 2. */
+  maxConcurrentDrafts?: number;
+}
+
+const DEFAULT_DRAFT_CONCURRENCY = 2;
+const TIMEOUT_MESSAGE = 'The language model took too long to respond';
+
+function draftConcurrencyLimit(configured?: number): number {
+  if (configured !== undefined && Number.isInteger(configured) && configured > 0) return configured;
+  const raw = process.env.DRAFT_MAX_CONCURRENCY?.trim() ?? '';
+  return /^[1-9]\d*$/.test(raw) ? Number(raw) : DEFAULT_DRAFT_CONCURRENCY;
+}
+
+/** AbortController that fires when the client goes away before the response is finished. */
+function abortOnClose(res: Response): AbortController {
+  const controller = new AbortController();
+  res.on('close', () => {
+    if (!res.writableEnded) controller.abort();
+  });
+  return controller;
 }
 
 class ApproveOptionsError extends Error {}
@@ -84,6 +104,7 @@ function parseApproveOptions(body: unknown, musicDir?: string): ApproveOptions |
 
 export function pipelineRouter(deps: PipelineDeps): Router {
   const router = Router();
+  let activeDrafts = 0;
 
   router.post('/draft', async (req, res) => {
     const body: unknown = req.body;
@@ -91,20 +112,41 @@ export function pipelineRouter(deps: PipelineDeps): Router {
       res.status(400).json({ error: 'Body must be a JSON object' });
       return;
     }
+    if (activeDrafts >= draftConcurrencyLimit(deps.maxConcurrentDrafts)) {
+      res.set('Retry-After', '10').status(429).json({ error: 'Too many drafts in progress, try again shortly' });
+      return;
+    }
+    activeDrafts++;
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      activeDrafts--;
+    };
+    const controller = abortOnClose(res);
+    res.on('close', release);
     try {
       const generated = await generateDraft(body, {
         ollama: deps.resolveOllama(),
         fetchImpl: deps.fetchImpl,
+        signal: controller.signal,
       });
       const draft = createDraft(deps.db, generated);
       res.status(201).json({ id: draft.id, escaleta: draft.escaleta, status: draft.status });
     } catch (e) {
+      if (controller.signal.aborted) return; // client is gone: nothing to answer
       if (e instanceof DraftInputError) {
         res.status(400).json({ error: e.message });
         return;
       }
+      if (e instanceof OllamaTimeoutError) {
+        res.status(504).json({ error: TIMEOUT_MESSAGE });
+        return;
+      }
       // Article fetch, Ollama and invalid model output are all upstream failures.
       res.status(502).json({ error: (e as Error).message });
+    } finally {
+      release();
     }
   });
 
@@ -124,15 +166,21 @@ export function pipelineRouter(deps: PipelineDeps): Router {
       res.status(404).json({ error: 'Draft not found' });
       return;
     }
+    const controller = abortOnClose(res);
     try {
       const meta = await generatePublishMetadata(
         { language: draft.language, escaleta: draft.escaleta },
-        { ollama: deps.resolveOllama() },
+        { ollama: deps.resolveOllama(), signal: controller.signal },
       );
       res.json(meta);
     } catch (e) {
+      if (controller.signal.aborted) return;
       if (e instanceof PublishInputError) {
         res.status(422).json({ error: e.message });
+        return;
+      }
+      if (e instanceof OllamaTimeoutError) {
+        res.status(504).json({ error: TIMEOUT_MESSAGE });
         return;
       }
       res.status(502).json({ error: 'publish metadata generation failed' });
