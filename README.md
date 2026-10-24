@@ -57,6 +57,7 @@ curl http://localhost:20014/api/config   # health check through the proxy
 - **Ollama limits:** `OLLAMA_TIMEOUT_MS` (chat, default `300000`), `OLLAMA_TAGS_TIMEOUT_MS` (model list, default `5000`) and `DRAFT_MAX_CONCURRENCY` (simultaneous draft generations, default `2`; extra requests get `429` with `Retry-After`). Empty means default.
 - **ffmpeg watchdog and shutdown:** `FFMPEG_STALL_TIMEOUT_MS` (default `600000` = 10 min without any ffmpeg output; empty means default) kills a hung ffmpeg and removes its partial output. It is an inactivity limit, not a total-time limit: a slow encode that keeps printing progress is never killed. On `SIGTERM`/`SIGINT` the backend aborts the running job, closes the server and the database; compose sets `stop_grace_period: 15s`, above the 8 s hard-exit timeout.
 - **`API_TOKEN`:** not passed through. The SPA never sends it, so enabling it would break the UI; it only makes sense for non-UI clients on a directly published backend.
+- **Cache retention:** `data/cache` is pruned at start and every 6 h: entries unused for `CACHE_TTL_DAYS` (default `30`) are removed, then least-recently-used entries until it fits `CACHE_MAX_GB` (default `20`); empty means default. Cache writes are atomic (temp file + rename), so a crash never leaves a truncated entry.
 - **Redeploy:** `git pull && docker compose up -d --build`.
 
 ## Logging

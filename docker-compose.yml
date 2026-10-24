@@ -36,6 +36,8 @@ services:
       MUSIC_DIR: ${MUSIC_DIR:-}
       RETENTION_MIN_AGE_DAYS: ${RETENTION_MIN_AGE_DAYS:-}
       RETENTION_KEEP_RECENT: ${RETENTION_KEEP_RECENT:-}
+      CACHE_TTL_DAYS: ${CACHE_TTL_DAYS:-}
+      CACHE_MAX_GB: ${CACHE_MAX_GB:-}
       # API_TOKEN is intentionally not passed through: the SPA never sends it,
       # so enabling it breaks the UI. It is only useful for non-UI clients on a
       # directly published backend.
