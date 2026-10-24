@@ -1,5 +1,5 @@
 import * as assert from 'node:assert';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import { test } from 'node:test';
@@ -181,6 +181,43 @@ test('prune with no limits keeps fresh entries', () => {
   }
 });
 
+test('read() refreshes the entry mtime, so a reused TTS WAV counts as recent for TTL/LRU', () => {
+  const d = mk();
+  try {
+    const c = new ContentCache(d);
+    put(d, 'k', 10, 90 * DAY); // last used 90 days ago
+    const before = statSync(join(d, 'k')).mtimeMs;
+    c.read('k');
+    const after = statSync(join(d, 'k')).mtimeMs;
+    assert.ok(after > before + 60 * DAY, 'mtime moved to now');
+    const r = c.prune({ maxAgeMs: 30 * DAY, now: Date.now() });
+    assert.equal(r.removed, 0, 'a recently read entry survives the TTL rule');
+    assert.equal(existsSync(join(d, 'k')), true);
+  } finally {
+    rmSync(d, { recursive: true, force: true });
+  }
+});
+
+test(
+  'prune keeps counting an entry it could not unlink (read-only directory)',
+  { skip: process.getuid?.() === 0 ? 'root ignores directory permissions' : false },
+  () => {
+    const d = mk();
+    try {
+      const c = new ContentCache(d);
+      put(d, 'old', 10, 90 * DAY);
+      chmodSync(d, 0o555); // files cannot be unlinked now
+      const r = c.prune({ maxAgeMs: 30 * DAY, now: NOW });
+      assert.equal(r.removed, 0, 'the failed unlink is not reported as removed');
+      assert.equal(r.remainingBytes, 10, 'its size still counts toward the total');
+      assert.equal(existsSync(join(d, 'old')), true);
+    } finally {
+      chmodSync(d, 0o755);
+      rmSync(d, { recursive: true, force: true });
+    }
+  },
+);
+
 test('prune never throws and continues past a file that cannot be removed', () => {
   const d = mk();
   try {
@@ -233,7 +270,7 @@ test('startCachePruning prunes immediately, re-prunes on interval, and stop() cl
   const config = { maxAgeMs: 30 * DAY, maxBytes: 1024 ** 3 };
   try {
     put(d, 'old1', 10, 90 * DAY);
-    const h = startCachePruning({ dir: d, config, log, intervalMs: 20, now: () => NOW });
+    const h = startCachePruning({ dir: d, config, log, intervalMs: 20, initialDelayMs: 0, now: () => NOW });
     try {
       assert.equal(existsSync(join(d, 'old1')), false, 'pruned synchronously at start');
       assert.ok(logs.some((l) => l.startsWith('i:')), 'logs when something was removed');
@@ -252,6 +289,28 @@ test('startCachePruning prunes immediately, re-prunes on interval, and stop() cl
   }
 });
 
+test('startCachePruning defers the first prune (startup is not blocked) and stop() cancels it', async () => {
+  const d = mk();
+  const log = { info: () => {}, warn: () => {} };
+  const config = { maxAgeMs: 30 * DAY, maxBytes: 1024 ** 3 };
+  try {
+    put(d, 'old1', 10, 90 * DAY);
+    const h = startCachePruning({ dir: d, config, log, intervalMs: 3_600_000, initialDelayMs: 40, now: () => NOW });
+    assert.equal(existsSync(join(d, 'old1')), true, 'nothing is pruned synchronously when a delay is set');
+    await until(() => !existsSync(join(d, 'old1')));
+    assert.equal(existsSync(join(d, 'old1')), false, 'pruned once the initial delay elapsed');
+    h.stop();
+
+    put(d, 'old2', 10, 90 * DAY);
+    const h2 = startCachePruning({ dir: d, config, log, intervalMs: 3_600_000, initialDelayMs: 40, now: () => NOW });
+    h2.stop(); // cancelled before the first run
+    await sleep(120);
+    assert.equal(existsSync(join(d, 'old2')), true, 'stop() before the first run prevents it');
+  } finally {
+    rmSync(d, { recursive: true, force: true });
+  }
+});
+
 test('startCachePruning logs a warning and keeps running when the prune throws', () => {
   const logs: string[] = [];
   const log = { info: () => {}, warn: (m: string) => logs.push(m) };
@@ -260,6 +319,7 @@ test('startCachePruning logs a warning and keeps running when the prune throws',
     config: { maxAgeMs: 1, maxBytes: 1 },
     log,
     intervalMs: 3_600_000,
+    initialDelayMs: 0,
     now: () => {
       throw new Error('clock exploded');
     },

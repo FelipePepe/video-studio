@@ -69,8 +69,22 @@ export class ContentCache {
     return existsSync(this.filePath(key));
   }
 
+  /** Reads an entry and refreshes its mtime: recency is what the TTL/LRU retention relies on. */
   read(key: string): Buffer {
-    return readFileSync(this.filePath(key));
+    const path = this.filePath(key);
+    const data = readFileSync(path);
+    this.touch(path);
+    return data;
+  }
+
+  /** Marks an entry as used now. Advisory: losing it must never fail a hit. */
+  private touch(path: string): void {
+    try {
+      const t = new Date();
+      utimesSync(path, t, t);
+    } catch {
+      // ignore
+    }
   }
 
   private tmpPath(key: string): string {
@@ -114,12 +128,7 @@ export class ContentCache {
       if (isEnoent(e) && !existsSync(src)) return false;
       throw e;
     }
-    try {
-      const t = new Date();
-      utimesSync(src, t, t);
-    } catch {
-      // recency is advisory; losing it must not fail a hit
-    }
+    this.touch(src);
     return true;
   }
 
@@ -208,12 +217,20 @@ export interface CachePruningDeps {
   config: CacheConfig;
   log: { info(msg: string): void; warn(msg: string, meta?: Record<string, unknown>): void };
   intervalMs?: number;
+  /**
+   * Delay before the first prune (default 5 s) so a big cache does not delay startup: pruning is
+   * synchronous. 0 prunes immediately, in the call.
+   */
+  initialDelayMs?: number;
   now?: () => number;
 }
 
-/** Prunes once now and then every `intervalMs` on an unref'd timer, so it never keeps the process alive. */
+/**
+ * Prunes once after `initialDelayMs` and then every `intervalMs`, on unref'd timers so it never keeps
+ * the process alive. `stop()` cancels both.
+ */
 export function startCachePruning(deps: CachePruningDeps): { stop(): void } {
-  const { dir, config, log, intervalMs = 6 * 3600_000, now } = deps;
+  const { dir, config, log, intervalMs = 6 * 3600_000, initialDelayMs = 5_000, now } = deps;
   const run = (): void => {
     try {
       const r = new ContentCache(dir).prune({ ...config, now: now?.() });
@@ -224,10 +241,21 @@ export function startCachePruning(deps: CachePruningDeps): { stop(): void } {
       log.warn('cache prune failed', { err });
     }
   };
-  run();
+  let first: NodeJS.Timeout | undefined;
+  if (initialDelayMs > 0) {
+    first = setTimeout(run, initialDelayMs);
+    first.unref();
+  } else {
+    run();
+  }
   const timer = setInterval(run, intervalMs);
   timer.unref();
-  return { stop: () => clearInterval(timer) };
+  return {
+    stop: () => {
+      if (first) clearTimeout(first);
+      clearInterval(timer);
+    },
+  };
 }
 
 /**
