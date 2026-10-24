@@ -21,7 +21,7 @@ Per PR: tests+code delegated to ONE bounded writer (sonnet) with an exact spec (
 
 ## Tasks
 - [x] **T1** PR1 / B4 — tests RED then code (ollama.ts, draft.ts, routes/pipeline.ts, routes/ollamaModels.ts) + env docs
-- [ ] **T2** PR2 / B5 + B6 — tests RED then code (runner.stop, lib/shutdown.ts, server.ts, ffmpeg.ts, orchestrator run wrapper, compose)
+- [x] **T2** PR2 / B5 + B6 — tests RED then code (runner.stop, lib/shutdown.ts, server.ts, ffmpeg.ts, orchestrator run wrapper, compose)
 - [ ] **T3** PR3 / B8 + B9 (after PR1/PR2)
 
 ## Acceptance
@@ -31,4 +31,7 @@ Backend `pnpm test` + `pnpm typecheck` green; every new test observed RED first;
 - PR1 (B4): tests written first by a bounded writer (sonnet), RED observed (ollama timeout/abort x6, draft+publish signal forwarding, models hung, route disconnect); parent review fixed an indentation slip and added the missing `DRAFT_MAX_CONCURRENCY` parsing test. Backend 364/364 pass, `pnpm typecheck` OK, `docker compose config -q` OK. Not run: any real Ollama, docker, frontend tests.
 
 ## Next step
-PR1 open for review; then T2 (PR2: B5 + B6).
+PR1 = #62. PR2 (B5+B6) open, stacked on PR1 (same env/compose/docs files). Next: T3 (PR3: B8 + B9).
+- PR1 follow-up: native review (3 non-blocking findings) fixed; backend suite 11 s / 369 tests (a never-settling test fake had kept a 300 s timer alive).
+- PR2 (B5+B6): bounded writer (sonnet), RED observed (runner.stop x5, shutdown module missing, ffmpeg timeout/abort/precedence, orchestrator partial-output cleanup x3); parent review: `runOne` assigns `current` synchronously after the queue shift, so `stop()` always reaches the running job. Backend 387/387 in ~12 s, typecheck OK, compose OK. Deviation: the ffmpeg watchdog timer is not `unref`'d (cleared on every exit path). NOT verified: real SIGTERM in Docker (`stop_grace_period` only validated statically), real ffmpeg, real `listen` error.
+- Decisions recorded in Engram: F6 transition policy (#3402), threat model (#3403).
