@@ -1,3 +1,5 @@
+// Current-shape baseline. Kept in TypeScript (not a .sql file) so a plain `tsc` build ships it.
+export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS server_settings (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   comfy_host TEXT NOT NULL DEFAULT '',
@@ -34,3 +36,4 @@ CREATE TABLE IF NOT EXISTS jobs (
   started_at TEXT,
   finished_at TEXT
 );
+`;
