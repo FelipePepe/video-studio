@@ -473,6 +473,57 @@ describe('usePipeline openJob / resume', () => {
     expect(fake.api.getJob).not.toHaveBeenCalled();
   });
 
+  describe('reload right after approve (draft approved, first event not seen yet)', () => {
+    const approvedDraft = { ...fullDraft('d1'), status: 'approved' as const };
+    const arrange = (jobs = [fakeJob({ id: 'jx', draftId: 'other' }), fakeJob({ id: 'j1', draftId: 'd1' }), fakeJob({ id: 'j0', draftId: 'd1' })]) => {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ draftId: 'd1' }));
+      const fake = makeFakeApi();
+      fake.api.getDraft.mockResolvedValue(approvedDraft);
+      fake.api.listJobs.mockResolvedValue(jobs);
+      return fake;
+    };
+
+    it('follows the latest job of the approved draft instead of showing the review panel', async () => {
+      const fake = arrange();
+      const hook = renderHook(() => usePipeline(fake.api));
+      await waitFor(() => expect(fake.api.watchJob).toHaveBeenCalledWith('j1', expect.anything()));
+      expect(hook.result.current.state).toBe('rendering');
+      expect(hook.result.current.jobId).toBe('j1');
+      expect(hook.result.current.draft?.id).toBe('d1');
+    });
+
+    it('falls back to review when the approved draft has no job left', async () => {
+      const fake = arrange([fakeJob({ id: 'jx', draftId: 'other' })]);
+      const hook = renderHook(() => usePipeline(fake.api));
+      await waitFor(() => expect(hook.result.current.state).toBe('review'));
+      expect(fake.api.watchJob).not.toHaveBeenCalled();
+    });
+
+    it('falls back to review when the jobs list cannot be loaded', async () => {
+      const fake = arrange();
+      fake.api.listJobs.mockRejectedValue(new TypeError('Failed to fetch'));
+      const hook = renderHook(() => usePipeline(fake.api));
+      await waitFor(() => expect(hook.result.current.state).toBe('review'));
+    });
+
+    it('lands on failed (draft kept) when the latest job already failed', async () => {
+      const fake = arrange();
+      const hook = renderHook(() => usePipeline(fake.api));
+      await waitFor(() => expect(fake.api.watchJob).toHaveBeenCalled());
+      act(() => fake.watch.emit({ type: 'error', stage: 'images', message: 'ComfyUI OOM' }));
+      expect(hook.result.current.state).toBe('failed');
+      expect(hook.result.current.draft?.id).toBe('d1');
+    });
+  });
+
+  it('does not list jobs when the saved draft is still unapproved', async () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ draftId: 'd1' }));
+    const fake = makeFakeApi();
+    const hook = renderHook(() => usePipeline(fake.api));
+    await waitFor(() => expect(hook.result.current.state).toBe('review'));
+    expect(fake.api.listJobs).not.toHaveBeenCalled();
+  });
+
   it('drops stale storage when the saved draft no longer exists', async () => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ draftId: 'gone' }));
     const fake = makeFakeApi();
