@@ -6,6 +6,7 @@ import { openDatabase } from './db/connection';
 import { logger } from './lib/logger';
 import { makeCrashHandler } from './lib/crashHandler';
 import { makeShutdown } from './lib/shutdown';
+import { cacheConfigFromEnv, resolveCacheDir, startCachePruning } from './pipeline/contentCache';
 import type { JobRunner } from './jobs/runner';
 
 const log = logger.child('server');
@@ -21,6 +22,8 @@ function main(): void {
   const app = buildApp({ db });
   const runner = app.locals.jobRunner as JobRunner;
   runner.start();
+  // B8: TTL/size retention for the content cache; unref'd timer, best-effort.
+  startCachePruning({ dir: resolveCacheDir(), config: cacheConfigFromEnv(), log });
   const server = app.listen(port, host, () => {
     log.info(`backend listening on ${host}:${port}`);
   });
