@@ -50,6 +50,8 @@ export interface Job {
   updatedAt: string;
   startedAt: string | null;
   finishedAt: string | null;
+  /** Non-fatal degradations recorded while the job ran (newest last, capped). Always an array. */
+  warnings: string[];
 }
 
 /** Only `type` and `jobId` are guaranteed; read everything else with optional chaining. */

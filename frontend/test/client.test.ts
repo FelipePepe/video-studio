@@ -63,6 +63,7 @@ describe('listJobs', () => {
     updatedAt: '2026-10-17T10:00:00Z',
     startedAt: null,
     finishedAt: null,
+    warnings: [],
   });
 
   it('GETs /api/jobs and returns the list', async () => {

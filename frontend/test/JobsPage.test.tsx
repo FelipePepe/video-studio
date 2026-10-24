@@ -18,6 +18,7 @@ const job = (over: Partial<Job> = {}): Job => ({
   updatedAt: '2026-10-17T10:05:00.000Z',
   startedAt: '2026-10-17T10:01:00.000Z',
   finishedAt: null,
+  warnings: [],
   ...over,
 });
 
@@ -114,6 +115,27 @@ describe('JobsPage delete', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Eliminar' }));
     await userEvent.click(screen.getByRole('button', { name: '¿Seguro?, eliminar' }));
     expect(await screen.findByText('No se pudo eliminar el trabajo.')).toBeInTheDocument();
+  });
+});
+
+describe('JobsPage warnings (WP5)', () => {
+  const warning = 'transition 2 failed, using a hard cut: ComfyUI rejected the prompt';
+
+  it('lists the persisted warnings on a job that degraded to hard cuts', async () => {
+    const api = makeApi([job({ id: 'jw', status: 'done', progress: 1, warnings: [warning, warning] })]);
+    renderJobs(api);
+    const row = (await screen.findByText('Hecha')).closest('li')!;
+    const box = within(row).getByRole('note');
+    expect(box).toBeInTheDocument();
+    expect(within(row).getByRole('heading', { name: 'Avisos' })).toBeInTheDocument();
+    expect(screen.getAllByText(warning)).toHaveLength(2);
+  });
+
+  it('does not show a warnings section when there are none', async () => {
+    const api = makeApi([job({ id: 'jw2', status: 'done', progress: 1 })]);
+    renderJobs(api);
+    await screen.findByText('Hecha');
+    expect(screen.queryByRole('note')).not.toBeInTheDocument();
   });
 });
 
