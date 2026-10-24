@@ -16,6 +16,7 @@ import {
   retentionJobs,
   updateJob,
   type Clock,
+  type UpdateJobFn,
 } from './jobRepository';
 import { pruneWorkDirs, retentionConfigFromEnv } from './retention';
 import { logger } from '../lib/logger';
@@ -31,6 +32,8 @@ export interface JobRunnerOptions {
   clock?: Clock;
   /** How long the hub keeps a finished job's replay buffer. Default 60 s. */
   clearGraceMs?: number;
+  /** Persister used to persist progress crossings; injectable for counting in tests. */
+  updateJob?: UpdateJobFn;
 }
 
 export const unconfiguredExecute: ExecuteFn = async () => {
@@ -44,6 +47,7 @@ export class JobRunner {
   private readonly execute: ExecuteFn;
   private readonly clock: Clock;
   private readonly clearGraceMs: number;
+  private readonly updateJob: UpdateJobFn;
   private readonly queue: string[] = [];
   private readonly idleWaiters: Array<() => void> = [];
   private current: { id: string; controller: AbortController } | undefined;
@@ -59,6 +63,7 @@ export class JobRunner {
     this.workDir = opts.workDir;
     this.clock = opts.clock ?? (() => new Date());
     this.clearGraceMs = opts.clearGraceMs ?? 60_000;
+    this.updateJob = opts.updateJob ?? updateJob;
   }
 
   start(): void {
@@ -174,13 +179,25 @@ export class JobRunner {
       const workDir = join(this.workDir, id);
       mkdirSync(workDir, { recursive: true });
       log.info('job started', { jobId: id, draftId: job.draftId, workDir });
+      let lastPersistedStage: string | undefined = job.stage;
+      let lastPersistedProgress: number | null = job.progress;
       const ctx: JobContext = {
         signal: controller.signal,
         workDir,
         emit: (partial) => {
           if (settled) return;
-          if (partial.stage !== undefined || partial.progress !== undefined) {
-            updateJob(this.db, id, { stage: partial.stage, progress: partial.progress }, this.clock);
+          // P3: a progress tick per ComfyUI sampler step used to be one UPDATE even when the value
+          // was unchanged; persist only a stage change or a >=1% progress move (or reaching 1).
+          const stageChanged = partial.stage !== undefined && partial.stage !== lastPersistedStage;
+          const crossed = partial.progress !== undefined &&
+            (lastPersistedProgress === null || Math.abs(partial.progress - lastPersistedProgress) >= 0.01 || partial.progress === 1);
+          if (stageChanged || crossed) {
+            this.updateJob(this.db, id, {
+              stage: partial.stage ?? lastPersistedStage,
+              progress: (partial.progress ?? lastPersistedProgress) as number | undefined,
+            }, this.clock);
+            lastPersistedStage = partial.stage ?? lastPersistedStage;
+            lastPersistedProgress = partial.progress ?? lastPersistedProgress;
           }
           if (partial.warning && partial.message) addJobWarning(this.db, id, partial.message, this.clock);
           this.publish({ ...partial, jobId: id });

@@ -25,15 +25,15 @@ test('verticalCropArgs center-crops 16:9 to 9:16 and re-encodes at 720x1280', ()
   assert.deepEqual(verticalCropArgs({ input: 'in.mp4', out: 'out.mp4' }), [
     '-i', 'in.mp4',
     '-vf', 'crop=ih*9/16:ih,scale=720:1280',
-    '-c:v', 'libx264', '-crf', '19', '-pix_fmt', 'yuv420p',
+    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '19', '-pix_fmt', 'yuv420p',
     '-c:a', 'copy',
     'out.mp4',
   ]);
 });
 
-test('coverArgs extracts one frame at the given time', () => {
+test('coverArgs extracts one frame at the given time (fast seek before the input)', () => {
   assert.deepEqual(coverArgs({ input: 'in.mp4', atSec: 1.25, out: 'cover.jpg' }), [
-    '-i', 'in.mp4', '-ss', '1.25', '-frames:v', '1', '-q:v', '3', 'cover.jpg',
+    '-ss', '1.25', '-i', 'in.mp4', '-frames:v', '1', '-q:v', '3', 'cover.jpg',
   ]);
 });
 
@@ -85,8 +85,9 @@ test('vertical on: crops final.mp4 to final_v.mp4 and always extracts cover.jpg 
   assert.match(crop[3], /crop=.*scale=720:1280/);
   assert.equal(crop[crop.length - 1], join(h.workDir, 'final_v.mp4'));
   const cover = tail[1];
-  assert.equal(cover[1], join(h.workDir, 'final.mp4'));
-  assert.match(cover[cover.indexOf('-ss') + 1], /^\d+(\.\d+)?$/);
+  assert.equal(cover[0], '-ss', 'input-side fast seek');
+  assert.equal(cover[3], join(h.workDir, 'final.mp4'));
+  assert.match(cover[1], /^\d+(\.\d+)?$/);
   assert.equal(cover[cover.length - 1], join(h.workDir, 'cover.jpg'));
   assert.equal(readBack(join(h.workDir, 'final_v.mp4')), 'out:final_v.mp4');
   assert.equal(readBack(join(h.workDir, 'cover.jpg')), 'out:cover.jpg');
@@ -101,23 +102,23 @@ test('vertical off (default) still extracts cover.jpg but never crops', async ()
   assert.ok(!h.calls.some((a) => a.includes('final_v.mp4')));
 });
 
-test('vertical + subtitles: 16:9 burn(final), then crop the sub-free base and burn 9:16 subs (never clipped)', async () => {
+test('vertical + subtitles: 16:9 burn(final), then ONE chained crop+scale+subtitles pass for 9:16 (never clipped)', async () => {
   const h = vHarness({ vertical: true });
   const ctx = { signal: new AbortController().signal, workDir: h.workDir, emit: () => {} };
   await h.execute(h.job, ctx);
-  const tail = h.calls.slice(-4);
-  assert.equal(tail.length, 4, 'burn(16:9) + crop(base) + burn(9:16) + cover');
+  const tail = h.calls.slice(-3);
+  assert.equal(tail.length, 3, 'burn(16:9) + chained vertical(9:16) + cover');
   assert.match(tail[0][tail[0].indexOf('-vf') + 1], /^subtitles=/);
   assert.equal(tail[0][tail[0].length - 1], join(h.workDir, 'final.mp4'), '16:9 master still final.mp4');
   assert.equal(tail[0][1], join(h.workDir, 'muxed.mp4'), '16:9 burn reads the sub-free base');
-  assert.equal(tail[1][1], join(h.workDir, 'muxed.mp4'), 'vertical crop reads the sub-free base, NOT the burned master');
-  assert.equal(tail[1][tail[1].length - 1], join(h.workDir, 'base_v.mp4'));
-  const vsub = tail[2][tail[2].indexOf('-vf') + 1];
-  assert.match(vsub, /^subtitles=/);
+  const vsub = tail[1][tail[1].indexOf('-vf') + 1];
+  assert.match(vsub, /^crop=ih\*9\/16:ih,scale=720:1280,subtitles=/, 'one chained filter, not two encodes');
   assert.match(vsub, /force_style=/, '9:16 subtitles use a portrait-tuned force_style');
-  assert.equal(tail[2][tail[2].length - 1], join(h.workDir, 'final_v.mp4'));
-  assert.equal(tail[3][1], join(h.workDir, 'muxed.mp4'), 'cover from the sub-free base (no burned subs)');
-  assert.equal(tail[3][tail[3].length - 1], join(h.workDir, 'cover.jpg'));
+  assert.equal(tail[1][1], join(h.workDir, 'muxed.mp4'), 'vertical pass reads the sub-free base, NOT the burned master');
+  assert.equal(tail[1][tail[1].length - 1], join(h.workDir, 'final_v.mp4'));
+  assert.ok(!h.calls.some((a) => a[a.length - 1] === join(h.workDir, 'base_v.mp4')), 'no intermediate base_v re-encode');
+  assert.equal(tail[2][0], '-ss', 'cover fast-seeks on the input side');
+  assert.equal(tail[2][tail[2].length - 1], join(h.workDir, 'cover.jpg'));
 });
 
 const readBack = (p: string) => readFileSync(p, 'utf8');
