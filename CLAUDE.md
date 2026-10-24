@@ -16,6 +16,7 @@ pnpm test                 # all workspaces (backend: node:test via tsx, frontend
 pnpm typecheck
 pnpm --filter @video-studio/backend dev     # backend on :3001 (tsx watch)
 pnpm --filter @video-studio/frontend dev    # Vite; proxies /api -> localhost:3001
+docker compose up -d --build                # backend + nginx web on :20014 (see README "Docker")
 
 # single test
 cd backend && node --test --import tsx test/orchestrator.test.ts
