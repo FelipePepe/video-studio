@@ -105,7 +105,8 @@ export function usePipeline(api: PipelineApi): UsePipeline {
   const draftRef = useRef<DraftCreated | null>(null);
   const activeStage = useRef<StageId | null>(null);
   const terminal = useRef(false);
-  // Bumped per openJob() so only the latest open wins while earlier ones are still loading.
+  // Bumped by openJob() and by every action that claims the view (createDraft, startRun, reset), so a
+  // job load that resolves late can never override what the user did in the meantime.
   const openSeq = useRef(0);
   // True until the saved session (if any) has been re-opened; keeps the persist effect from wiping it.
   const restoring = useRef(false);
@@ -135,6 +136,7 @@ export function usePipeline(api: PipelineApi): UsePipeline {
   const createDraft = useCallback(
     async (req: DraftRequest) => {
       if (stateRef.current !== 'idle') return;
+      openSeq.current += 1;
       setError(null);
       setState('drafting');
       try {
@@ -239,6 +241,7 @@ export function usePipeline(api: PipelineApi): UsePipeline {
   /** Claims the pipeline view for a new stream: aborts the previous one and resets progress state. */
   const startRun = useCallback(() => {
     controller.current?.abort();
+    openSeq.current += 1;
     const run = ++runId.current;
     const ctrl = new AbortController();
     controller.current = ctrl;
@@ -395,7 +398,11 @@ export function usePipeline(api: PipelineApi): UsePipeline {
         // Stale session (draft deleted, server down): fall through to the empty view.
       } finally {
         restoring.current = false;
-        if (!ok && !cancelled) writeStored(null);
+        if (!ok && !cancelled) {
+          writeStored(null);
+          // An automatic restore that finds nothing must not leave an error the user never triggered.
+          if (stateRef.current === 'idle') setError(null);
+        }
       }
     })();
     return () => {
@@ -429,6 +436,7 @@ export function usePipeline(api: PipelineApi): UsePipeline {
 
   const reset = useCallback(() => {
     runId.current += 1;
+    openSeq.current += 1;
     controller.current?.abort();
     controller.current = null;
     draftRef.current = null;

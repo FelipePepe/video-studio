@@ -539,3 +539,83 @@ describe('usePipeline openJob / resume', () => {
     expect(hook.result.current.state).toBe('idle');
   });
 });
+
+describe('usePipeline stale loads never override the user', () => {
+  /** getJob that stays pending until the test releases it. */
+  function deferredJob(fake = makeFakeApi()) {
+    let release: () => void = () => {};
+    fake.api.getJob.mockImplementation(
+      (id: string) => new Promise((resolve) => (release = () => resolve(fakeJob({ id, draftId: 'd7' })))),
+    );
+    return { fake, release: () => release() };
+  }
+
+  it('drops a pending openJob after reset()', async () => {
+    const { fake, release } = deferredJob();
+    const hook = renderHook(() => usePipeline(fake.api));
+    act(() => {
+      void hook.result.current.openJob('j7');
+    });
+    act(() => hook.result.current.reset());
+    await act(async () => release());
+    expect(hook.result.current.state).toBe('idle');
+    expect(hook.result.current.draft).toBeNull();
+    expect(fake.api.watchJob).not.toHaveBeenCalled();
+  });
+
+  it('does not abort a render approved while openJob was still loading', async () => {
+    const { fake, hook } = await toReview();
+    const { release } = deferredJob(fake);
+    act(() => {
+      void hook.result.current.openJob('j7');
+    });
+    act(() => {
+      void hook.result.current.approve();
+    });
+    const approveSignal = fake.signal;
+    await act(async () => release());
+    expect(fake.api.watchJob).not.toHaveBeenCalled();
+    expect(hook.result.current.draft?.id).toBe('d1');
+    expect(approveSignal?.aborted).toBe(false);
+    expect(hook.result.current.state).toBe('rendering');
+  });
+
+  it('does not hijack a draft being created while openJob was still loading', async () => {
+    const { fake, release } = deferredJob();
+    const hook = renderHook(() => usePipeline(fake.api));
+    act(() => {
+      void hook.result.current.openJob('j7');
+    });
+    await act(async () => {
+      await hook.result.current.createDraft({ url: 'https://x.test/a' });
+    });
+    await act(async () => release());
+    expect(fake.api.watchJob).not.toHaveBeenCalled();
+    expect(hook.result.current.state).toBe('review');
+    expect(hook.result.current.draft?.id).toBe('d1');
+  });
+
+  it('a user action during a pending restore wins over the saved job', async () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ draftId: 'd7', jobId: 'j7' }));
+    const { fake, release } = deferredJob();
+    const hook = renderHook(() => usePipeline(fake.api));
+    act(() => hook.result.current.reset());
+    await act(async () => release());
+    expect(fake.api.watchJob).not.toHaveBeenCalled();
+    expect(hook.result.current.state).toBe('idle');
+    await waitFor(() => expect(localStorage.getItem(STORAGE_KEY)).toBeNull());
+  });
+
+  it('restoring a saved job that was deleted clears storage and stays idle without an error', async () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ draftId: 'd1', jobId: 'gone' }));
+    const fake = makeFakeApi();
+    fake.api.getJob.mockRejectedValue(new ApiError(404, 'Job not found'));
+    const hook = renderHook(() => usePipeline(fake.api));
+    await waitFor(() => expect(localStorage.getItem(STORAGE_KEY)).toBeNull());
+    expect(hook.result.current.state).toBe('idle');
+    expect(hook.result.current.error).toBeNull();
+    expect(hook.result.current.draft).toBeNull();
+    expect(fake.api.getDraft).not.toHaveBeenCalled();
+    expect(fake.api.watchJob).not.toHaveBeenCalled();
+  });
+});
