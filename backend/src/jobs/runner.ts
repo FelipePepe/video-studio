@@ -48,6 +48,8 @@ export class JobRunner {
   private current: { id: string; controller: AbortController } | undefined;
   private started = false;
   private draining = false;
+  private stopping = false;
+  private stopPromise: Promise<void> | undefined;
 
   constructor(opts: JobRunnerOptions) {
     this.db = opts.db;
@@ -107,19 +109,35 @@ export class JobRunner {
     return false;
   }
 
+  /**
+   * Graceful shutdown: starts no further job, aborts the running one (the orchestrator then kills
+   * ffmpeg and cancels the ComfyUI prompt, so the job ends `cancelled`) and resolves once idle.
+   * Jobs still queued stay `queued` in the DB; `start()` marks them failed on the next boot.
+   * Idempotent and never throws.
+   */
+  stop(): Promise<void> {
+    if (!this.stopPromise) {
+      this.stopping = true;
+      this.current?.controller.abort();
+      this.stopPromise = this.idle().catch(() => undefined);
+    }
+    return this.stopPromise;
+  }
+
   idle(): Promise<void> {
-    if (!this.draining && this.queue.length === 0) return Promise.resolve();
+    if (!this.draining && (this.stopping || this.queue.length === 0)) return Promise.resolve();
     return new Promise((resolve) => this.idleWaiters.push(resolve));
   }
 
   private kick(): void {
-    if (!this.started || this.draining) return;
+    if (!this.started || this.draining || this.stopping) return;
     this.draining = true;
     void this.drain();
   }
 
   private async drain(): Promise<void> {
     for (;;) {
+      if (this.stopping) break;
       const id = this.queue.shift();
       if (!id) break;
       try {
