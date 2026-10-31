@@ -25,11 +25,12 @@ Two original felt-puppet presenters (A/B, from the dialogue `speaker` of phase 2
 - [x] T14 orchestrator stage `presenters` (overlay on video.mp4 inside assemble, cumulative-rounded bounds) — 11 new tests green, typecheck green
 - [x] T15 character store + routes (/api/characters, migration v4, createPresenterAssets) — 19 new tests, backend 553 green, typecheck green
 - [x] T16 UI (PresenterSetup + render option + presenters stage, ES/EN) — frontend 265 green, typecheck green; usePipeline/ProgressStages tests written without a captured RED run
-- [ ] Real render with presenters, ffprobe, frame check, browser check of the UI
+- [ ] Real render with presenters, ffprobe, frame check, browser check of the UI — IN PROGRESS 2026-10-31: job eff174be (draft 0a190e4b, 6 scenes, Ana=A ae6242e2 / Leo=B 57f21c48, hosts from /api/config) started 21:36 local; stills ~4.5 min each; then transitions, presenters, assemble. Output in `backend/data/jobs/eff174be-8074-4cff-95b2-9b273d0ac17b/`. Check: ffprobe duration/frames vs cumulative bounds (T14 drift risk), one frame with both presenters. UI browser check still pending.
 - [ ] PR to `develop`
 - [ ] 3B lip-sync spike — BLOCKED (needs user authorization for destination, operation, credential)
 
 ## Evidence and decisions
+- Real ffmpeg found what fakes could not (3f92d5b): `alphaextract` needs `format=yuva420p` before it and `cropdetect` needs `skip=0` for a 1-frame input. Sampled key colours on real characters: 0x3ad637, 0xa3dd09.
 - One image per character; mouth = lower jaw dropped by ffmpeg (closed 0 / mid 0.5 / open 1 of `drop`), a darkened copy of the image shows through the gap as the mouth interior. Three separate generations would not keep identity.
 - Real run on three scenes of the last render: composition, voices and audio sync work; presenters were tiny because the character fills ~1/3 of the generated image -> crop to bbox (T11c/T15a).
 - Chroma key: ComfyUI's "green" is not #00FF00 (0x1e941b, 0x70dd48). The key colour must be sampled from the image corner; `chromakey` similarity 0.06 / blend 0.02 keeps eyes, nose and green lashes, 0.22 destroys them.
