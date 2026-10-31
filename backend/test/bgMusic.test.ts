@@ -212,6 +212,43 @@ test('approve rejects out-of-range or wrong-typed musicVolume and unknown keys',
   }
 });
 
+test('approve accepts presenters (character ids, mode volume) and persists them', async () => {
+  const app = setup();
+  const id = await draftId(app);
+  const presenters = { mode: 'volume', a: 'ana', b: 'leo' };
+  const res = await request(app).post(`/api/pipeline/draft/${id}/approve`).set('Accept', 'application/json').send({ presenters });
+  assert.equal(res.status, 202, res.text);
+  const job = await request(app).get(`/api/jobs/${res.body.jobId}`);
+  assert.deepEqual(job.body.options?.presenters, presenters);
+});
+
+test('approve rejects invalid presenters with exact messages', async () => {
+  const app = setup();
+  const cases: Array<[unknown, string]> = [
+    ['x', 'presenters must be an object'],
+    [null, 'presenters must be an object'],
+    [['a'], 'presenters must be an object'],
+    [{ mode: 'volume', a: 'ana', b: 'leo', extra: 1 }, 'Unknown presenters option: extra'],
+    [{ mode: 'lipsync', a: 'ana', b: 'leo' }, 'presenters.mode "lipsync" is not available yet'],
+    [{ mode: 'other', a: 'ana', b: 'leo' }, 'presenters.mode must be "volume"'],
+    [{ a: 'ana', b: 'leo' }, 'presenters.mode must be "volume"'],
+    [{ mode: 'volume', b: 'leo' }, 'presenters.a must be a character id'],
+    [{ mode: 'volume', a: '../etc', b: 'leo' }, 'presenters.a must be a character id'],
+    [{ mode: 'volume', a: 'ana', b: 5 }, 'presenters.b must be a character id'],
+    [{ mode: 'volume', a: 'ana', b: 'ana' }, 'presenters a and b must be different characters'],
+  ];
+  for (const [presenters, message] of cases) {
+    const id = await draftId(app);
+    const res = await request(app).post(`/api/pipeline/draft/${id}/approve`).set('Accept', 'application/json').send({ presenters });
+    assert.equal(res.status, 400, JSON.stringify(presenters));
+    assert.equal(res.body.error, message, JSON.stringify(presenters));
+  }
+  const id = await draftId(app);
+  const unknown = await request(app).post(`/api/pipeline/draft/${id}/approve`).set('Accept', 'application/json').send({ nope: 1 });
+  assert.equal(unknown.status, 400);
+  assert.equal(unknown.body.error, 'Unknown approve option: nope');
+});
+
 test('existing jobs DBs without an options column are migrated', () => {
   const dir = mkdtempSync(join(tmpdir(), 'vs-music-m-'));
   dirs.push(dir);
