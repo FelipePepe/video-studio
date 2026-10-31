@@ -20,7 +20,7 @@ Two original felt-puppet presenters (A/B, from the dialogue `speaker` of phase 2
 - [x] T11b clip frame-exact (`-frames:v`) — `5a0c05f`
 - [x] T12 overlay A bottom-left / B bottom-right, one x264 pass — `516b539`
 - [x] T11c sprite crop to the character box, key defaults 0.06 / 0.02 — `edd02f2`
-- [ ] T15a character analysis (key colour from the corner pixel + bbox via cropdetect) — running in pi, not yet reviewed
+- [x] T15a character analysis (key colour from the corner pixel + bbox via cropdetect) — 23 tests green, typecheck green
 - [ ] T13 approve option `presenters: { mode: 'volume', a, b }` (character ids) — brief written, not launched
 - [ ] T14 orchestrator stage `presenters` between tts and assemble (cumulative-rounded frame boundaries, no drift) — brief not written
 - [ ] T15 character store + routes (generate with the 1-frame T2V still workflow on green background, approve, reuse; store key colour/crop/mouthY in meta) — brief not written
