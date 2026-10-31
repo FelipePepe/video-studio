@@ -16,6 +16,7 @@ import {
   muxAudioArgs,
   burnSubtitlesArgs,
   verticalCropArgs,
+  verticalBurnSubtitlesArgs,
   coverArgs,
   normalizeClipArgs,
   runFfmpeg,
@@ -367,15 +368,13 @@ async function executeAssemble(s: Shared, tts: TTSResult, stills: StillsResult, 
     deliverable = finalPath;
   }
 
-  // C) Vertical 9:16 variant: crop the SUBTITLE-FREE base first, then (only if subtitles are
-  //    on) burn them in a 9:16-appropriate style. The crop therefore never clips the subtitles
-  //    because they are applied to the already-cropped portrait frame. (fix: vertical subs)
+  // C) Vertical 9:16 variant: crop + (if subtitles are on) burn them in a 9:16-appropriate style
+  //    in ONE x264 pass, so the subtitles are applied to the already-cropped portrait frame
+  //    without an intermediate re-encode. (fix: vertical subs + one-pass render)
   if (job.options?.vertical) {
     const finalV = join(workDir, 'final_v.mp4');
     if (subtitlesOn) {
-      const baseV = join(workDir, 'base_v.mp4');
-      await run(verticalCropArgs({ input: basePath, out: baseV }));
-      await run(burnSubtitlesArgs({ input: baseV, srt: join(workDir, 'subtitles.srt'), out: finalV, style: VERTICAL_SUB_STYLE }));
+      await run(verticalBurnSubtitlesArgs({ input: basePath, srt: join(workDir, 'subtitles.srt'), out: finalV, style: VERTICAL_SUB_STYLE }));
     } else {
       await run(verticalCropArgs({ input: basePath, out: finalV }));
     }

@@ -53,7 +53,7 @@ test('burnSubtitlesArgs re-encodes with the subtitles filter and copy audio', ()
   assert.deepEqual(args, [
     '-i', 'in.mp4',
     '-vf', `subtitles=${path.replace(/\\/g, '\\\\').replace(/:/g, '\\:')}`,
-    '-c:v', 'libx264', '-crf', '19', '-pix_fmt', 'yuv420p',
+    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '19', '-pix_fmt', 'yuv420p',
     '-c:a', 'copy',
     'out.mp4',
   ]);

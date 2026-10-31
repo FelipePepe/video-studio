@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openDatabase } from '../src/db/connection';
 import { createDraft } from '../src/pipeline/draftRepository';
-import { createJob, getJob, markRunning } from '../src/jobs/jobRepository';
+import { createJob, getJob, markRunning, updateJob, type UpdateJobFn } from '../src/jobs/jobRepository';
 import { EventHub } from '../src/jobs/eventHub';
 import { JobRunner } from '../src/jobs/runner';
 import type { ExecuteFn, JobEvent } from '../src/jobs/types';
@@ -15,7 +15,7 @@ afterEach(() => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 
-function setup(execute: ExecuteFn) {
+function setup(execute: ExecuteFn, opts: { updateJob?: UpdateJobFn } = {}) {
   const workDir = mkdtempSync(join(tmpdir(), 'vs-runner-'));
   dirs.push(workDir);
   const db = openDatabase(':memory:');
@@ -29,7 +29,7 @@ function setup(execute: ExecuteFn) {
     escaleta: [],
   });
   const hub = new EventHub();
-  const runner = new JobRunner({ db, hub, execute, workDir, clearGraceMs: 0 });
+  const runner = new JobRunner({ db, hub, execute, workDir, clearGraceMs: 0, updateJob: opts.updateJob });
   return { db, hub, runner, workDir, draftId: draft.id };
 }
 
@@ -306,4 +306,37 @@ test('F6: a warning emitted through ctx.emit is persisted on the job', async () 
   const job = runner.enqueue(draftId);
   await runner.idle();
   assert.deepEqual(getJob(db, job.id)?.warnings, ['transition 0 failed, using a hard cut: x']);
+});
+
+test('P3: sub-percentage progress ticks on the same stage are not persisted one-by-one', async () => {
+  let persists = 0;
+  const counting: UpdateJobFn = (db, id, patch, clock) => { persists++; return updateJob(db, id, patch, clock); };
+  const { runner, db, draftId } = setup(async (_job, ctx) => {
+    ctx.emit({ type: 'progress', stage: 'images', progress: 0.3 });
+    for (let i = 1; i <= 40; i++) {
+      ctx.emit({ type: 'progress', stage: 'images', progress: 0.3 + i / 1000 });
+    }
+    return { outputPath: join(ctx.workDir, 'o.mp4') };
+  }, { updateJob: counting });
+  runner.start();
+  const job = runner.enqueue(draftId);
+  await runner.idle();
+  assert.equal(getJob(db, job.id)?.status, 'done');
+  // 41 same-stage ticks each moving 0.1% must NOT persist one-by-one: it may only persist a
+  // crossing of >=1% (or a stage change). 0.30 -> 0.34 can cross at most ~5 times, far fewer
+  // than 41. We assert the real invariant: a strict upper bound well under the tick count.
+  assert.ok(persists < 41, 'ticks must not persist one-per-tick, got ' + persists);
+  assert.ok(persists <= 6, '41 same-stage ticks should persist at most the >=1% crossings; got ' + persists);
+});
+
+test('P3: a stage change is always persisted even without a progress crossing', async () => {
+  const { runner, db, draftId } = setup(async (_job, ctx) => {
+    ctx.emit({ type: 'progress', stage: 'images', progress: 0.1 } as Parameters<typeof ctx.emit>[0]);
+    ctx.emit({ type: 'progress', stage: 'transitions', progress: 0.1005 } as Parameters<typeof ctx.emit>[0]);
+    return { outputPath: join(ctx.workDir, 'o.mp4') };
+  });
+  runner.start();
+  const job = runner.enqueue(draftId);
+  await runner.idle();
+  assert.equal(getJob(db, job.id)?.stage, 'transitions');
 });

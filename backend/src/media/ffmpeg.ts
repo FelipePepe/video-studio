@@ -195,13 +195,11 @@ function escapeFilterPath(p: string): string {
 
 /** Re-encodes the video stream to burn a subtitle track (SRT) in; audio is copied. */
 export function burnSubtitlesArgs(o: { input: string; srt: string; out: string; style?: string }): string[] {
-  const vf = o.style
-    ? `subtitles=${escapeFilterPath(o.srt)}:force_style='${o.style.replace(/'/g, '')}'`
-    : `subtitles=${escapeFilterPath(o.srt)}`;
+  const vf = subtitleFilter(o.srt, o.style);
   return [
     '-i', o.input,
     '-vf', vf,
-    '-c:v', 'libx264', '-crf', '19', '-pix_fmt', 'yuv420p',
+    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '19', '-pix_fmt', 'yuv420p',
     '-c:a', 'copy',
     o.out,
   ];
@@ -212,16 +210,36 @@ export function verticalCropArgs(o: { input: string; out: string }): string[] {
   return [
     '-i', o.input,
     '-vf', 'crop=ih*9/16:ih,scale=720:1280',
-    '-c:v', 'libx264', '-crf', '19', '-pix_fmt', 'yuv420p',
+    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '19', '-pix_fmt', 'yuv420p',
     '-c:a', 'copy',
     o.out,
   ];
 }
 
-/** Extracts a single frame (JPEG cover) at the given timestamp. */
+/**
+ * Vertical 9:16 output with burned subtitles in a SINGLE x264 pass (crop + scale + subtitles
+ * chained in one -vf), instead of cropping and then burning as two re-encodes. Audio copied.
+ */
+export function verticalBurnSubtitlesArgs(o: { input: string; srt: string; out: string; style?: string }): string[] {
+  return [
+    '-i', o.input,
+    '-vf', `crop=ih*9/16:ih,scale=720:1280,${subtitleFilter(o.srt, o.style)}`,
+    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '19', '-pix_fmt', 'yuv420p',
+    '-c:a', 'copy',
+    o.out,
+  ];
+}
+
+function subtitleFilter(srt: string, style?: string): string {
+  return style
+    ? `subtitles=${escapeFilterPath(srt)}:force_style='${style.replace(/'/g, '')}'`
+    : `subtitles=${escapeFilterPath(srt)}`;
+}
+
+/** Extracts a single frame (JPEG cover) at the given timestamp; input-side -ss fast-seeks. */
 export function coverArgs(o: { input: string; atSec: number; out: string }): string[] {
   if (!Number.isFinite(o.atSec) || o.atSec < 0) throw new Error('coverArgs: atSec must be a non-negative number');
-  return ['-i', o.input, '-ss', String(o.atSec), '-frames:v', '1', '-q:v', '3', o.out];
+  return ['-ss', String(o.atSec), '-i', o.input, '-frames:v', '1', '-q:v', '3', o.out];
 }
 
 export interface NormalizeClipOptions {

@@ -9,12 +9,14 @@ import {
   buildConcatList,
   burnSubtitlesArgs,
   concatArgs,
+  coverArgs,
   extractFrameArgs,
   kenBurnsArgs,
   muxAudioArgs,
   normalizeClipArgs,
   runFfmpeg,
   verticalCropArgs,
+  verticalBurnSubtitlesArgs,
   xfadeArgs,
 } from '../src/media/ffmpeg';
 
@@ -155,6 +157,31 @@ test('extractFrameArgs grabs the first frame', () => {
   assert.deepEqual(extractFrameArgs({ video: 'a.mp4', out: 'a.png' }), ['-i', 'a.mp4', '-frames:v', '1', 'a.png']);
 });
 
+test('coverArgs fast-seeks on the input side', () => {
+  const args = coverArgs({ input: 'a.mp4', atSec: 12.5, out: 'cover.jpg' });
+  assert.deepEqual(args, ['-ss', '12.5', '-i', 'a.mp4', '-frames:v', '1', '-q:v', '3', 'cover.jpg']);
+  assert.throws(() => coverArgs({ input: 'a.mp4', atSec: -1, out: 'c.jpg' }), /non-negative/);
+});
+
+test('verticalBurnSubtitlesArgs folds crop + scale + subtitles into a single encode', () => {
+  assert.deepEqual(verticalBurnSubtitlesArgs({ input: 'v.mp4', srt: 'sub.srt', out: 'out.mp4' }), [
+    '-i', 'v.mp4',
+    '-vf', 'crop=ih*9/16:ih,scale=720:1280,subtitles=sub.srt',
+    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '19', '-pix_fmt', 'yuv420p',
+    '-c:a', 'copy',
+    'out.mp4',
+  ]);
+});
+
+test('verticalBurnSubtitlesArgs sanitizes the force style and escapes the SRT path', () => {
+  const args = verticalBurnSubtitlesArgs({ input: 'v.mp4', srt: "c:\\vid\\sub.srt", out: 'out.mp4', style: "Fontname=Arial, Fontsize='20'" });
+  const vf = args[args.indexOf('-vf') + 1];
+  assert.ok(vf.startsWith('crop=ih*9/16:ih,scale=720:1280,subtitles='), 'filter chain order');
+  assert.ok(vf.includes('subtitles=c\\:\\\\vid\\\\sub.srt'), 'backslash and drive-colon escaping');
+  assert.ok(vf.includes("force_style='Fontname=Arial, Fontsize=20'"), 'quotes stripped from force_style');
+  assert.ok(!vf.includes("''"), 'no double-quote artifacts');
+});
+
 test('normalizeClipArgs re-encodes to the shared stream parameters', () => {
   const args = normalizeClipArgs({ input: 't.mp4', out: 'n.mp4' });
   assert.deepEqual(args, [
@@ -165,11 +192,12 @@ test('normalizeClipArgs re-encodes to the shared stream parameters', () => {
   assert.match(normalizeClipArgs({ input: 'a', out: 'b', width: 640, height: 360, fps: 30 }).join(' '), /scale=640:360.*pad=640:360.*fps=30/);
 });
 
-test('fast preset on intermediate clips, not on the quality-final encodes', () => {
+test('fast preset on every re-encode so vertical + subtitles stays one pass', () => {
   assert.ok(kenBurnsArgs({ image: 'i', durationSec: 1, out: 'o' }).includes('veryfast'), 'kenBurns veryfast');
   assert.ok(normalizeClipArgs({ input: 'i', out: 'o' }).includes('veryfast'), 'normalizeClip veryfast');
-  assert.ok(!burnSubtitlesArgs({ input: 'i', srt: 's.srt', out: 'o' }).includes('veryfast'), 'final burn keeps quality');
-  assert.ok(!verticalCropArgs({ input: 'i', out: 'o' }).includes('veryfast'), 'final crop keeps quality');
+  assert.ok(burnSubtitlesArgs({ input: 'i', srt: 's.srt', out: 'o' }).includes('veryfast'), 'burn veryfast');
+  assert.ok(verticalCropArgs({ input: 'i', out: 'o' }).includes('veryfast'), 'crop veryfast');
+  assert.ok(verticalBurnSubtitlesArgs({ input: 'i', srt: 's.srt', out: 'o' }).includes('veryfast'), 'chained vertical+subtitles veryfast');
 });
 
 /** A child that never exits on its own: it closes only after `kill` is called. */
