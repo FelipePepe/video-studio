@@ -135,6 +135,16 @@ describe('SegmentEditor', () => {
     expect((spy.mock.lastCall![0] as Scene[])[1]).toMatchObject({ speaker: 'A', voice: 'es_ES-anita' });
   });
 
+  it('without speakerVoices, infers each speaker\'s voice from the scenes that already have it', async () => {
+    const { spy, user } = setup([
+      scene(1, { speaker: 'A', voice: 'es_ES-anita' }),
+      scene(2, { speaker: 'B', voice: 'es_ES-pepe' }),
+      scene(3, { speaker: 'A', voice: 'es_ES-anita' }),
+    ]);
+    await user.selectOptions(within(card(3)).getByLabelText('Orador'), 'B');
+    expect((spy.mock.lastCall![0] as Scene[])[2]).toMatchObject({ speaker: 'B', voice: 'es_ES-pepe' });
+  });
+
   it('adds a new scene below with the speaker flipped from the scene above', async () => {
     const { spy, user } = setup([scene(1, { speaker: 'A', voice: 'male' }), scene(2, { speaker: 'B', voice: 'female' })], speakerVoices);
     await user.click(within(card(1)).getByRole('button', { name: 'Añadir escena debajo de la escena 1' }));

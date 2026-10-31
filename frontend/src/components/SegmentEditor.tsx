@@ -27,7 +27,7 @@ export function SegmentEditor({
   scenes,
   onChange,
   voices: voiceOptions,
-  speakerVoices = { A: 'male', B: 'female' },
+  speakerVoices: speakerVoicesProp,
 }: SegmentEditorProps) {
   const { t } = useI18n();
   const baseId = useId();
@@ -40,6 +40,13 @@ export function SegmentEditor({
 
   // Dialogue drafts carry a speaker per scene; once any scene has one, every scene exposes the speaker select.
   const hasSpeakers = scenes.some((s) => s.speaker !== undefined);
+
+  // The draft's voiceA/voiceB are not known here, so unless the caller says otherwise each speaker
+  // reuses the voice of the first scene that already has it, falling back to the male/female roles.
+  const speakerVoices: Record<Speaker, string> = speakerVoicesProp ?? {
+    A: scenes.find((s) => s.speaker === 'A')?.voice ?? 'male',
+    B: scenes.find((s) => s.speaker === 'B')?.voice ?? 'female',
+  };
 
   const flip = (s: Speaker): Speaker => (s === 'A' ? 'B' : 'A');
 
