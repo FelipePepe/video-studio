@@ -1,6 +1,6 @@
 # wp7-lifecycle-disk-hygiene
 
-**Status:** in progress · **Updated:** 2026-10-24
+**Status:** implemented, PRs open (#62, #63, PR3) · **Updated:** 2026-10-24
 **Repo:** `/mnt/nas/sources/ai-tools/video-studio/` · **Plan:** `docs/plan-mejoras-optimizacion.md` WP7 (B4, B5, B6, B8, B9)
 **Engram mirror:** `odd/wp7-lifecycle-disk-hygiene/tasks` (project video-studio, saved with `engram save`)
 
@@ -22,7 +22,7 @@ Per PR: tests+code delegated to ONE bounded writer (sonnet) with an exact spec (
 ## Tasks
 - [x] **T1** PR1 / B4 — tests RED then code (ollama.ts, draft.ts, routes/pipeline.ts, routes/ollamaModels.ts) + env docs
 - [x] **T2** PR2 / B5 + B6 — tests RED then code (runner.stop, lib/shutdown.ts, server.ts, ffmpeg.ts, orchestrator run wrapper, compose)
-- [ ] **T3** PR3 / B8 + B9 (after PR1/PR2)
+- [x] **T3** PR3 / B8 + B9
 
 ## Acceptance
 Backend `pnpm test` + `pnpm typecheck` green; every new test observed RED first; PR bodies state what was NOT verified (real SIGTERM in Docker, real Ollama timeout).
@@ -35,3 +35,5 @@ PR1 = #62. PR2 (B5+B6) open, stacked on PR1 (same env/compose/docs files). Next:
 - PR1 follow-up: native review (3 non-blocking findings) fixed; backend suite 11 s / 369 tests (a never-settling test fake had kept a 300 s timer alive).
 - PR2 (B5+B6): bounded writer (sonnet), RED observed (runner.stop x5, shutdown module missing, ffmpeg timeout/abort/precedence, orchestrator partial-output cleanup x3); parent review: `runOne` assigns `current` synchronously after the queue shift, so `stop()` always reaches the running job. Backend 387/387 in ~12 s, typecheck OK, compose OK. Deviation: the ffmpeg watchdog timer is not `unref`'d (cleared on every exit path). NOT verified: real SIGTERM in Docker (`stop_grace_period` only validated statically), real ffmpeg, real `listen` error.
 - Decisions recorded in Engram: F6 transition policy (#3402), threat model (#3403).
+- PR2 follow-up: native review (high risk, 4 lenses) approved; fixed the watchdog (total-time -> stall/inactivity because this host is a Raspberry Pi and ffmpeg prints progress; capped at the largest setTimeout delay), the ref'd hard timer and smaller items. PR #63 stacked on #62.
+- PR3 (B8+B9): bounded writer (sonnet), RED observed (15 failing tests across contentCache/orchestrator); parent review of contentCache/orchestrator diff. Backend 407/407 in ~12 s, typecheck OK, compose OK. NOT verified: a real prune against a big cache, real ENOSPC, `server.ts` wiring (no test seam: `main()` runs on import). Deviation: `stop()` of the pruner is not wired into the shutdown (timer is unref'd).

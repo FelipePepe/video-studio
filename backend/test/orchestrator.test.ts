@@ -1,12 +1,13 @@
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { openDatabase } from '../src/db/connection';
 import { createDraft } from '../src/pipeline/draftRepository';
 import { createJob } from '../src/jobs/jobRepository';
 import { createExecute, removePartialFfmpegOutput } from '../src/pipeline/orchestrator';
+import { ContentCache } from '../src/pipeline/contentCache';
 import {
   burnSubtitlesArgs,
   concatArgs,
@@ -439,6 +440,61 @@ test('with a cacheDir, a second run reuses TTS/stills/transitions without new cl
   assert.equal(h.comfy.uploads.length, uploads1, 'transitions cached: no new uploads on the 2nd run');
 });
 
+test('a cache hit that vanishes between has() and copyTo() regenerates instead of failing the job', async () => {
+  const cacheDir = mkdtempSync(join(tmpdir(), 'vs-cache-vanish-'));
+  dirs.push(cacheDir);
+  const h = harness({ cacheDir });
+  await h.execute(h.job, h.ctx);
+  const stills1 = h.workflows.filter((w) => Object.values(w).some((n) => n.class_type === 'WanVideoEmptyEmbeds')).length;
+  const tts1 = h.ttsInputs.length;
+  for (const f of readdirSync(cacheDir)) rmSync(join(cacheDir, f)); // entries pruned away...
+  const realHas = ContentCache.prototype.has;
+  ContentCache.prototype.has = () => true; // ...but has() still reported them
+  try {
+    const { outputPath } = await h.execute(h.job, h.ctx);
+    assert.equal(readFileSync(outputPath, 'utf8'), 'out:final.mp4');
+  } finally {
+    ContentCache.prototype.has = realHas;
+  }
+  assert.ok(h.ttsInputs.length > tts1, 'TTS regenerated');
+  assert.ok(h.workflows.filter((w) => Object.values(w).some((n) => n.class_type === 'WanVideoEmptyEmbeds')).length > stills1, 'stills regenerated');
+});
+
+test('an invalid WAV from TTS is never stored in the cache', async () => {
+  const cacheDir = mkdtempSync(join(tmpdir(), 'vs-cache-badwav-'));
+  dirs.push(cacheDir);
+  const h = harness({ cacheDir, sceneCount: 1 });
+  h.piper.synthesize = async () => Buffer.from('this is not a wav');
+  await assert.rejects(h.execute(h.job, h.ctx));
+  assert.deepEqual(readdirSync(cacheDir), []);
+});
+
+test('cache hits do not read whole png/mp4 files into memory (copy via the cache)', async () => {
+  const cacheDir = mkdtempSync(join(tmpdir(), 'vs-cache-copy-'));
+  dirs.push(cacheDir);
+  const h = harness({ cacheDir });
+  await h.execute(h.job, h.ctx);
+  const proto = ContentCache.prototype;
+  const real = { read: proto.read, copyTo: proto.copyTo };
+  const reads: string[] = [];
+  let copies = 0;
+  proto.read = function (this: ContentCache, k: string) {
+    reads.push(k);
+    return real.read.call(this, k);
+  };
+  proto.copyTo = function (this: ContentCache, k: string, d: string) {
+    copies++;
+    return real.copyTo.call(this, k, d);
+  };
+  try {
+    await h.execute(h.job, h.ctx);
+  } finally {
+    proto.read = real.read;
+    proto.copyTo = real.copyTo;
+  }
+  assert.equal(copies, 3 + 2, '3 stills + 2 transitions copied');
+  assert.ok(reads.length <= 3, 'only TTS wavs go through read()');
+});
 
 // B6: when ffmpeg fails the partial output (LAST argument) inside workDir is removed best-effort.
 type FailMode = 'exit' | 'abort' | 'timeout';
