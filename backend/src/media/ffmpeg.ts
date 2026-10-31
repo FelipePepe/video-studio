@@ -1,4 +1,5 @@
 import { spawn as nodeSpawn } from 'node:child_process';
+import type { MouthState } from './audioEnvelope';
 
 export interface RunFfmpegOptions {
   spawnImpl?: typeof nodeSpawn;
@@ -283,4 +284,102 @@ export function normalizeClipArgs(o: NormalizeClipOptions): string[] {
     `scale=${width}:${height}:force_original_aspect_ratio=decrease,` +
     `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,fps=${fps},setsar=1,format=yuv420p`;
   return ['-i', input, '-vf', vf, '-an', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', String(VIDEO_CRF), '-pix_fmt', 'yuv420p', out];
+}
+
+// -- Presenters: felt-puppet mouth animation via jaw drop (pure arg builders) -----------------------------------
+
+const MOUTH_STATE_SCALE: Record<MouthState, number> = { closed: 0, mid: 0.5, open: 1 };
+
+export interface PresenterSpriteOptions {
+  image: string;
+  out: string;               // .png
+  state: MouthState;
+  mouthY?: number;           // where the jaw splits, fraction of the image height. default 0.55, must be in [0.1, 0.9]
+  drop?: number;             // max jaw drop as a fraction of the image height. default 0.06, must be in (0, 0.3]
+  keyColor?: string;         // default '0x00FF00'
+  keySimilarity?: number;    // default 0.28
+  keyBlend?: number;         // default 0.08
+}
+
+/**
+ * Builds one presenter sprite for a mouth state: green key to alpha, a canvas pad for the
+ * jaw travel, a darkened copy showing through the gap, and the jaw (bottom crop) offset by
+ * the state's drop fraction (0 closed / 0.5 mid / 1 open).
+ */
+export function presenterSpriteArgs(o: PresenterSpriteOptions): string[] {
+  if (o.state !== 'closed' && o.state !== 'mid' && o.state !== 'open') {
+    throw new Error('presenterSprite: state must be "closed", "mid" or "open"');
+  }
+  const mouthY = o.mouthY ?? 0.55;
+  const drop = o.drop ?? 0.06;
+  if (typeof mouthY !== 'number' || !Number.isFinite(mouthY) || mouthY < 0.1 || mouthY > 0.9) {
+    throw new Error('presenterSprite: mouthY must be a finite number in [0.1, 0.9]');
+  }
+  if (typeof drop !== 'number' || !Number.isFinite(drop) || drop <= 0 || drop > 0.3) {
+    throw new Error('presenterSprite: drop must be a finite number in (0, 0.3]');
+  }
+  const my = num(mouthY);
+  const dl = num(drop);
+  const key = `${o.keyColor ?? '0x00FF00'}:${o.keySimilarity ?? 0.28}:${o.keyBlend ?? 0.08}`;
+  const s = num(MOUTH_STATE_SCALE[o.state]);
+  const filter =
+    `[0:v]format=rgba,chromakey=${key},split=4[c][d][a][b];` +
+    `[c]colorchannelmixer=aa=0,pad=iw:ceil(ih*(1+${dl})):0:0:color=0x00000000[canvas];` +
+    `[d]lutrgb=r=val*0.25:g=val*0.2:b=val*0.2[dark];` +
+    `[a]crop=iw:floor(ih*${my}):0:0[top];` +
+    `[b]crop=iw:ih-floor(ih*${my}):0:floor(ih*${my})[bot];` +
+    `[canvas][dark]overlay=0:0:format=auto[c0];` +
+    `[c0][top]overlay=0:0:format=auto[c1];` +
+    `[c1][bot]overlay=0:floor(main_h/(1+${dl})*${my})+round(main_h/(1+${dl})*${dl}*${s}):format=auto`;
+  return ['-i', o.image, '-filter_complex', filter, '-frames:v', '1', o.out];
+}
+
+/**
+ * Concat-demuxer script for a mouth-state timeline: consecutive equal states are merged
+ * into one `file`/`duration` run (duration = run length / fps), and the last file is
+ * repeated once at the end because the concat demuxer ignores the duration of the final
+ * entry.
+ */
+export function presenterConcatList(states: MouthState[], sprites: Record<MouthState, string>, fps = 24): string {
+  if (states.length === 0) throw new Error('presenterConcatList needs at least one state');
+  if (typeof fps !== 'number' || !Number.isFinite(fps) || fps <= 0) {
+    throw new Error('presenterConcatList: fps must be a positive number');
+  }
+  const quote = (p: string) => `'${p.replace(/'/g, "'\\''")}'`;
+  const lines: string[] = [];
+  let runStart = 0;
+  for (let i = 1; i <= states.length; i++) {
+    if (i === states.length || states[i] !== states[runStart]) {
+      const sprite = sprites[states[runStart]];
+      if (typeof sprite !== 'string' || sprite.length === 0) {
+        throw new Error(`presenterConcatList: missing sprite path for state "${states[runStart]}"`);
+      }
+      lines.push(`file ${quote(sprite)}`, `duration ${num((i - runStart) / fps)}`);
+      runStart = i;
+    }
+  }
+  lines.push(`file ${quote(sprites[states[states.length - 1]])}`);
+  return lines.join('\n') + '\n';
+}
+
+/**
+ * Concatenates the sprite timeline into a .mov with an alpha channel (qtrle keeps alpha).
+ * `frames` is required and positive: callers pass states.length, because without an
+ * explicit `-frames:v N` the clip length is not frame-exact and the presenter drifts.
+ */
+export function presenterClipArgs(o: {
+  listFile: string;
+  out: string;
+  fps?: number;
+  frames: number;
+}): string[] {
+  if (!Number.isInteger(o.frames) || o.frames <= 0) {
+    throw new Error('presenterClipArgs: frames must be a positive integer');
+  }
+  const fps = o.fps ?? 24;
+  return [
+    '-f', 'concat', '-safe', '0', '-i', o.listFile,
+    '-vf', `fps=${fps},format=argb`, '-c:v', 'qtrle',
+    '-frames:v', String(o.frames), o.out,
+  ];
 }
