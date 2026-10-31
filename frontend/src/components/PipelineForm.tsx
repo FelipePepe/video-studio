@@ -11,8 +11,12 @@ export interface PipelineFormProps {
 }
 
 type SourceKind = 'url' | 'text';
+type Format = 'narration' | 'dialogue';
 
 const VOICES = ['male', 'female'] as const;
+/** Default presenter names suggested in dialogue mode. */
+const DEFAULT_HOSTS = { a: 'Ana', b: 'Leo' };
+const MAX_HOST_NAME = 40;
 
 export function PipelineForm({ drafting, error, onSubmit, disabled = false }: PipelineFormProps) {
   const { t } = useI18n();
@@ -24,6 +28,9 @@ export function PipelineForm({ drafting, error, onSubmit, disabled = false }: Pi
   const [voiceA, setVoiceA] = useState<Voice>('male');
   const [voiceB, setVoiceB] = useState<Voice>('female');
   const [mix, setMix] = useState(false);
+  const [format, setFormat] = useState<Format>('narration');
+  const [hostA, setHostA] = useState(DEFAULT_HOSTS.a);
+  const [hostB, setHostB] = useState(DEFAULT_HOSTS.b);
 
   const value = (source === 'url' ? url : text).trim();
   const canSubmit = value !== '' && !drafting && !disabled;
@@ -31,7 +38,13 @@ export function PipelineForm({ drafting, error, onSubmit, disabled = false }: Pi
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
     if (!canSubmit) return;
-    onSubmit({ ...(source === 'url' ? { url: value } : { text: value }), language, voiceA, voiceB, mix });
+    const base = { ...(source === 'url' ? { url: value } : { text: value }), language, voiceA, voiceB, mix };
+    // Narration mode keeps the payload exactly as before (no new keys).
+    if (format === 'dialogue') {
+      onSubmit({ ...base, format: 'dialogue', hosts: { a: hostA.trim(), b: hostB.trim() } });
+    } else {
+      onSubmit(base);
+    }
   };
 
   const voiceOptions = VOICES.map((v) => (
@@ -57,6 +70,45 @@ export function PipelineForm({ drafting, error, onSubmit, disabled = false }: Pi
           </button>
         ))}
       </div>
+
+      <div className="segmented" role="group" aria-label={t('form.format')}>
+        {(['narration', 'dialogue'] as const).map((f) => (
+          <button
+            key={f}
+            type="button"
+            className="segmented__btn"
+            aria-pressed={format === f}
+            onClick={() => setFormat(f)}
+          >
+            {t(f === 'narration' ? 'form.format.narration' : 'form.format.dialogue')}
+          </button>
+        ))}
+      </div>
+
+      {format === 'dialogue' && (
+        <div className="form__voices">
+          <div className="field">
+            <label htmlFor={`${id}-host-a`}>{t('form.hostA')}</label>
+            <input
+              id={`${id}-host-a`}
+              type="text"
+              maxLength={MAX_HOST_NAME}
+              value={hostA}
+              onChange={(e) => setHostA(e.target.value)}
+            />
+          </div>
+          <div className="field">
+            <label htmlFor={`${id}-host-b`}>{t('form.hostB')}</label>
+            <input
+              id={`${id}-host-b`}
+              type="text"
+              maxLength={MAX_HOST_NAME}
+              value={hostB}
+              onChange={(e) => setHostB(e.target.value)}
+            />
+          </div>
+        </div>
+      )}
 
       <div className="field">
         {source === 'url' ? (

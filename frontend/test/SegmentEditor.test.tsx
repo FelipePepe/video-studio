@@ -15,7 +15,7 @@ const scene = (n: number, over: Partial<Scene> = {}): Scene => ({
   ...over,
 });
 
-function Harness({ initial, spy }: { initial: Scene[]; spy?: (s: Scene[]) => void }) {
+function Harness({ initial, spy, speakerVoices }: { initial: Scene[]; spy?: (s: Scene[]) => void; speakerVoices?: { A: string; B: string } }) {
   const [scenes, setScenes] = useState(initial);
   return (
     <SegmentEditor
@@ -24,15 +24,18 @@ function Harness({ initial, spy }: { initial: Scene[]; spy?: (s: Scene[]) => voi
         spy?.(next);
         setScenes(next);
       }}
+      speakerVoices={speakerVoices}
     />
   );
 }
 
-function setup(initial: Scene[] = [scene(1), scene(2), scene(3)]) {
+const speakerVoices = { A: 'es_ES-anita', B: 'es_ES-pepe' };
+
+function setup(initial: Scene[] = [scene(1), scene(2), scene(3)], speakerVoicesProp?: { A: string; B: string }) {
   const spy = vi.fn();
   render(
     <I18nProvider>
-      <Harness initial={initial} spy={spy} />
+      <Harness initial={initial} spy={spy} speakerVoices={speakerVoicesProp} />
     </I18nProvider>,
   );
   return { spy, user: userEvent.setup() };
@@ -102,6 +105,61 @@ describe('SegmentEditor', () => {
     await user.paste('x');
     expect(field).toBeInvalid();
     expect(field).toHaveAccessibleDescription(new RegExp(`${cap}`));
+  });
+
+  it('shows a speaker select on every scene when any scene has a speaker', () => {
+    setup([scene(1, { speaker: 'A' }), scene(2, { speaker: 'B' }), scene(3)]);
+    expect(screen.getAllByLabelText('Orador')).toHaveLength(3);
+    const options = within(card(2)).getAllByLabelText('Orador')[0]!.querySelectorAll('option');
+    expect(Array.from(options).map((o) => o.value)).toEqual(['A', 'B']);
+  });
+
+  it('shows no speaker select when no scene has one', () => {
+    setup();
+    expect(screen.queryAllByLabelText('Orador')).toHaveLength(0);
+  });
+
+  it('changing the speaker updates speaker and the mapped voice', async () => {
+    const { spy, user } = setup([scene(1, { speaker: 'A', voice: 'male' }), scene(2, { speaker: 'B', voice: 'female' }), scene(3, { speaker: 'A' })]);
+    await user.selectOptions(within(card(2)).getByLabelText('Orador'), 'A');
+    const next = spy.mock.lastCall![0] as Scene[];
+    expect(next[1]).toMatchObject({ speaker: 'A', voice: 'male' });
+    expect(next[0]).toEqual(scene(1, { speaker: 'A', voice: 'male' }));
+  });
+
+  it('uses the speakerVoices mapping when provided', async () => {
+    const { spy, user } = setup([scene(1, { speaker: 'A' }), scene(2, { speaker: 'B' })], speakerVoices);
+    await user.selectOptions(within(card(1)).getByLabelText('Orador'), 'B');
+    expect((spy.mock.lastCall![0] as Scene[])[0]).toMatchObject({ speaker: 'B', voice: 'es_ES-pepe' });
+    await user.selectOptions(within(card(2)).getByLabelText('Orador'), 'A');
+    expect((spy.mock.lastCall![0] as Scene[])[1]).toMatchObject({ speaker: 'A', voice: 'es_ES-anita' });
+  });
+
+  it('adds a new scene below with the speaker flipped from the scene above', async () => {
+    const { spy, user } = setup([scene(1, { speaker: 'A', voice: 'male' }), scene(2, { speaker: 'B', voice: 'female' })], speakerVoices);
+    await user.click(within(card(1)).getByRole('button', { name: 'Añadir escena debajo de la escena 1' }));
+    const next = spy.mock.lastCall![0] as Scene[];
+    expect(next[1]).toEqual({ scene: 2, title: '', narration: '', visualPrompt: '', voice: 'es_ES-pepe', speaker: 'B' });
+    expect(next[2]!.speaker).toBe('B');
+  });
+
+  it('adds a plain empty scene below when the scene above has no speaker', async () => {
+    const { spy, user } = setup([scene(1), scene(2)]);
+    await user.click(within(card(1)).getByRole('button', { name: 'Añadir escena debajo de la escena 1' }));
+    const next = spy.mock.lastCall![0] as Scene[];
+    expect(next[1]).toEqual({ scene: 2, title: '', narration: '', visualPrompt: '', voice: 'male' });
+    expect(next[1]).not.toHaveProperty('speaker');
+  });
+
+  describe('SegmentEditor move/delete', () => {
+    it('keeps scenes\' speaker through move and delete', async () => {
+      const { spy, user } = setup([scene(1, { speaker: 'A' }), scene(2, { speaker: 'B' })]);
+      await user.click(within(card(2)).getByRole('button', { name: 'Subir escena 2' }));
+      const moved = spy.mock.lastCall![0] as Scene[];
+      expect(moved.map((s) => s.speaker)).toEqual(['B', 'A']);
+      await user.click(within(card(1)).getByRole('button', { name: 'Eliminar escena 1' }));
+      expect((spy.mock.lastCall![0] as Scene[])[0].speaker).toBe('A');
+    });
   });
 
   it('adds an empty scene below with the neighbour voice and renumbers', async () => {

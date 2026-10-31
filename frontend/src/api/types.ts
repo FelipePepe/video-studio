@@ -117,6 +117,10 @@ export interface DraftRequest {
   voiceA?: Voice;
   voiceB?: Voice;
   mix?: boolean;
+  /** Presentation format (absent or 'narration' = classic one-voice draft). */
+  format?: 'narration' | 'dialogue';
+  /** Presenter names for dialogue drafts (A speaks with voiceA, B with voiceB). */
+  hosts?: { a: string; b: string };
 }
 
 /** Response of POST /api/pipeline/draft. */
