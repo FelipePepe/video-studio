@@ -64,6 +64,29 @@ export const MIGRATIONS: Migration[] = [
       if (!columns.includes('warnings')) db.exec('ALTER TABLE jobs ADD COLUMN warnings TEXT');
     },
   },
+  {
+    version: 4,
+    name: 'characters-table',
+    up(db) {
+      // Same DDL as SCHEMA_SQL; fresh databases already have it.
+      db.exec(`CREATE TABLE IF NOT EXISTS characters (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT NOT NULL,
+  seed INTEGER NOT NULL,
+  image_path TEXT NOT NULL,
+  key_color TEXT NOT NULL,
+  crop TEXT NOT NULL,
+  width INTEGER NOT NULL,
+  height INTEGER NOT NULL,
+  mouth_y REAL,
+  status TEXT NOT NULL DEFAULT 'generated' CHECK (status IN ('generated','approved')),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+)`);
+      db.exec('CREATE INDEX IF NOT EXISTS idx_characters_status_created ON characters(status, created_at)');
+    },
+  },
 ];
 
 export function runMigrations(db: DatabaseSync, migrations: Migration[] = MIGRATIONS): void {

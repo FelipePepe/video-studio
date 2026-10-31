@@ -23,7 +23,7 @@ Two original felt-puppet presenters (A/B, from the dialogue `speaker` of phase 2
 - [x] T15a character analysis (key colour from the corner pixel + bbox via cropdetect) — 23 tests green, typecheck green
 - [x] T13 approve option `presenters: { mode: 'volume', a, b }` (character ids) — tests in bgMusic.test.ts green, typecheck green
 - [x] T14 orchestrator stage `presenters` (overlay on video.mp4 inside assemble, cumulative-rounded bounds) — 11 new tests green, typecheck green
-- [ ] T15 character store + routes (generate with the 1-frame T2V still workflow on green background, approve, reuse; store key colour/crop/mouthY in meta) — brief not written
+- [x] T15 character store + routes (/api/characters, migration v4, createPresenterAssets) — 19 new tests, backend 553 green, typecheck green
 - [ ] T16 UI (PresenterSetup + render option, ES/EN) — brief not written
 - [ ] Real render with presenters, ffprobe, frame check, browser check of the UI
 - [ ] PR to `develop`
