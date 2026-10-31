@@ -24,12 +24,16 @@ export interface ApproveOptions {
 
 export const DEFAULT_MUSIC_VOLUME = 0.25;
 
+export type Speaker = 'A' | 'B';
+
 export interface Scene {
   scene: number;
   title: string;
   narration: string;
   visualPrompt: string;
   voice: Voice;
+  /** Presenter who delivers the line: A uses voiceA, B uses voiceB. Absent = legacy narration. */
+  speaker?: Speaker;
 }
 
 export type Escaleta = Scene[];

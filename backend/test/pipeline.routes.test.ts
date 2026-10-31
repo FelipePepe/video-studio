@@ -14,6 +14,11 @@ const scenes = [
   { title: 'B', narration: 'nb', visualPrompt: 'vb' },
 ];
 
+const dialogueScenes = [
+  { title: 'A', narration: 'na', visualPrompt: 'va', speaker: 'A' },
+  { title: 'B', narration: 'nb', visualPrompt: 'vb', speaker: 'B' },
+];
+
 function fakeOllama(result: unknown | Error): OllamaClient {
   return {
     chatJson: async () => {
@@ -99,6 +104,53 @@ test('POST returns 502 when Ollama fails or returns an invalid escaleta', async 
     assert.equal(res.status, 502);
     assert.equal(typeof res.body.error, 'string');
   }
+});
+
+test('POST /draft accepts dialogue format and keeps speakers mapped to voiceA/voiceB', async () => {
+  const { app } = makeApp(fakeOllama({ scenes: dialogueScenes }));
+  const res = await request(app).post('/api/pipeline/draft').send({
+    text: 'articulo', format: 'dialogue', hosts: { a: 'Ana', b: 'Leo' },
+  });
+  assert.equal(res.status, 201);
+  assert.deepEqual(
+    res.body.escaleta.map((s: { speaker: string; voice: string }) => [s.speaker, s.voice]),
+    [['A', 'male'], ['B', 'female']],
+  );
+  const got = await request(app).get(`/api/pipeline/draft/${res.body.id}`);
+  assert.equal(got.status, 200);
+  assert.deepEqual(got.body.escaleta.map((s: { speaker: string }) => s.speaker), ['A', 'B']);
+});
+
+test('POST returns 400 when format is not narration or dialogue', async () => {
+  const { app } = makeApp(fakeOllama({ scenes }));
+  const res = await request(app).post('/api/pipeline/draft').send({ text: 'x', format: 'podcast' });
+  assert.equal(res.status, 400);
+  assert.equal(typeof res.body.error, 'string');
+});
+
+test('POST returns 502 when a dialogue scene lacks a speaker', async () => {
+  const { app } = makeApp(fakeOllama({ scenes })); // scenes carry no speaker: invalid for dialogue
+  const res = await request(app).post('/api/pipeline/draft').send({ text: 'x', format: 'dialogue' });
+  assert.equal(res.status, 502);
+  assert.equal(typeof res.body.error, 'string');
+});
+
+test('PUT segments keeps valid speakers and rejects any other value with 400', async () => {
+  const { app } = makeApp(fakeOllama({ scenes: dialogueScenes }));
+  const { body: created } = await request(app).post('/api/pipeline/draft').send({ text: 'x' });
+  const url = `/api/pipeline/draft/${created.id}/segments`;
+  const res = await request(app).put(url).send({ escaleta: dialogueScenes });
+  assert.equal(res.status, 200);
+  assert.deepEqual(
+    res.body.escaleta.map((s: { speaker: string; voice: string }) => [s.speaker, s.voice]),
+    [['A', 'male'], ['B', 'female']],
+  );
+  const got = await request(app).get(`/api/pipeline/draft/${created.id}`);
+  assert.deepEqual(got.body.escaleta.map((s: { speaker: string }) => s.speaker), ['A', 'B']);
+  const bad = [ { ...dialogueScenes[0], speaker: 'C' }, dialogueScenes[1] ];
+  const rejected = await request(app).put(url).send({ escaleta: bad });
+  assert.equal(rejected.status, 400);
+  assert.equal(typeof rejected.body.error, 'string');
 });
 
 test('POST returns 502 when the article fetch fails', async () => {

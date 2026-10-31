@@ -10,12 +10,16 @@ export interface Settings {
 
 export type Voice = 'male' | 'female' | string;
 
+export type Speaker = 'A' | 'B';
+
 export interface Scene {
   scene: number;
   title: string;
   narration: string;
   visualPrompt: string;
   voice: Voice;
+  /** Presenter who delivers the line: A uses voiceA, B uses voiceB. Absent = legacy narration. */
+  speaker?: Speaker;
 }
 
 export type Escaleta = Scene[];
@@ -113,6 +117,10 @@ export interface DraftRequest {
   voiceA?: Voice;
   voiceB?: Voice;
   mix?: boolean;
+  /** Presentation format (absent or 'narration' = classic one-voice draft). */
+  format?: 'narration' | 'dialogue';
+  /** Presenter names for dialogue drafts (A speaks with voiceA, B with voiceB). */
+  hosts?: { a: string; b: string };
 }
 
 /** Response of POST /api/pipeline/draft. */

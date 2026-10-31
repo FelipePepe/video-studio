@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import request from 'supertest';
-import { verticalCropArgs, coverArgs } from '../src/media/ffmpeg';
+import { verticalCropArgs, verticalBurnSubtitlesArgs, coverArgs } from '../src/media/ffmpeg';
 import { buildApp } from '../src/app';
 import { openDatabase } from '../src/db/connection';
 import { loadEnvDefaults } from '../src/config/settings';
@@ -21,14 +21,42 @@ afterEach(() => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 
-test('verticalCropArgs center-crops 16:9 to 9:16 and re-encodes at 720x1280', () => {
+const VERTICAL_FIT_FILTER =
+  '[0:v]split=2[bg][fg];' +
+  '[bg]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,boxblur=20:2[b];' +
+  '[fg]scale=720:-2[f];' +
+  '[b][f]overlay=(W-w)/2:(H-h)/2[v]';
+
+test('verticalCropArgs fits 16:9 into 9:16 over a blurred background in a single 720x1280 re-encode', () => {
   assert.deepEqual(verticalCropArgs({ input: 'in.mp4', out: 'out.mp4' }), [
     '-i', 'in.mp4',
-    '-vf', 'crop=ih*9/16:ih,scale=720:1280',
-    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '19', '-pix_fmt', 'yuv420p',
+    '-filter_complex', VERTICAL_FIT_FILTER,
+    '-map', '[v]', '-map', '0:a?',
+    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p',
     '-c:a', 'copy',
     'out.mp4',
   ]);
+});
+
+test('verticalCropArgs uses the blurred-letterbox fit, not the old subject center-crop', () => {
+  const args = verticalCropArgs({ input: 'in.mp4', out: 'out.mp4' });
+  assert.ok(args.includes('-filter_complex'), 'uses filter_complex');
+  const vf = args[args.indexOf('-filter_complex') + 1];
+  assert.ok(vf.includes('boxblur'), 'blurred background');
+  assert.ok(vf.includes('overlay='), 'foreground overlaid and centered');
+  assert.ok(!vf.includes('crop=ih*9/16'), 'no upscaling of a 9:16 strip');
+  assert.equal(args[args.indexOf('-map') + 1], '[v]', 'maps the fitted [v] label');
+});
+
+test('verticalBurnSubtitlesArgs chains subtitles AFTER the fit overlay in one x264 pass', () => {
+  const args = verticalBurnSubtitlesArgs({ input: 'v.mp4', srt: 'sub.srt', out: 'out.mp4' });
+  const i = args.indexOf('-filter_complex');
+  assert.notEqual(i, -1, 'uses -filter_complex');
+  const vf = args[i + 1];
+  assert.ok(vf.includes('overlay='), 'fit overlay present');
+  assert.ok(vf.includes('subtitles='), 'subtitles present');
+  assert.ok(vf.indexOf('subtitles=') > vf.indexOf('overlay='), 'subtitles come after the overlay');
+  assert.equal(args.filter((a) => a === 'libx264').length, 1, 'exactly one libx264 pass');
 });
 
 test('coverArgs extracts one frame at the given time (fast seek before the input)', () => {
@@ -82,7 +110,7 @@ test('vertical on: crops final.mp4 to final_v.mp4 and always extracts cover.jpg 
   const tail = h.calls.slice(-2);
   const crop = tail[0];
   assert.equal(crop[1], join(h.workDir, 'final.mp4'));
-  assert.match(crop[3], /crop=.*scale=720:1280/);
+  assert.match(crop[3], /scale=720:1280.*overlay=/);
   assert.equal(crop[crop.length - 1], join(h.workDir, 'final_v.mp4'));
   const cover = tail[1];
   assert.equal(cover[0], '-ss', 'input-side fast seek');
@@ -102,7 +130,7 @@ test('vertical off (default) still extracts cover.jpg but never crops', async ()
   assert.ok(!h.calls.some((a) => a.includes('final_v.mp4')));
 });
 
-test('vertical + subtitles: 16:9 burn(final), then ONE chained crop+scale+subtitles pass for 9:16 (never clipped)', async () => {
+test('vertical + subtitles: 16:9 burn(final), then ONE chained fit+subtitles pass for 9:16 (never clipped)', async () => {
   const h = vHarness({ vertical: true });
   const ctx = { signal: new AbortController().signal, workDir: h.workDir, emit: () => {} };
   await h.execute(h.job, ctx);
@@ -111,8 +139,9 @@ test('vertical + subtitles: 16:9 burn(final), then ONE chained crop+scale+subtit
   assert.match(tail[0][tail[0].indexOf('-vf') + 1], /^subtitles=/);
   assert.equal(tail[0][tail[0].length - 1], join(h.workDir, 'final.mp4'), '16:9 master still final.mp4');
   assert.equal(tail[0][1], join(h.workDir, 'muxed.mp4'), '16:9 burn reads the sub-free base');
-  const vsub = tail[1][tail[1].indexOf('-vf') + 1];
-  assert.match(vsub, /^crop=ih\*9\/16:ih,scale=720:1280,subtitles=/, 'one chained filter, not two encodes');
+  const vsub = tail[1][tail[1].indexOf('-filter_complex') + 1];
+  assert.match(vsub, /^\[0:v\]split=2\[bg\]\[fg\]/, 'one filter_complex graph, not two encodes');
+  assert.match(vsub, /overlay=.*subtitles=/, 'subtitles chained AFTER the fit overlay');
   assert.match(vsub, /force_style=/, '9:16 subtitles use a portrait-tuned force_style');
   assert.equal(tail[1][1], join(h.workDir, 'muxed.mp4'), 'vertical pass reads the sub-free base, NOT the burned master');
   assert.equal(tail[1][tail[1].length - 1], join(h.workDir, 'final_v.mp4'));

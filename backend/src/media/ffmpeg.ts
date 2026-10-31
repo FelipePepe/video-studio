@@ -30,6 +30,13 @@ function resolveStallTimeoutMs(option: number | undefined): number {
 const STDERR_TAIL_LINES = 15;
 const num = (n: number) => String(Number(n.toFixed(6)));
 
+/**
+ * CRF used on every intermediate libx264 encode (Ken Burns, xfade, normalize, vertical passes).
+ * Clips are joined with `concat -c copy`, so this CRF is the final video quality — explicit,
+ * higher than the x264 default (23) instead of an accidental fallback.
+ */
+export const VIDEO_CRF = 18;
+
 export function runFfmpeg(args: string[], opts: RunFfmpegOptions = {}): Promise<void> {
   const { spawnImpl = nodeSpawn, signal } = opts;
   if (signal?.aborted) return Promise.reject(new Error('ffmpeg aborted'));
@@ -93,13 +100,16 @@ export function kenBurnsArgs(o: KenBurnsOptions): string[] {
   const z = direction === 'zoom-out'
     ? `max(${num(zoomTo)}-${inc}*on,1)`
     : `min(1+${inc}*on,${num(zoomTo)})`;
+  // 4× oversampling (not 2×): zoompan rounds its x/y pan offsets to integers, so at 2× each
+  // step can shift ~half an output pixel and reads as visible jitter; at 4× the rounding error
+  // is a quarter of a pixel. lanczos keeps the upscale honest instead of the sws default.
   const vf =
-    `scale=${width * 2}:${height * 2}:force_original_aspect_ratio=increase,crop=${width * 2}:${height * 2},` +
+    `scale=${width * 4}:${height * 4}:force_original_aspect_ratio=increase:flags=lanczos,crop=${width * 4}:${height * 4},` +
     `zoompan=z='${z}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${width}x${height}:fps=${fps},format=yuv420p`;
   return [
     '-loop', '1', '-framerate', String(fps), '-i', image,
     '-vf', vf,
-    '-t', num(durationSec), '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p', out,
+    '-t', num(durationSec), '-c:v', 'libx264', '-preset', 'veryfast', '-crf', String(VIDEO_CRF), '-pix_fmt', 'yuv420p', out,
   ];
 }
 
@@ -130,7 +140,7 @@ export function xfadeArgs(o: XfadeOptions): string[] {
     ...clips.flatMap((c) => ['-i', c]),
     '-filter_complex', filters.join(';'),
     '-map', `[v${clips.length - 1}]`,
-    '-c:v', 'libx264', '-pix_fmt', 'yuv420p', out,
+    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', String(VIDEO_CRF), '-pix_fmt', 'yuv420p', out,
   ];
 }
 
@@ -199,32 +209,48 @@ export function burnSubtitlesArgs(o: { input: string; srt: string; out: string; 
   return [
     '-i', o.input,
     '-vf', vf,
-    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '19', '-pix_fmt', 'yuv420p',
-    '-c:a', 'copy',
-    o.out,
-  ];
-}
-
-/** Center-crops the 16:9 film to 9:16 and scales it to 720x1280 (Shorts/Reels); audio copied. */
-export function verticalCropArgs(o: { input: string; out: string }): string[] {
-  return [
-    '-i', o.input,
-    '-vf', 'crop=ih*9/16:ih,scale=720:1280',
-    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '19', '-pix_fmt', 'yuv420p',
+    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', String(VIDEO_CRF), '-pix_fmt', 'yuv420p',
     '-c:a', 'copy',
     o.out,
   ];
 }
 
 /**
- * Vertical 9:16 output with burned subtitles in a SINGLE x264 pass (crop + scale + subtitles
- * chained in one -vf), instead of cropping and then burning as two re-encodes. Audio copied.
+ * filter_complex fragment that fits the 16:9 frame into 720x1280 without upscaling the subject:
+ * the full frame is scaled to 720 wide and centered over a blurred, cropped copy of itself.
+ * Outputs the label [v]; `trailing` (e.g. a subtitles filter) is chained after the overlay.
+ */
+function verticalFitFilter(trailing?: string): string {
+  const base =
+    '[0:v]split=2[bg][fg];' +
+    '[bg]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,boxblur=20:2[b];' +
+    '[fg]scale=720:-2[f];' +
+    '[b][f]overlay=(W-w)/2:(H-h)/2';
+  return trailing ? `${base}[o];[o]${trailing}[v]` : `${base}[v]`;
+}
+
+/** Fits the 16:9 film into 9:16 (720x1280) over a blurred background (Shorts/Reels); audio copied. */
+export function verticalCropArgs(o: { input: string; out: string }): string[] {
+  return [
+    '-i', o.input,
+    '-filter_complex', verticalFitFilter(),
+    '-map', '[v]', '-map', '0:a?',
+    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', String(VIDEO_CRF), '-pix_fmt', 'yuv420p',
+    '-c:a', 'copy',
+    o.out,
+  ];
+}
+
+/**
+ * Vertical 9:16 output with burned subtitles in a SINGLE x264 pass (fit + subtitles chained in
+ * one filter_complex), instead of fitting and then burning as two re-encodes. Audio copied.
  */
 export function verticalBurnSubtitlesArgs(o: { input: string; srt: string; out: string; style?: string }): string[] {
   return [
     '-i', o.input,
-    '-vf', `crop=ih*9/16:ih,scale=720:1280,${subtitleFilter(o.srt, o.style)}`,
-    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '19', '-pix_fmt', 'yuv420p',
+    '-filter_complex', verticalFitFilter(subtitleFilter(o.srt, o.style)),
+    '-map', '[v]', '-map', '0:a?',
+    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', String(VIDEO_CRF), '-pix_fmt', 'yuv420p',
     '-c:a', 'copy',
     o.out,
   ];
@@ -256,5 +282,5 @@ export function normalizeClipArgs(o: NormalizeClipOptions): string[] {
   const vf =
     `scale=${width}:${height}:force_original_aspect_ratio=decrease,` +
     `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,fps=${fps},setsar=1,format=yuv420p`;
-  return ['-i', input, '-vf', vf, '-an', '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p', out];
+  return ['-i', input, '-vf', vf, '-an', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', String(VIDEO_CRF), '-pix_fmt', 'yuv420p', out];
 }
