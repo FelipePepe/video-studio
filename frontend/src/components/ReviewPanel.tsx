@@ -4,12 +4,14 @@ import type { ApiClient, ApproveBody } from '../api/client';
 import { ApiError } from '../api/client';
 import type { DraftCreated, Escaleta, MusicLibrary } from '../api/types';
 import { isEscaletaValid, sameEscaleta } from '../lib/escaleta';
+import { PresenterSetup } from './PresenterSetup';
 import { SegmentEditor } from './SegmentEditor';
 
 export interface ReviewPanelProps {
   draft: DraftCreated;
   /** Full client surface used for the render options (music library + Piper roster). May be a minimal fake. */
-  api: Pick<ApiClient, 'listMusic' | 'listVoices'>;
+  api: Pick<ApiClient, 'listMusic' | 'listVoices'> &
+    Partial<Pick<ApiClient, 'listCharacters' | 'createCharacter' | 'approveCharacter' | 'deleteCharacter'>>;
   /** Error from the last save attempt (shown in an alert). */
   error: string | null;
   onSave: (escaleta: Escaleta) => Promise<boolean>;
@@ -76,6 +78,9 @@ export function ReviewPanel({ draft, api, error, onSave, onApprove, onBack }: Re
   const [musicError, setMusicError] = useState<string | null>(null);
   const [subtitles, setSubtitles] = useState(true);
   const [vertical, setVertical] = useState(false);
+  const [presentersOn, setPresentersOn] = useState(false);
+  const [presenterA, setPresenterA] = useState('');
+  const [presenterB, setPresenterB] = useState('');
   const library = useMusicLibrary(api);
   const voices = useVoices(api);
 
@@ -97,10 +102,23 @@ export function ReviewPanel({ draft, api, error, onSave, onApprove, onBack }: Re
     setSyncedId(draft.id);
     setLocal(draft.escaleta);
     setConfirming(false);
+    setPresentersOn(false);
+    setPresenterA('');
+    setPresenterB('');
   }
 
   const dirty = useMemo(() => !sameEscaleta(local, draft.escaleta), [local, draft.escaleta]);
   const valid = useMemo(() => isEscaletaValid(local), [local]);
+  const isDialogue = useMemo(() => local.some((s) => s.speaker !== undefined), [local]);
+  const { listCharacters, createCharacter, approveCharacter, deleteCharacter } = api;
+  // Stable identity: PresenterSetup reloads its list whenever `api` changes.
+  const characterApi = useMemo(
+    () =>
+      listCharacters && createCharacter && approveCharacter && deleteCharacter
+        ? { listCharacters, createCharacter, approveCharacter, deleteCharacter }
+        : null,
+    [listCharacters, createCharacter, approveCharacter, deleteCharacter],
+  );
 
   const save = async (): Promise<boolean> => {
     setSaving(true);
@@ -127,6 +145,9 @@ export function ReviewPanel({ draft, api, error, onSave, onApprove, onBack }: Re
     }
     if (!subtitles) body.subtitles = false; // ON is the backend default
     if (vertical) body.vertical = true; // OFF is the backend default
+    if (presentersOn && isDialogue && characterApi && presenterA !== '' && presenterB !== '' && presenterA !== presenterB) {
+      body.presenters = { mode: 'volume', a: presenterA, b: presenterB };
+    }
     onApprove(Object.keys(body).length > 0 ? body : undefined);
   };
 
@@ -191,6 +212,26 @@ export function ReviewPanel({ draft, api, error, onSave, onApprove, onBack }: Re
           <label className="switch" htmlFor={`${baseId}-vertical`}>{t('review.vertical')}</label>
           <input id={`${baseId}-vertical`} className="switch__input" type="checkbox" role="switch" checked={vertical} onChange={(e) => setVertical(e.target.checked)} />
         </div>
+
+        {isDialogue && characterApi && (
+          <>
+            <div className="render-options__row">
+              <label className="switch" htmlFor={`${baseId}-presenters`}>{t('review.presenters')}</label>
+              <input id={`${baseId}-presenters`} className="switch__input" type="checkbox" role="switch" checked={presentersOn} onChange={(e) => setPresentersOn(e.target.checked)} />
+            </div>
+            {presentersOn && (
+              <PresenterSetup
+                api={characterApi}
+                a={presenterA}
+                b={presenterB}
+                onChange={(next) => {
+                  setPresenterA(next.a);
+                  setPresenterB(next.b);
+                }}
+              />
+            )}
+          </>
+        )}
       </fieldset>
 
       <div className="review__toolbar">

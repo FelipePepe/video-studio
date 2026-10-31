@@ -85,6 +85,32 @@ export interface ApproveBody {
   subtitles?: boolean;
   /** Render vertical 9:16 (OFF by default). */
   vertical?: boolean;
+  /** On-screen presenters (character ids). Only send when both are chosen and different. */
+  presenters?: PresenterOptions;
+}
+
+export type CharacterStatus = 'generated' | 'approved';
+
+/** A felt-puppet character from /api/characters. */
+export interface Character {
+  id: string;
+  name: string;
+  description: string;
+  status: CharacterStatus;
+  keyColor: string;
+  crop: { x: number; y: number; w: number; h: number };
+  width: number;
+  height: number;
+  mouthY: number | null;
+  imageUrl: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PresenterOptions {
+  mode: 'volume';
+  a: string;
+  b: string;
 }
 
 /** One entry of GET /api/music (backend/src/lib/musicLibrary.ts). */

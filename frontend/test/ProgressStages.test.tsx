@@ -75,4 +75,19 @@ describe('ProgressStages', () => {
     await user.click(screen.getByRole('button', { name: 'Cancelar' }));
     expect(onCancel).toHaveBeenCalledTimes(1);
   });
+
+  it('lists the presenters stage between transitions and assembly', () => {
+    const five: StageInfo[] = (['tts', 'images', 'transitions', 'presenters', 'assemble'] as const).map((id, i) => ({
+      id,
+      status: i < 3 ? 'done' : i === 3 ? 'active' : 'pending',
+    }));
+    setup({ stages: five });
+    const items = within(screen.getByRole('list', { name: 'Etapas' })).getAllByRole('listitem');
+    expect(items).toHaveLength(5);
+    expect(items[2]).toHaveTextContent('Transiciones');
+    expect(items[3]).toHaveTextContent('Presentadores');
+    expect(items[3]).toHaveAttribute('data-state', 'active');
+    expect(items[4]).toHaveTextContent('Montaje');
+    expect(items[4]).toHaveAttribute('data-state', 'pending');
+  });
 });

@@ -24,7 +24,7 @@ Two original felt-puppet presenters (A/B, from the dialogue `speaker` of phase 2
 - [x] T13 approve option `presenters: { mode: 'volume', a, b }` (character ids) — tests in bgMusic.test.ts green, typecheck green
 - [x] T14 orchestrator stage `presenters` (overlay on video.mp4 inside assemble, cumulative-rounded bounds) — 11 new tests green, typecheck green
 - [x] T15 character store + routes (/api/characters, migration v4, createPresenterAssets) — 19 new tests, backend 553 green, typecheck green
-- [ ] T16 UI (PresenterSetup + render option, ES/EN) — brief not written
+- [x] T16 UI (PresenterSetup + render option + presenters stage, ES/EN) — frontend 265 green, typecheck green; usePipeline/ProgressStages tests written without a captured RED run
 - [ ] Real render with presenters, ffprobe, frame check, browser check of the UI
 - [ ] PR to `develop`
 - [ ] 3B lip-sync spike — BLOCKED (needs user authorization for destination, operation, credential)

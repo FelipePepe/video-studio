@@ -16,6 +16,7 @@ const STAGE_LABEL: Record<StageId, MessageKey> = {
   tts: 'stage.tts',
   images: 'stage.images',
   transitions: 'stage.transitions',
+  presenters: 'stage.presenters',
   assemble: 'stage.assemble',
 };
 

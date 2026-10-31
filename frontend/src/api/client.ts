@@ -1,5 +1,7 @@
 import type {
   ApproveBody,
+  Character,
+  CharacterStatus,
   Draft,
   DraftCreated,
   DraftRequest,  Escaleta,
@@ -52,6 +54,12 @@ export interface ApiClient {
   listJobs(params?: { status?: JobStatus; limit?: number }): Promise<Job[]>;
   cancelJob(id: string): Promise<{ cancelled: boolean }>;
   deleteJob(id: string): Promise<{ deleted: boolean }>;
+  /** Characters newest first; optional status filter. */
+  listCharacters(params?: { status?: CharacterStatus }): Promise<Character[]>;
+  /** Synchronous and slow (tens of seconds). Rejects an ApiError whose status maps to the failure. */
+  createCharacter(input: { name: string; description: string; seed?: number }): Promise<Character>;
+  approveCharacter(id: string, opts?: { mouthY?: number }): Promise<Character>;
+  deleteCharacter(id: string): Promise<void>;
 }
 
 export interface ApiClientOptions {
@@ -137,11 +145,14 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
       apiLog.warn('request failed', { method, path, status: res.status, message: error.message });
       throw error;
     }
+    if (res.status === 204) return undefined as T;
     return (await res.json()) as T;
   }
 
   const draftPath = (id: string) => `/api/pipeline/draft/${encodeURIComponent(id)}`;
   const jobPath = (id: string) => `/api/jobs/${encodeURIComponent(id)}`;
+  const characterPath = (id: string) => `/api/characters/${encodeURIComponent(id)}`;
+  const withBase = (c: Character): Character => ({ ...c, imageUrl: `${baseUrl}${c.imageUrl}` });
 
   /** Consumes an SSE job stream. Aborting only stops listening: resolves with whatever was seen so far. */
   async function streamEvents(
@@ -190,6 +201,19 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
     },
     cancelJob: (id) => request<{ cancelled: boolean }>('POST', `${jobPath(id)}/cancel`),
     deleteJob: (id) => request<{ deleted: boolean }>('DELETE', jobPath(id)),
+
+    async listCharacters(params) {
+      const q = params?.status ? `?status=${encodeURIComponent(params.status)}` : '';
+      const body = await request<{ characters: Character[] }>('GET', `/api/characters${q}`);
+      return body.characters.map(withBase);
+    },
+    async createCharacter(input) {
+      return withBase(await request<Character>('POST', '/api/characters', input));
+    },
+    async approveCharacter(id, opts) {
+      return withBase(await request<Character>('POST', `${characterPath(id)}/approve`, opts));
+    },
+    deleteCharacter: (id) => request<void>('DELETE', characterPath(id)),
 
     async listMusic() {
       try {
