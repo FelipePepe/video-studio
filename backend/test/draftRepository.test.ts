@@ -38,6 +38,21 @@ test('createDraft persists and getDraft round-trips', () => {
   assert.equal(getDraft(db, d.id)?.mix, true);
 });
 
+test('escaleta scenes round-trip their optional speaker field (A/B/absent)', () => {
+  const db = openDatabase(':memory:');
+  const withSpeakers: Escaleta = [
+    { scene: 1, title: 'a', narration: 'n1', visualPrompt: 'v', voice: 'male', speaker: 'A' },
+    { scene: 2, title: 'b', narration: 'n2', visualPrompt: 'v', voice: 'female', speaker: 'B' },
+    { scene: 3, title: 'legacy', narration: 'n3', visualPrompt: 'v', voice: 'male' },
+  ];
+  const d = createDraft(db, { ...input, escaleta: withSpeakers }, clock('2026-01-01T00:00:00.000Z'));
+  const round = getDraft(db, d.id)!;
+  assert.equal(round.escaleta[0].speaker, 'A');
+  assert.equal(round.escaleta[1].speaker, 'B');
+  assert.equal(round.escaleta[2].speaker, undefined);
+  assert.ok(!('speaker' in round.escaleta[2]), 'speakerless scene must not carry a speaker key');
+});
+
 test('getDraft returns undefined for unknown ids', () => {
   assert.equal(getDraft(openDatabase(':memory:'), 'nope'), undefined);
 });
