@@ -125,3 +125,16 @@ test('GET /draft/:id/publish returns metadata; 404 unknown; 422 invalid model ou
   const badRes = await request(badApp).get(`/api/pipeline/draft/${id}/publish`);
   assert.equal(badRes.status, 422);
 });
+
+test('generatePublishMetadata forwards deps.signal to chatJson', async () => {
+  let seen: AbortSignal | undefined;
+  const ollama = {
+    chatJson: async (opts: { signal?: AbortSignal }) => {
+      seen = opts.signal;
+      return GOOD;
+    },
+  } as unknown as OllamaClient;
+  const ac = new AbortController();
+  await generatePublishMetadata({ language: 'es', escaleta }, { ollama, signal: ac.signal });
+  assert.equal(seen, ac.signal);
+});

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { OllamaClient } from '../src/clients/ollama';
+import { OllamaClient, OllamaTimeoutError } from '../src/clients/ollama';
 
 function fakeFetch(res: Response | Error) {
   const calls: Array<{ url: string; init?: RequestInit }> = [];
@@ -118,11 +118,21 @@ test('keepAlive option and OLLAMA_KEEP_ALIVE override the default keep_alive', a
   }
 });
 
-test('passes the abort signal to fetch', async () => {
-  const { fetchImpl, calls } = fakeFetch(reply('{}'));
+test('passes an abortable signal to fetch that follows the caller signal', async () => {
+  let sent: AbortSignal | undefined;
+  // The fake rejects on abort, so chatJson settles and its timeout timer is cleared
+  // (a never-settling fetch would keep the default 300 s timer alive after the test).
+  const inner = hangingFetch();
+  const fetchImpl = ((url: string | URL | Request, init?: RequestInit) => {
+    sent = init?.signal as AbortSignal;
+    return inner(url, init);
+  }) as typeof fetch;
   const ac = new AbortController();
-  await new OllamaClient('http://o', { fetchImpl }).chatJson({ system: 's', user: 'u', signal: ac.signal });
-  assert.equal(calls[0].init?.signal, ac.signal);
+  const p = new OllamaClient('http://o', { fetchImpl }).chatJson({ system: 's', user: 'u', signal: ac.signal });
+  assert.equal(sent?.aborted, false);
+  ac.abort();
+  assert.equal(sent?.aborted, true);
+  await assert.rejects(p, (e: Error) => e.name === 'AbortError');
 });
 
 test('throws on non-JSON content, non-2xx and network errors', async () => {
@@ -143,4 +153,119 @@ test('throws on non-JSON content, non-2xx and network errors', async () => {
 test('throws when the response has no message content', async () => {
   const { fetchImpl } = fakeFetch(new Response('{}'));
   await assert.rejects(new OllamaClient('http://o', { fetchImpl }).chatJson({ system: 's', user: 'u' }), /no message content/);
+});
+
+/** Fake fetch that never answers until its signal aborts, like a hung Ollama. */
+function hangingFetch(): typeof fetch {
+  return ((_url: string | URL | Request, init?: RequestInit) =>
+    new Promise((_resolve, reject) => {
+      const signal = init?.signal;
+      if (!signal) return;
+      const fail = () => reject(signal.reason ?? new DOMException('aborted', 'AbortError'));
+      if (signal.aborted) fail();
+      else signal.addEventListener('abort', fail, { once: true });
+    })) as typeof fetch;
+}
+
+async function withEnv(name: string, value: string | undefined, fn: () => Promise<void>) {
+  const prev = process.env[name];
+  try {
+    if (value === undefined) delete process.env[name];
+    else process.env[name] = value;
+    await fn();
+  } finally {
+    if (prev === undefined) delete process.env[name];
+    else process.env[name] = prev;
+  }
+}
+
+test('chatJson aborts a hung request after timeoutMs with a timeout error', async () => {
+  const client = new OllamaClient('http://o', { fetchImpl: hangingFetch(), timeoutMs: 20 });
+  await assert.rejects(client.chatJson({ system: 's', user: 'u' }), (e: Error) => {
+    assert.ok(e instanceof OllamaTimeoutError);
+    assert.match(e.message, /timed out after 20ms/);
+    return true;
+  });
+});
+
+test('chatJson reports a caller abort as an abort, not as a timeout or unreachable', async () => {
+  const client = new OllamaClient('http://o', { fetchImpl: hangingFetch(), timeoutMs: 5000 });
+  const ac = new AbortController();
+  const p = client.chatJson({ system: 's', user: 'u', signal: ac.signal });
+  ac.abort();
+  await assert.rejects(p, (e: Error) => {
+    assert.equal(e.name, 'AbortError');
+    assert.ok(!(e instanceof OllamaTimeoutError));
+    assert.doesNotMatch(e.message, /timed out|unreachable/);
+    return true;
+  });
+});
+
+test('timeoutMs option wins over OLLAMA_TIMEOUT_MS; invalid or empty env falls back to 300000', async () => {
+  const seen = (opt: number | undefined) => new OllamaClient('http://o', { fetchImpl: hangingFetch(), timeoutMs: opt });
+  // Use tiny values so the timeout actually fires and names the effective value.
+  await withEnv('OLLAMA_TIMEOUT_MS', '30', async () => {
+    await assert.rejects(seen(undefined).chatJson({ system: 's', user: 'u' }), /timed out after 30ms/);
+    await assert.rejects(seen(15).chatJson({ system: 's', user: 'u' }), /timed out after 15ms/);
+  });
+});
+
+test('invalid or empty OLLAMA_TIMEOUT_MS falls back to the 300000ms default', async () => {
+  for (const bad of ['', 'abc', '0', '-5']) {
+    await withEnv('OLLAMA_TIMEOUT_MS', bad, async () => {
+      const { fetchImpl } = fakeFetch(reply('{}'));
+      const orig = globalThis.setTimeout;
+      const delays: number[] = [];
+      globalThis.setTimeout = ((fn: () => void, ms?: number, ...a: unknown[]) => {
+        delays.push(ms ?? 0);
+        return orig(fn, ms, ...a);
+      }) as typeof setTimeout;
+      try {
+        await new OllamaClient('http://o', { fetchImpl }).chatJson({ system: 's', user: 'u' });
+      } finally {
+        globalThis.setTimeout = orig;
+      }
+      assert.ok(delays.includes(300000), `env ${JSON.stringify(bad)} -> delays: ${delays}`);
+    });
+  }
+});
+
+test('default chat timeout is 300000ms when nothing is configured', async () => {
+  await withEnv('OLLAMA_TIMEOUT_MS', undefined, async () => {
+    const { fetchImpl, calls } = fakeFetch(reply('{}'));
+    const orig = globalThis.setTimeout;
+    const delays: number[] = [];
+    globalThis.setTimeout = ((fn: () => void, ms?: number, ...a: unknown[]) => {
+      delays.push(ms ?? 0);
+      return orig(fn, ms, ...a);
+    }) as typeof setTimeout;
+    try {
+      await new OllamaClient('http://o', { fetchImpl }).chatJson({ system: 's', user: 'u' });
+    } finally {
+      globalThis.setTimeout = orig;
+    }
+    assert.ok(delays.includes(300000), `delays: ${delays}`);
+    assert.equal(calls.length, 1);
+  });
+});
+
+test('listModels honours a caller signal', async () => {
+  const client = new OllamaClient('http://o', { fetchImpl: hangingFetch() });
+  const ac = new AbortController();
+  const p = client.listModels({ signal: ac.signal });
+  ac.abort();
+  await assert.rejects(p, (e: Error) => e.name === 'AbortError' && !(e instanceof OllamaTimeoutError));
+});
+
+test('listModels times out via tagsTimeoutMs option and OLLAMA_TAGS_TIMEOUT_MS env', async () => {
+  await assert.rejects(
+    new OllamaClient('http://o', { fetchImpl: hangingFetch(), tagsTimeoutMs: 20 }).listModels(),
+    (e: Error) => e instanceof OllamaTimeoutError && /timed out after 20ms/.test(e.message),
+  );
+  await withEnv('OLLAMA_TAGS_TIMEOUT_MS', '25', async () => {
+    await assert.rejects(
+      new OllamaClient('http://o', { fetchImpl: hangingFetch() }).listModels(),
+      /timed out after 25ms/,
+    );
+  });
 });

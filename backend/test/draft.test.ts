@@ -63,6 +63,23 @@ test('generateDraft fetches the article for url input', async () => {
   assert.match(ollama.calls[0].user, /Desde la web/);
 });
 
+test('generateDraft forwards deps.signal to the article fetch', async () => {
+  let sent: AbortSignal | undefined;
+  const fetchImpl = ((_u: unknown, init?: RequestInit) => {
+    sent = init?.signal as AbortSignal;
+    return new Promise((_resolve, reject) => {
+      sent?.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+    });
+  }) as typeof fetch;
+  const ac = new AbortController();
+  const p = generateDraft({ url: 'https://example.com/a' }, { ollama: fakeOllama({}), fetchImpl, signal: ac.signal });
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(sent?.aborted, false);
+  ac.abort();
+  await assert.rejects(p, (e: Error) => e.name === 'AbortError');
+  assert.equal(sent?.aborted, true);
+});
+
 test('input must have exactly one of url or text', async () => {
   const ollama = fakeOllama({ scenes: scenes(1) });
   await assert.rejects(generateDraft({}, { ollama }), DraftInputError);
@@ -128,4 +145,17 @@ test('validateEscaleta ignores model-provided voices unless keepVoices is set', 
   const input = { scenes: [{ ...scenes(1)[0], voice: 'custom' }] };
   assert.equal(validateEscaleta(input, voices)[0].voice, 'male');
   assert.equal(validateEscaleta(input, { ...voices, keepVoices: true })[0].voice, 'custom');
+});
+
+test('generateDraft forwards deps.signal to chatJson', async () => {
+  const seen: Array<AbortSignal | undefined> = [];
+  const ollama = {
+    chatJson: (async (opts: { signal?: AbortSignal }) => {
+      seen.push(opts.signal);
+      return { scenes: scenes(3) };
+    }) as never,
+  };
+  const ac = new AbortController();
+  await generateDraft({ text: 'x' }, { ollama, signal: ac.signal });
+  assert.equal(seen[0], ac.signal);
 });
