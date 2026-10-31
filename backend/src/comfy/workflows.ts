@@ -56,6 +56,8 @@ interface CommonOptions {
   numFrames?: number;
   steps?: number;
   switchStep?: number;
+  /** CFG scale for the samplers. Defaults to `DEFAULTS.cfg`; lightx2v uses 1 unless explicitly set. */
+  cfg?: number;
   filenamePrefix?: string;
   pingpong?: boolean;
   /** When true, save the decoded frame with SaveImage (image) rather than VHS_VideoCombine (mp4). */
@@ -149,7 +151,7 @@ function buildTail(
     image_embeds: [embeds, 0],
     text_embeds: [shared.text, 0],
     steps,
-    cfg: DEFAULTS.cfg,
+    cfg: o.cfg ?? DEFAULTS.cfg,
     shift: DEFAULTS.shift,
     seed: o.seed,
     force_offload: true,
@@ -210,10 +212,11 @@ export function buildT2VWorkflow(o: T2VOptions): Workflow {
   return buildTail(b, withLightx2v(o), shared, high, low, embeds);
 }
 
-// lightx2v: 4 total steps split 3 (high) / 1 (low) across the dual expert.
+// lightx2v: 4 total steps split 3 (high) / 1 (low) across the dual expert, with cfg 1 (the 4-step
+// LoRAs are distilled for cfg-free sampling — cfg > 1 burns color/contrast).
 function withLightx2v(o: CommonOptions): CommonOptions {
   if (!o.useLightx2v) return o;
-  return { ...o, steps: o.steps ?? 4, switchStep: o.switchStep ?? 3 };
+  return { ...o, steps: o.steps ?? 4, switchStep: o.switchStep ?? 3, cfg: o.cfg ?? 1 };
 }
 
 export function buildI2VWorkflow(o: I2VOptions): Workflow {

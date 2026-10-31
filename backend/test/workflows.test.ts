@@ -294,6 +294,30 @@ test('without useLightx2v there is no LoLA and steps stay at 50/42', () => {
   assert.equal(high.inputs.steps, DEFAULTS.steps);
 });
 
+test('lightx2v sets cfg 1 on both experts; without it cfg stays at DEFAULTS', () => {
+  const assertCg = (wf: Workflow, expected: number, label: string): void => {
+    const { high, low } = samplerPair(wf);
+    assert.equal(high.inputs.cfg, expected, `${label} high-noise cfg`);
+    assert.equal(low.inputs.cfg, expected, `${label} low-noise cfg`);
+  };
+
+  const t2v = buildT2VWorkflow({ prompt: 'p', seed: 1, useLightx2v: true });
+  assertCg(t2v, 1, 'lightx2v T2V');
+  const i2v = buildI2VWorkflow({ prompt: 'p', seed: 1, startImage: 'a.png', useLightx2v: true });
+  assertCg(i2v, 1, 'lightx2v I2V');
+
+  const plainT2v = buildT2VWorkflow({ prompt: 'p', seed: 1 });
+  assertCg(plainT2v, DEFAULTS.cfg, 'default T2V');
+  const plainI2v = buildI2VWorkflow({ prompt: 'p', seed: 1, startImage: 'a.png' });
+  assertCg(plainI2v, DEFAULTS.cfg, 'default I2V');
+
+  // An explicit cfg wins over both the lightx2v default and the global default.
+  assertCg(buildT2VWorkflow({ prompt: 'p', seed: 1, useLightx2v: true, cfg: 3 }), 3, 'explicit cfg lightx2v T2V');
+  assertCg(buildI2VWorkflow({ prompt: 'p', seed: 1, startImage: 'a.png', useLightx2v: true, cfg: 3 }), 3, 'explicit cfg lightx2v I2V');
+  assertCg(buildT2VWorkflow({ prompt: 'p', seed: 1, cfg: 3 }), 3, 'explicit cfg plain T2V');
+  assertCg(buildI2VWorkflow({ prompt: 'p', seed: 1, startImage: 'a.png', cfg: 3 }), 3, 'explicit cfg plain I2V');
+});
+
 test('I2V lightx2v uses the i2v LoRAs', () => {
   const wf = buildI2VWorkflow({ prompt: 'p', seed: 1, startImage: 'a.png', useLightx2v: true });
   assert.deepEqual(
