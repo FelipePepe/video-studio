@@ -14,7 +14,7 @@ import { JobRunner } from './jobs/runner';
 import { makeTokenAuth } from './config/auth';
 import type { ExecuteFn } from './jobs/types';
 import { resolveCacheDir } from './pipeline/contentCache';
-import { createExecute, type FfmpegFn } from './pipeline/orchestrator';
+import { createExecute, type FfmpegFn, type OrchestratorDeps } from './pipeline/orchestrator';
 import { ComfyClient } from './clients/comfy';
 import { OllamaClient } from './clients/ollama';
 import { PiperClient } from './clients/piper';
@@ -30,6 +30,8 @@ export interface AppOptions {
   piper?: PiperClient;
   fetchImpl?: typeof fetch;
   ffmpeg?: FfmpegFn;
+  /** Resolves a character id to its approved image and analysis (character store, T15). */
+  presenterAssets?: OrchestratorDeps['presenterAssets'];
   /** Music library directory (background music picker). Defaults to the MUSIC_DIR env var; empty = disabled. */
   musicDir?: string;
   apiKey?: string;
@@ -92,6 +94,7 @@ export function buildApp(opts: AppOptions = {}): Express {
         resolveComfy: resolvers.resolveComfy,
         resolvePiper: resolvers.resolvePiper,
         ffmpeg: opts.ffmpeg,
+        presenterAssets: opts.presenterAssets,
         cacheDir: resolveCacheDir(opts.jobs?.cacheDir),
       }),
     workDir: resolvePath(opts.jobs?.workDir ?? 'data/jobs'),

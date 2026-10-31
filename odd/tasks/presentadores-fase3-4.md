@@ -22,7 +22,7 @@ Two original felt-puppet presenters (A/B, from the dialogue `speaker` of phase 2
 - [x] T11c sprite crop to the character box, key defaults 0.06 / 0.02 — `edd02f2`
 - [x] T15a character analysis (key colour from the corner pixel + bbox via cropdetect) — 23 tests green, typecheck green
 - [x] T13 approve option `presenters: { mode: 'volume', a, b }` (character ids) — tests in bgMusic.test.ts green, typecheck green
-- [ ] T14 orchestrator stage `presenters` between tts and assemble (cumulative-rounded frame boundaries, no drift) — brief not written
+- [x] T14 orchestrator stage `presenters` (overlay on video.mp4 inside assemble, cumulative-rounded bounds) — 11 new tests green, typecheck green
 - [ ] T15 character store + routes (generate with the 1-frame T2V still workflow on green background, approve, reuse; store key colour/crop/mouthY in meta) — brief not written
 - [ ] T16 UI (PresenterSetup + render option, ES/EN) — brief not written
 - [ ] Real render with presenters, ffprobe, frame check, browser check of the UI
