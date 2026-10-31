@@ -81,7 +81,7 @@ test('kenBurnsArgs builds a zoompan clip with defaults', () => {
   assert.deepEqual(args, [
     '-loop', '1', '-framerate', '24', '-i', 'in.png',
     '-vf',
-    "scale=2560:1440:force_original_aspect_ratio=increase,crop=2560:1440," +
+    "scale=5120:2880:force_original_aspect_ratio=increase:flags=lanczos,crop=5120:2880," +
       "zoompan=z='min(1+0.00125*on,1.15)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1280x720:fps=24,format=yuv420p",
     '-t', '5', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p', 'out.mp4',
   ]);
@@ -108,6 +108,8 @@ test('kenBurnsArgs honors size, fps and zoom and validates input', () => {
   const vf = args[args.indexOf('-vf') + 1];
   assert.match(vf, /s=640x360:fps=10/);
   assert.match(vf, /min\(1\+0\.01\*on,1\.2\)/);
+  assert.match(vf, /scale=2560:1440/, '4× oversampled input');
+  assert.match(vf, /flags=lanczos/, 'lanczos pre-scale');
   assert.throws(() => kenBurnsArgs({ image: 'i', durationSec: 0, out: 'o' }), /duration/);
   assert.throws(() => kenBurnsArgs({ image: 'i', durationSec: 1, out: 'o', zoomTo: 0.9 }), /zoomTo/);
 });

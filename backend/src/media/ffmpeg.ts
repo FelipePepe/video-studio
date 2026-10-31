@@ -100,8 +100,11 @@ export function kenBurnsArgs(o: KenBurnsOptions): string[] {
   const z = direction === 'zoom-out'
     ? `max(${num(zoomTo)}-${inc}*on,1)`
     : `min(1+${inc}*on,${num(zoomTo)})`;
+  // 4× oversampling (not 2×): zoompan rounds its x/y pan offsets to integers, so at 2× each
+  // step can shift ~half an output pixel and reads as visible jitter; at 4× the rounding error
+  // is a quarter of a pixel. lanczos keeps the upscale honest instead of the sws default.
   const vf =
-    `scale=${width * 2}:${height * 2}:force_original_aspect_ratio=increase,crop=${width * 2}:${height * 2},` +
+    `scale=${width * 4}:${height * 4}:force_original_aspect_ratio=increase:flags=lanczos,crop=${width * 4}:${height * 4},` +
     `zoompan=z='${z}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${width}x${height}:fps=${fps},format=yuv420p`;
   return [
     '-loop', '1', '-framerate', String(fps), '-i', image,
