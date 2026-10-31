@@ -120,7 +120,7 @@ export async function analyzeCharacter(
 
   const stderr = await deps.runFfmpegCapture([
     '-i', imagePath,
-    '-vf', `format=rgba,chromakey=${keyColor}:${similarity}:0.02,alphaextract,cropdetect=limit=0.05:round=2:reset=0`,
+    '-vf', `format=rgba,chromakey=${keyColor}:${similarity}:0.02,format=yuva420p,alphaextract,cropdetect=limit=0.05:round=2:reset=0:skip=0`,
     '-frames:v', '1', '-f', 'null', '-',
   ]);
 

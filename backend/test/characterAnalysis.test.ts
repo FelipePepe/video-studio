@@ -207,7 +207,7 @@ test('analyzeCharacter uses the last crop line, samples the key colour and build
     '-i',
     '/tmp/puppet.png',
     '-vf',
-    'format=rgba,chromakey=0x783c1e:0.06:0.02,alphaextract,cropdetect=limit=0.05:round=2:reset=0',
+    'format=rgba,chromakey=0x783c1e:0.06:0.02,format=yuva420p,alphaextract,cropdetect=limit=0.05:round=2:reset=0:skip=0',
     '-frames:v',
     '1',
     '-f',
