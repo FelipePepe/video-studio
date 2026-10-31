@@ -4,8 +4,16 @@ import {
   presenterSpriteArgs,
   presenterConcatList,
   presenterClipArgs,
+  presenterOverlayArgs,
+  VIDEO_CRF,
+  type PresenterOverlayOptions,
   type PresenterSpriteOptions,
 } from '../src/media/ffmpeg.js';
+
+const VIDEO = '/tmp/pipeline/background.mp4';
+const CLIP_A = '/tmp/presA/clip.mov';
+const CLIP_B = '/tmp/presB/clip.mov';
+const OUT = '/tmp/pipeline/with_presenters.mp4';
 
 const SPRITE = '/tmp/presenter/felt.png';
 
@@ -127,4 +135,51 @@ test('presenterClipArgs: frames is required and a positive integer', () => {
   assert.throws(() => presenterClipArgs({ listFile: 'l', out: 'o.mov', frames: 1.5 }), /frames/);
   assert.throws(() => presenterClipArgs({ listFile: 'l', out: 'o.mov', frames: NaN }), /frames/);
   assert.throws(() => presenterClipArgs({ listFile: 'l', out: 'o.mov' } as never), /frames/);
+});
+
+const overlayBase = { video: VIDEO, clipA: CLIP_A, clipB: CLIP_B, out: OUT };
+
+test('presenterOverlayArgs: defaults for 720p place A bottom-left, B bottom-right', () => {
+  const args = presenterOverlayArgs({ ...overlayBase, videoHeight: 720 });
+  const filter = filterOf(args);
+  assert.equal(filter,
+    '[1:v]scale=-2:288[a];' +
+    '[2:v]scale=-2:288[b];' +
+    '[0:v][a]overlay=x=14:y=main_h-overlay_h-14:eof_action=pass:format=auto[t];' +
+    '[t][b]overlay=x=main_w-overlay_w-14:y=main_h-overlay_h-14:eof_action=pass:format=auto[v]');
+  assert.deepEqual(args.slice(0, 6), ['-i', VIDEO, '-i', CLIP_A, '-i', CLIP_B], 'inputs in order: video, clipA, clipB');
+
+  const x264 = args.filter((a) => a === 'libx264');
+  assert.equal(x264.length, 1, 'exactly one libx264 pass');
+  assert.equal(args[args.indexOf('-crf') + 1], String(VIDEO_CRF), '-crf equals VIDEO_CRF');
+  assert.equal(args[args.indexOf('-c:a') + 1], 'copy', 'audio copied');
+  assert.ok(args.includes('0:a?'), 'optional audio map present');
+  assert.equal(args.at(-1), OUT, 'output path last');
+});
+
+test('presenterOverlayArgs: 1280 vertical with custom ratios has zero margin', () => {
+  const filter = filterOf(presenterOverlayArgs({ ...overlayBase, videoHeight: 1280, heightRatio: 0.3, marginRatio: 0 }));
+  assert.match(filter, /scale=-2:384\[a\]/);           // H = 2 * round(1280*0.3/2) = 384
+  assert.match(filter, /scale=-2:384\[b\]/);
+  assert.match(filter, /overlay=x=0:y=main_h-overlay_h-0/);
+  assert.match(filter, /overlay=x=main_w-overlay_w-0:y=main_h-overlay_h-0/);
+});
+
+test('presenterOverlayArgs: odd scaled height rounds to an even value', () => {
+  // 500 * 0.35 = 175 (odd) -> 2 * Math.round(175/2) = 176
+  const filter = filterOf(presenterOverlayArgs({ ...overlayBase, videoHeight: 500, heightRatio: 0.35 }));
+  assert.match(filter, /scale=-2:176\[a\]/);
+  assert.match(filter, /scale=-2:176\[b\]/);
+  assert.ok(!/scale=-2:175\b/.test(filter), 'odd height must not appear');
+});
+
+test('presenterOverlayArgs: rejects invalid videoHeight, heightRatio and marginRatio', () => {
+  const bad = (patch: Partial<PresenterOverlayOptions>) => () => presenterOverlayArgs({ video: VIDEO, clipA: CLIP_A, clipB: CLIP_B, out: OUT, videoHeight: 720, ...patch });
+  assert.throws(bad({ videoHeight: 0 }), /videoHeight/);
+  assert.throws(bad({ videoHeight: 720.5 }), /videoHeight/);
+  assert.throws(bad({ videoHeight: -10 }), /videoHeight/);
+  assert.throws(bad({ heightRatio: 0.05 }), /heightRatio/);
+  assert.throws(bad({ heightRatio: 1 }), /heightRatio/);
+  assert.throws(bad({ marginRatio: -0.1 }), /marginRatio/);
+  assert.throws(bad({ marginRatio: 0.5 }), /marginRatio/);
 });

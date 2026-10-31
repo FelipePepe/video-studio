@@ -383,3 +383,48 @@ export function presenterClipArgs(o: {
     '-frames:v', String(o.frames), o.out,
   ];
 }
+
+/**
+ * Composites two presenter clips with alpha (T11 qtrle .mov) over the background video in ONE
+ * x264 pass: A bottom-left, B bottom-right. Presenters are sized by heightRatio so the clip's
+ * width (scale=-2) is derived, and both clips are as long as the whole video, so overlays never
+ * need a `:enable=` window. Audio is copied untouched.
+ */
+export interface PresenterOverlayOptions {
+  video: string;             // background video (already without presenters)
+  clipA: string;             // .mov with alpha
+  clipB: string;             // .mov with alpha
+  out: string;
+  videoHeight: number;       // output height in px of `video` (e.g. 720, or 1280 for the vertical variant); positive integer
+  heightRatio?: number;      // presenter height as a fraction of videoHeight. default 0.4, must be in (0.1, 0.9]
+  marginRatio?: number;      // margin to the edges as a fraction of videoHeight. default 0.02, must be in [0, 0.2]
+}
+
+export function presenterOverlayArgs(o: PresenterOverlayOptions): string[] {
+  const V = o.videoHeight;
+  if (typeof V !== 'number' || !Number.isInteger(V) || V <= 0) {
+    throw new Error('presenterOverlayArgs: videoHeight must be a positive integer');
+  }
+  const ratio = o.heightRatio ?? 0.4;
+  if (typeof ratio !== 'number' || !Number.isFinite(ratio) || ratio <= 0.1 || ratio > 0.9) {
+    throw new Error('presenterOverlayArgs: heightRatio must be a finite number in (0.1, 0.9]');
+  }
+  const marginRatio = o.marginRatio ?? 0.02;
+  if (typeof marginRatio !== 'number' || !Number.isFinite(marginRatio) || marginRatio < 0 || marginRatio > 0.2) {
+    throw new Error('presenterOverlayArgs: marginRatio must be a finite number in [0, 0.2]');
+  }
+  const H = 2 * Math.round(V * ratio / 2); // even, for yuv420p
+  const M = Math.round(V * marginRatio);
+  const filter =
+    `[1:v]scale=-2:${H}[a];` +
+    `[2:v]scale=-2:${H}[b];` +
+    `[0:v][a]overlay=x=${M}:y=main_h-overlay_h-${M}:eof_action=pass:format=auto[t];` +
+    `[t][b]overlay=x=main_w-overlay_w-${M}:y=main_h-overlay_h-${M}:eof_action=pass:format=auto[v]`;
+  return [
+    '-i', o.video, '-i', o.clipA, '-i', o.clipB,
+    '-filter_complex', filter,
+    '-map', '[v]', '-map', '0:a?',
+    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', String(VIDEO_CRF), '-pix_fmt', 'yuv420p',
+    '-c:a', 'copy', o.out,
+  ];
+}
