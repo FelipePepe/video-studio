@@ -5,6 +5,7 @@ import {
   I2V_LOW_MODEL,
   I2V_MODEL,
   LORA,
+  LIGHTX2V_STILL_CFG,
   T2V_LOW_MODEL,
   T2V_MODEL,
   T5_ENCODER,
@@ -292,6 +293,29 @@ test('without useLightx2v there is no LoLA and steps stay at 50/42', () => {
   assert.equal(high.inputs.start_step, 0);
   assert.equal(high.inputs.end_step, DEFAULTS.switchStep);
   assert.equal(high.inputs.steps, DEFAULTS.steps);
+});
+
+test('lightx2v single-frame T2V stills use cfg 3; I2V and video T2V stay at cfg 1', () => {
+  const assertCg = (wf: Workflow, expected: number, label: string): void => {
+    const { high, low } = samplerPair(wf);
+    assert.equal(high.inputs.cfg, expected, `${label} high-noise cfg`);
+    assert.equal(low.inputs.cfg, expected, `${label} low-noise cfg`);
+  };
+
+  const still = buildT2VWorkflow({ prompt: 'p', seed: 1, useLightx2v: true, numFrames: 1 });
+  assertCg(still, LIGHTX2V_STILL_CFG, 'lightx2v T2V still (1 frame)');
+
+  // Multi-frame (default) T2V keeps cfg 1.
+  assertCg(buildT2VWorkflow({ prompt: 'p', seed: 1, useLightx2v: true }), 1, 'lightx2v T2V video');
+
+  // I2V keeps cfg 1.
+  assertCg(buildI2VWorkflow({ prompt: 'p', seed: 1, startImage: 'a.png', useLightx2v: true }), 1, 'lightx2v I2V');
+
+  // An explicit cfg wins over the lightx2v still default.
+  assertCg(buildT2VWorkflow({ prompt: 'p', seed: 1, useLightx2v: true, numFrames: 1, cfg: 2 }), 2, 'explicit cfg lightx2v still');
+
+  // A single frame without lightx2v keeps the global default cfg.
+  assertCg(buildT2VWorkflow({ prompt: 'p', seed: 1, numFrames: 1 }), DEFAULTS.cfg, 'plain T2V still');
 });
 
 test('lightx2v sets cfg 1 on both experts; without it cfg stays at DEFAULTS', () => {

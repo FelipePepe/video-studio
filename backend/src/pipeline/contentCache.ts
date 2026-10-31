@@ -260,9 +260,10 @@ export function startCachePruning(deps: CachePruningDeps): { stop(): void } {
 
 /**
  * Bump to invalidate the ComfyUI-render family (stills + transitions) when the workflow or
- * sampling changes. Now at 2 for the Wan 2.2 dual-expert chain (invalidates any one-expert renders).
+ * sampling changes. Now at 3 for the lightx2v still-cfg change (cfg 3 for 1-frame T2V stills —
+ * stills and transitions rendered with the previous cfg 1 are stale).
  */
-export const WORKFLOW_VERSION = 2;
+export const WORKFLOW_VERSION = 3;
 
 /** Bump to invalidate the Piper TTS family when the engine or voices change. */
 export const TTS_CACHE_VERSION = 1;
