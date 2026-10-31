@@ -215,11 +215,26 @@ export function burnSubtitlesArgs(o: { input: string; srt: string; out: string; 
   ];
 }
 
-/** Center-crops the 16:9 film to 9:16 and scales it to 720x1280 (Shorts/Reels); audio copied. */
+/**
+ * filter_complex fragment that fits the 16:9 frame into 720x1280 without upscaling the subject:
+ * the full frame is scaled to 720 wide and centered over a blurred, cropped copy of itself.
+ * Outputs the label [v]; `trailing` (e.g. a subtitles filter) is chained after the overlay.
+ */
+function verticalFitFilter(trailing?: string): string {
+  const base =
+    '[0:v]split=2[bg][fg];' +
+    '[bg]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,boxblur=20:2[b];' +
+    '[fg]scale=720:-2[f];' +
+    '[b][f]overlay=(W-w)/2:(H-h)/2';
+  return trailing ? `${base}[o];[o]${trailing}[v]` : `${base}[v]`;
+}
+
+/** Fits the 16:9 film into 9:16 (720x1280) over a blurred background (Shorts/Reels); audio copied. */
 export function verticalCropArgs(o: { input: string; out: string }): string[] {
   return [
     '-i', o.input,
-    '-vf', 'crop=ih*9/16:ih,scale=720:1280',
+    '-filter_complex', verticalFitFilter(),
+    '-map', '[v]', '-map', '0:a?',
     '-c:v', 'libx264', '-preset', 'veryfast', '-crf', String(VIDEO_CRF), '-pix_fmt', 'yuv420p',
     '-c:a', 'copy',
     o.out,
@@ -227,13 +242,14 @@ export function verticalCropArgs(o: { input: string; out: string }): string[] {
 }
 
 /**
- * Vertical 9:16 output with burned subtitles in a SINGLE x264 pass (crop + scale + subtitles
- * chained in one -vf), instead of cropping and then burning as two re-encodes. Audio copied.
+ * Vertical 9:16 output with burned subtitles in a SINGLE x264 pass (fit + subtitles chained in
+ * one filter_complex), instead of fitting and then burning as two re-encodes. Audio copied.
  */
 export function verticalBurnSubtitlesArgs(o: { input: string; srt: string; out: string; style?: string }): string[] {
   return [
     '-i', o.input,
-    '-vf', `crop=ih*9/16:ih,scale=720:1280,${subtitleFilter(o.srt, o.style)}`,
+    '-filter_complex', verticalFitFilter(subtitleFilter(o.srt, o.style)),
+    '-map', '[v]', '-map', '0:a?',
     '-c:v', 'libx264', '-preset', 'veryfast', '-crf', String(VIDEO_CRF), '-pix_fmt', 'yuv420p',
     '-c:a', 'copy',
     o.out,

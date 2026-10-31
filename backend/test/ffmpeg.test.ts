@@ -182,10 +182,12 @@ test('coverArgs fast-seeks on the input side', () => {
   assert.throws(() => coverArgs({ input: 'a.mp4', atSec: -1, out: 'c.jpg' }), /non-negative/);
 });
 
-test('verticalBurnSubtitlesArgs folds crop + scale + subtitles into a single encode', () => {
+test('verticalBurnSubtitlesArgs folds the 9:16 fit + subtitles into a single encode', () => {
   assert.deepEqual(verticalBurnSubtitlesArgs({ input: 'v.mp4', srt: 'sub.srt', out: 'out.mp4' }), [
     '-i', 'v.mp4',
-    '-vf', 'crop=ih*9/16:ih,scale=720:1280,subtitles=sub.srt',
+    '-filter_complex',
+    '[0:v]split=2[bg][fg];[bg]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,boxblur=20:2[b];[fg]scale=720:-2[f];[b][f]overlay=(W-w)/2:(H-h)/2[o];[o]subtitles=sub.srt[v]',
+    '-map', '[v]', '-map', '0:a?',
     '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p',
     '-c:a', 'copy',
     'out.mp4',
@@ -194,8 +196,8 @@ test('verticalBurnSubtitlesArgs folds crop + scale + subtitles into a single enc
 
 test('verticalBurnSubtitlesArgs sanitizes the force style and escapes the SRT path', () => {
   const args = verticalBurnSubtitlesArgs({ input: 'v.mp4', srt: "c:\\vid\\sub.srt", out: 'out.mp4', style: "Fontname=Arial, Fontsize='20'" });
-  const vf = args[args.indexOf('-vf') + 1];
-  assert.ok(vf.startsWith('crop=ih*9/16:ih,scale=720:1280,subtitles='), 'filter chain order');
+  const vf = args[args.indexOf('-filter_complex') + 1];
+  assert.ok(vf.includes('subtitles=') && vf.indexOf('subtitles=') > vf.indexOf('overlay='), 'subtitles chained AFTER the fit overlay');
   assert.ok(vf.includes('subtitles=c\\:\\\\vid\\\\sub.srt'), 'backslash and drive-colon escaping');
   assert.ok(vf.includes("force_style='Fontname=Arial, Fontsize=20'"), 'quotes stripped from force_style');
   assert.ok(!vf.includes("''"), 'no double-quote artifacts');
