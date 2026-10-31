@@ -33,6 +33,7 @@ const doneJob: Job = {
   updatedAt: '2026-10-17T10:05:00.000Z',
   startedAt: null,
   finishedAt: null,
+  warnings: [],
 };
 
 describe('App shell', () => {

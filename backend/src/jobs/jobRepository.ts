@@ -19,6 +19,7 @@ interface JobRow {
   updated_at: string;
   started_at: string | null;
   finished_at: string | null;
+  warnings: string | null;
 }
 
 export interface JobPatch {
@@ -29,6 +30,19 @@ export interface JobPatch {
 }
 
 const now: Clock = () => new Date();
+
+const MAX_WARNINGS = 50;
+const MAX_WARNING_LENGTH = 500;
+
+function parseWarnings(raw: string | null): string[] {
+  if (!raw) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((w): w is string => typeof w === 'string') : [];
+  } catch {
+    return [];
+  }
+}
 
 function fromRow(r: JobRow): Job {
   return {
@@ -44,6 +58,7 @@ function fromRow(r: JobRow): Job {
     updatedAt: r.updated_at,
     startedAt: r.started_at,
     finishedAt: r.finished_at,
+    warnings: parseWarnings(r.warnings),
   };
 }
 
@@ -112,6 +127,15 @@ function patchJob(db: DatabaseSync, id: string, fields: Record<string, SQLInputV
 
 export function updateJob(db: DatabaseSync, id: string, patch: JobPatch, clock: Clock = now): Job | undefined {
   return patchJob(db, id, { ...patch }, clock);
+}
+
+/** Appends a warning (newest last), keeping the latest 50 and truncating each text to 500 chars. */
+export function addJobWarning(db: DatabaseSync, id: string, text: string, clock: Clock = now): Job | undefined {
+  const row = db.prepare('SELECT warnings FROM jobs WHERE id = ?').get(id) as unknown as { warnings: string | null } | undefined;
+  if (!row) return undefined;
+  const next = [...parseWarnings(row.warnings), text.slice(0, MAX_WARNING_LENGTH)].slice(-MAX_WARNINGS);
+  db.prepare('UPDATE jobs SET warnings = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(next), clock().toISOString(), id);
+  return getJob(db, id);
 }
 
 export function markRunning(db: DatabaseSync, id: string, clock: Clock = now): Job | undefined {

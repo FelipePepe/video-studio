@@ -75,6 +75,7 @@ curl http://localhost:20014/api/config   # health check through the proxy
 - `GET /api/pipeline/voices` — roster de voces de Piper (Wyoming `describe`), `?lang=es` filtra
 - `GET /api/jobs`, `GET /api/jobs/:id`, `GET /api/jobs/:id/events` (SSE), `POST /api/jobs/:id/cancel`
 - `GET /api/jobs/:id/output` — `?variant=vertical` (9:16, `final_v.mp4`) o `?variant=cover` (`cover.jpg`)
+- Jobs carry a `warnings` array (max 50 entries of 500 chars). A transition that fails is replaced by a hard cut and a warning is recorded; the job is aborted only after 2 consecutive ComfyUI infrastructure failures (unreachable, timeout, lost prompt, HTTP 5xx). A prompt ComfyUI rejects (4xx, execution error) never counts toward the abort.
 - `GET/PATCH /api/config` — ComfyUI / Ollama / Piper hosts
 
 ## Workflow
