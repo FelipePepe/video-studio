@@ -297,18 +297,26 @@ export interface PresenterSpriteOptions {
   mouthY?: number;           // where the jaw splits, fraction of the image height. default 0.55, must be in [0.1, 0.9]
   drop?: number;             // max jaw drop as a fraction of the image height. default 0.06, must be in (0, 0.3]
   keyColor?: string;         // default '0x00FF00'
-  keySimilarity?: number;    // default 0.28
-  keyBlend?: number;         // default 0.08
+  keySimilarity?: number;    // default 0.06
+  keyBlend?: number;         // default 0.02
+  crop?: { x: number; y: number; w: number; h: number }; // optional character box in pixels: x, y >= 0, w, h >= 2; crops the frame before the key split
 }
 
 /**
- * Builds one presenter sprite for a mouth state: green key to alpha, a canvas pad for the
- * jaw travel, a darkened copy showing through the gap, and the jaw (bottom crop) offset by
- * the state's drop fraction (0 closed / 0.5 mid / 1 open).
+ * Builds one presenter sprite for a mouth state: optional crop to the character box, green key
+ * to alpha, a canvas pad for the jaw travel, a darkened copy showing through the gap, and the
+ * jaw (bottom crop) offset by the state's drop fraction (0 closed / 0.5 mid / 1 open).
  */
 export function presenterSpriteArgs(o: PresenterSpriteOptions): string[] {
   if (o.state !== 'closed' && o.state !== 'mid' && o.state !== 'open') {
     throw new Error('presenterSprite: state must be "closed", "mid" or "open"');
+  }
+  if (o.crop !== undefined) {
+    const isPix = (n: unknown): n is number => typeof n === 'number' && Number.isInteger(n) && n >= 0;
+    const { x, y, w, h } = o.crop;
+    if (!isPix(x) || !isPix(y) || !isPix(w) || !isPix(h) || w < 2 || h < 2) {
+      throw new Error('presenterSprite: crop must use non-negative integer x, y pixels with w and h >= 2');
+    }
   }
   const mouthY = o.mouthY ?? 0.55;
   const drop = o.drop ?? 0.06;
@@ -320,10 +328,11 @@ export function presenterSpriteArgs(o: PresenterSpriteOptions): string[] {
   }
   const my = num(mouthY);
   const dl = num(drop);
-  const key = `${o.keyColor ?? '0x00FF00'}:${o.keySimilarity ?? 0.28}:${o.keyBlend ?? 0.08}`;
+  const key = `${o.keyColor ?? '0x00FF00'}:${o.keySimilarity ?? 0.06}:${o.keyBlend ?? 0.02}`;
   const s = num(MOUTH_STATE_SCALE[o.state]);
+  const crop = o.crop ? `crop=${o.crop.w}:${o.crop.h}:${o.crop.x}:${o.crop.y},` : '';
   const filter =
-    `[0:v]format=rgba,chromakey=${key},split=4[c][d][a][b];` +
+    `[0:v]${crop}format=rgba,chromakey=${key},split=4[c][d][a][b];` +
     `[c]colorchannelmixer=aa=0,pad=iw:ceil(ih*(1+${dl})):0:0:color=0x00000000[canvas];` +
     `[d]lutrgb=r=val*0.25:g=val*0.2:b=val*0.2[dark];` +
     `[a]crop=iw:floor(ih*${my}):0:0[top];` +

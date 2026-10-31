@@ -28,7 +28,7 @@ test('presenterSpriteArgs: one filter per mouth state with jaw drop scaling', ()
   for (const state of ['closed', 'mid', 'open'] as const) {
     const args = presenterSpriteArgs({ image: SPRITE, out: `/tmp/out_${state}.png`, state });
     const filter = filterOf(args);
-    assert.match(filter, /chromakey=0x00FF00:0\.28:0\.08/, `chromakey defaults for ${state}`);
+    assert.match(filter, /chromakey=0x00FF00:0\.06:0\.02/, `chromakey defaults for ${state}`);
     assert.match(filter, /split=4/);
     assert.match(filter, /lutrgb=/);
     assert.ok(
@@ -49,6 +49,38 @@ test('presenterSpriteArgs: mouthY and drop defaults and overrides land in the fi
   const o = filterOf(presenterSpriteArgs({ ...base, mouthY: 0.6, drop: 0.1 }));
   assert.ok(o.includes('ih*0.6'), 'overridden mouthY in crop expression');
   assert.ok(o.includes('(1+0.1)'), 'overridden drop in pad expression');
+});
+
+test('presenterSpriteArgs: crop is first in the filter when provided', () => {
+  const withCrop = filterOf(
+    presenterSpriteArgs({
+      image: SPRITE, out: '/tmp/out.png', state: 'closed',
+      crop: { x: 100, y: 200, w: 300, h: 500 },
+    }),
+  );
+  assert.ok(
+    withCrop.startsWith('[0:v]crop=300:500:100:200,format=rgba,chromakey='),
+    `filter must start with the crop, got: ${withCrop.slice(0, 80)}`,
+  );
+  assert.match(withCrop, /chromakey=0x00FF00:0\.06:0\.02/, 'defaults apply alongside the crop');
+
+  const without = filterOf(presenterSpriteArgs({ image: SPRITE, out: '/tmp/out.png', state: 'closed' }));
+  assert.ok(
+    without.startsWith('[0:v]format=rgba,chromakey='),
+    `filter must start with format=rgba when there is no crop, got: ${without.slice(0, 60)}`,
+  );
+});
+
+test('presenterSpriteArgs: rejects invalid crop values', () => {
+  const base: PresenterSpriteOptions = { image: SPRITE, out: '/tmp/out.png', state: 'open' };
+  assert.throws(() => presenterSpriteArgs({ ...base, crop: { x: -1, y: 0, w: 10, h: 10 } }), /crop/, 'negative x');
+  assert.throws(() => presenterSpriteArgs({ ...base, crop: { x: 0, y: -1, w: 10, h: 10 } }), /crop/, 'negative y');
+  assert.throws(() => presenterSpriteArgs({ ...base, crop: { x: 0, y: 0, w: 10, h: 10.5 } }), /crop/, 'fractional h');
+  assert.throws(() => presenterSpriteArgs({ ...base, crop: { x: 1.5, y: 0, w: 10, h: 10 } }), /crop/, 'fractional x');
+  assert.throws(() => presenterSpriteArgs({ ...base, crop: { x: 0, y: 0, w: 0, h: 10 } }), /crop/, 'zero width');
+  assert.throws(() => presenterSpriteArgs({ ...base, crop: { x: 0, y: 0, w: 10, h: 0 } }), /crop/, 'zero height');
+  assert.throws(() => presenterSpriteArgs({ ...base, crop: { x: 0, y: 0, w: 1, h: 10 } }), /crop/, 'width below 2');
+  assert.throws(() => presenterSpriteArgs({ ...base, crop: { x: 0, y: 0, w: 10, h: NaN } }), /crop/, 'NaN height');
 });
 
 test('presenterSpriteArgs: key color/similarity/blend overrides', () => {
