@@ -23,7 +23,7 @@ cd backend && node --test --import tsx test/orchestrator.test.ts
 cd frontend && pnpm vitest run test/ReviewPanel.test.tsx
 ```
 
-Backend env: `PORT`, `HOST`, `DB_PATH` (default `data/video-studio.sqlite`), `API_TOKEN` (optional shared-token guard on state-changing routes), `LOG_LEVEL`, `OLLAMA_MODEL`, `OLLAMA_NUM_CTX` (optional; sent as Ollama `num_ctx` only when set), `OLLAMA_TIMEOUT_MS` (chat timeout, default 300000), `OLLAMA_TAGS_TIMEOUT_MS` (model list timeout, default 5000), `DRAFT_MAX_CONCURRENCY` (concurrent `POST /draft`, default 2; extra requests get 429), `MUSIC_DIR`. Runtime data and logs live in `data/` (gitignored).
+Backend env: `PORT`, `HOST`, `DB_PATH` (default `data/video-studio.sqlite`), `API_TOKEN` (optional shared-token guard on state-changing routes), `LOG_LEVEL`, `OLLAMA_MODEL`, `OLLAMA_NUM_CTX` (optional; sent as Ollama `num_ctx` only when set), `OLLAMA_TIMEOUT_MS` (chat timeout, default 300000), `OLLAMA_TAGS_TIMEOUT_MS` (model list timeout, default 5000), `DRAFT_MAX_CONCURRENCY` (concurrent `POST /draft`, default 2; extra requests get 429), `FFMPEG_STALL_TIMEOUT_MS` (ffmpeg watchdog, default 1800000), `MUSIC_DIR`. Runtime data and logs live in `data/` (gitignored).
 
 ## Architecture
 

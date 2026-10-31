@@ -221,3 +221,76 @@ test('idle resolves immediately when nothing is queued', async () => {
   runner.start();
   await runner.idle();
 });
+
+test('stop aborts the running job and resolves once it has ended cancelled', async () => {
+  let aborted = false;
+  const started = deferred();
+  const { runner, db, draftId } = setup((_job, ctx) => {
+    started.resolve();
+    return new Promise((_resolve, reject) => {
+      ctx.signal.addEventListener('abort', () => {
+        aborted = true;
+        reject(new Error('aborted'));
+      });
+    });
+  });
+  runner.start();
+  const job = runner.enqueue(draftId);
+  await started.promise;
+  await runner.stop();
+  assert.equal(aborted, true);
+  assert.equal(getJob(db, job.id)?.status, 'cancelled');
+});
+
+test('stop does not start the next queued job', async () => {
+  const started = deferred();
+  const executed: string[] = [];
+  const { runner, db, draftId } = setup((job, ctx) => {
+    executed.push(job.id);
+    started.resolve();
+    return new Promise((_resolve, reject) => {
+      ctx.signal.addEventListener('abort', () => reject(new Error('aborted')));
+    });
+  });
+  runner.start();
+  const first = runner.enqueue(draftId);
+  const second = runner.enqueue(draftId);
+  await started.promise;
+  await runner.stop();
+  await tick();
+  assert.deepEqual(executed, [first.id]);
+  assert.equal(getJob(db, second.id)?.status, 'queued');
+});
+
+test('a job scheduled after stop is never started', async () => {
+  const executed: string[] = [];
+  const { runner, db, draftId } = setup(async (job) => {
+    executed.push(job.id);
+    return { outputPath: 'x' };
+  });
+  runner.start();
+  await runner.stop();
+  const job = runner.enqueue(draftId);
+  await tick();
+  await tick();
+  assert.deepEqual(executed, []);
+  assert.equal(getJob(db, job.id)?.status, 'queued');
+});
+
+test('stop is safe to call twice and resolves immediately on an idle runner', async () => {
+  const { runner } = setup(async () => ({ outputPath: 'x' }));
+  runner.start();
+  await runner.stop();
+  await runner.stop();
+  const started = deferred();
+  const busy = setup((_job, ctx) => {
+    started.resolve();
+    return new Promise((_resolve, reject) => {
+      ctx.signal.addEventListener('abort', () => reject(new Error('aborted')));
+    });
+  });
+  busy.runner.start();
+  busy.runner.enqueue(busy.draftId);
+  await started.promise;
+  await Promise.all([busy.runner.stop(), busy.runner.stop()]);
+});

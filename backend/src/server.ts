@@ -5,6 +5,7 @@ import { parsePort, resolveDbPath } from './config/runtime';
 import { openDatabase } from './db/connection';
 import { logger } from './lib/logger';
 import { makeCrashHandler } from './lib/crashHandler';
+import { makeShutdown } from './lib/shutdown';
 import type { JobRunner } from './jobs/runner';
 
 const log = logger.child('server');
@@ -16,11 +17,21 @@ function main(): void {
   // (doc §5.2: don't listen on all interfaces.) HOST=… to expose on a specific interface.
   const host = (process.env.HOST ?? '').trim() || '127.0.0.1';
   mkdirSync(dirname(dbPath), { recursive: true });
-  const app = buildApp({ db: openDatabase(dbPath) });
-  (app.locals.jobRunner as JobRunner).start();
-  app.listen(port, host, () => {
+  const db = openDatabase(dbPath);
+  const app = buildApp({ db });
+  const runner = app.locals.jobRunner as JobRunner;
+  runner.start();
+  const server = app.listen(port, host, () => {
     log.info(`backend listening on ${host}:${port}`);
   });
+  server.on('error', (err) => {
+    log.error('listen failed', { err });
+    process.exit(1);
+  });
+  // B5: docker stop sends SIGTERM; abort the running job, close the server and the DB cleanly.
+  const shutdown = makeShutdown({ server, runner, db, log, exit: (code) => process.exit(code) });
+  process.on('SIGTERM', () => void shutdown('SIGTERM'));
+  process.on('SIGINT', () => void shutdown('SIGINT'));
 }
 
 try {

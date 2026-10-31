@@ -3,6 +3,28 @@ import { spawn as nodeSpawn } from 'node:child_process';
 export interface RunFfmpegOptions {
   spawnImpl?: typeof nodeSpawn;
   signal?: AbortSignal;
+  /**
+   * Stall watchdog: kill ffmpeg when it prints nothing for this many ms. Defaults to
+   * FFMPEG_STALL_TIMEOUT_MS, then 10 minutes. It is an INACTIVITY limit, not a total-time limit:
+   * ffmpeg prints progress to stderr while it encodes, so a slow but progressing encode (a long
+   * final render on a Raspberry Pi) keeps resetting it and is never killed; only a hung process is.
+   */
+  stallTimeoutMs?: number;
+}
+
+const DEFAULT_FFMPEG_STALL_TIMEOUT_MS = 600_000;
+/** Largest delay setTimeout accepts; a bigger value is clamped by Node to 1 ms (it would kill every run). */
+const MAX_TIMER_MS = 2_147_483_647;
+
+function resolveStallTimeoutMs(option: number | undefined): number {
+  let ms = DEFAULT_FFMPEG_STALL_TIMEOUT_MS;
+  if (typeof option === 'number' && Number.isFinite(option) && option > 0) ms = option;
+  else {
+    const raw = (process.env.FFMPEG_STALL_TIMEOUT_MS ?? '').trim();
+    const parsed = raw === '' ? NaN : Number(raw);
+    if (Number.isFinite(parsed) && parsed > 0) ms = parsed;
+  }
+  return Math.min(ms, MAX_TIMER_MS);
 }
 
 const STDERR_TAIL_LINES = 15;
@@ -14,19 +36,35 @@ export function runFfmpeg(args: string[], opts: RunFfmpegOptions = {}): Promise<
   return new Promise<void>((resolve, reject) => {
     const proc = spawnImpl('ffmpeg', ['-y', '-hide_banner', ...args], { stdio: ['ignore', 'ignore', 'pipe'] });
     let stderr = '';
+    const stallMs = resolveStallTimeoutMs(opts.stallTimeoutMs);
+    let timer: NodeJS.Timeout;
+    // Re-armed on every chunk of output: only a process that stops printing is considered stuck.
+    const arm = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        signal?.removeEventListener('abort', onAbort);
+        proc.kill('SIGKILL');
+        reject(new Error(`ffmpeg stalled: no output for ${stallMs}ms`));
+      }, stallMs);
+    };
+    arm();
     proc.stderr?.on('data', (d: Buffer) => {
       stderr = (stderr + d.toString()).slice(-8192);
+      arm();
     });
-    const onAbort = () => {
+    function onAbort() {
+      clearTimeout(timer);
       proc.kill('SIGKILL');
       reject(new Error('ffmpeg aborted'));
-    };
+    }
     signal?.addEventListener('abort', onAbort, { once: true });
     proc.on('error', (e: Error) => {
+      clearTimeout(timer);
       signal?.removeEventListener('abort', onAbort);
       reject(new Error(`ffmpeg failed to start: ${e.message}`));
     });
     proc.on('close', (code: number | null) => {
+      clearTimeout(timer);
       signal?.removeEventListener('abort', onAbort);
       if (code === 0) return resolve();
       const tail = stderr.trim().split('\n').slice(-STDERR_TAIL_LINES).join('\n');

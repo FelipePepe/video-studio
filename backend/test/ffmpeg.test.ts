@@ -171,3 +171,118 @@ test('fast preset on intermediate clips, not on the quality-final encodes', () =
   assert.ok(!burnSubtitlesArgs({ input: 'i', srt: 's.srt', out: 'o' }).includes('veryfast'), 'final burn keeps quality');
   assert.ok(!verticalCropArgs({ input: 'i', out: 'o' }).includes('veryfast'), 'final crop keeps quality');
 });
+
+/** A child that never exits on its own: it closes only after `kill` is called. */
+function hangingSpawn() {
+  const kills: Array<string | number | undefined> = [];
+  const spawnImpl = (() => {
+    const proc = new EventEmitter() as EventEmitter & { stderr: EventEmitter; kill: (s?: string | number) => void };
+    proc.stderr = new EventEmitter();
+    proc.kill = (sig) => {
+      kills.push(sig);
+      setImmediate(() => proc.emit('close', null));
+    };
+    return proc;
+  }) as unknown as typeof import('node:child_process').spawn;
+  return { spawnImpl, kills };
+}
+
+test('runFfmpeg kills with SIGKILL and rejects when ffmpeg goes silent (stall watchdog)', async () => {
+  const { spawnImpl, kills } = hangingSpawn();
+  await assert.rejects(runFfmpeg(['x'], { spawnImpl, stallTimeoutMs: 20 }), /ffmpeg stalled: no output for 20ms/);
+  assert.deepEqual(kills, ['SIGKILL']);
+});
+
+/** A child that keeps printing progress every `everyMs` for `count` ticks, then exits 0. */
+function chattySpawn(everyMs: number, count: number) {
+  const kills: Array<string | number | undefined> = [];
+  const spawnImpl = (() => {
+    const proc = new EventEmitter() as EventEmitter & { stderr: EventEmitter; kill: (s?: string | number) => void };
+    proc.stderr = new EventEmitter();
+    proc.kill = (sig) => {
+      kills.push(sig);
+    };
+    let n = 0;
+    const tick = setInterval(() => {
+      proc.stderr.emit('data', Buffer.from(`frame=${n} time=00:00:0${n}\r`));
+      if (++n >= count) {
+        clearInterval(tick);
+        proc.emit('close', 0);
+      }
+    }, everyMs);
+    return proc;
+  }) as unknown as typeof import('node:child_process').spawn;
+  return { spawnImpl, kills };
+}
+
+test('runFfmpeg does NOT kill a slow encode that keeps printing progress (total time may exceed the stall limit)', async () => {
+  // 6 ticks x 25ms = ~150ms of work against a 60ms stall limit: progress output keeps resetting the watchdog.
+  const { spawnImpl, kills } = chattySpawn(25, 6);
+  await runFfmpeg(['x'], { spawnImpl, stallTimeoutMs: 60 });
+  assert.deepEqual(kills, []);
+});
+
+test('runFfmpeg kills and rejects aborted on a mid-run abort', async () => {
+  const { spawnImpl, kills } = hangingSpawn();
+  const ac = new AbortController();
+  const p = runFfmpeg(['x'], { spawnImpl, signal: ac.signal, stallTimeoutMs: 5000 });
+  setImmediate(() => ac.abort());
+  await assert.rejects(p, /ffmpeg aborted/);
+  assert.deepEqual(kills, ['SIGKILL']);
+});
+
+/**
+ * Records watchdog delays without arming a real timer. Heuristic: every watchdog value used by these
+ * tests is >= 1000 ms, while the fakes' own timers are a few ms. A different setTimeout >= 1 s during
+ * runFfmpeg would be swallowed here, and a watchdog < 1000 ms would arm a real timer: keep that in mind.
+ */
+function spyTimeouts() {
+  const delays: unknown[] = [];
+  const original = global.setTimeout;
+  global.setTimeout = ((fn: () => void, ms?: number, ...rest: unknown[]) => {
+    if (typeof ms === 'number' && ms >= 1000) {
+      // Record the watchdog delay but do not arm a real timer.
+      delays.push(ms);
+      return { unref() {}, ref() {} } as unknown as NodeJS.Timeout;
+    }
+    return original(fn, ms, ...(rest as []));
+  }) as typeof setTimeout;
+  return { delays, restore: () => (global.setTimeout = original) };
+}
+
+test('runFfmpeg stallTimeoutMs option beats FFMPEG_STALL_TIMEOUT_MS; invalid or empty env falls back to 10 minutes', async () => {
+  const saved = process.env.FFMPEG_STALL_TIMEOUT_MS;
+  const spy = spyTimeouts();
+  try {
+    process.env.FFMPEG_STALL_TIMEOUT_MS = '7000';
+    await runFfmpeg(['x'], { spawnImpl: fakeSpawn(0).spawnImpl, stallTimeoutMs: 4000 });
+    await runFfmpeg(['x'], { spawnImpl: fakeSpawn(0).spawnImpl });
+    for (const bad of ['', 'abc', '0', '-5']) {
+      process.env.FFMPEG_STALL_TIMEOUT_MS = bad;
+      await runFfmpeg(['x'], { spawnImpl: fakeSpawn(0).spawnImpl });
+    }
+    delete process.env.FFMPEG_STALL_TIMEOUT_MS;
+    await runFfmpeg(['x'], { spawnImpl: fakeSpawn(0).spawnImpl });
+  } finally {
+    spy.restore();
+    if (saved === undefined) delete process.env.FFMPEG_STALL_TIMEOUT_MS;
+    else process.env.FFMPEG_STALL_TIMEOUT_MS = saved;
+  }
+  assert.deepEqual(spy.delays, [4000, 7000, 600_000, 600_000, 600_000, 600_000, 600_000]);
+});
+
+test('runFfmpeg caps an oversized stall timeout at the largest setTimeout delay (no 1 ms overflow)', async () => {
+  const saved = process.env.FFMPEG_STALL_TIMEOUT_MS;
+  const spy = spyTimeouts();
+  try {
+    process.env.FFMPEG_STALL_TIMEOUT_MS = '3000000000'; // > 2^31-1: Node would clamp it to 1 ms
+    await runFfmpeg(['x'], { spawnImpl: fakeSpawn(0).spawnImpl });
+    delete process.env.FFMPEG_STALL_TIMEOUT_MS;
+    await runFfmpeg(['x'], { spawnImpl: fakeSpawn(0).spawnImpl, stallTimeoutMs: 1e10 });
+  } finally {
+    spy.restore();
+    if (saved === undefined) delete process.env.FFMPEG_STALL_TIMEOUT_MS;
+    else process.env.FFMPEG_STALL_TIMEOUT_MS = saved;
+  }
+  assert.deepEqual(spy.delays, [2_147_483_647, 2_147_483_647]);
+});

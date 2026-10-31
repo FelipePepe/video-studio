@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { join, resolve, sep } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { ComfyClient, ProgressInfo } from '../clients/comfy';
 import { extractVideoOutput, extractOutputFile } from '../clients/comfy';
@@ -371,6 +371,22 @@ async function executeAssemble(s: Shared, tts: TTSResult, stills: StillsResult, 
   return { outputPath: deliverable, chaptersPath, chapters };
 }
 
+/**
+ * Contract: every args builder in media/ffmpeg.ts puts the OUTPUT path as the LAST argument
+ * (locked by a test). On an ffmpeg failure the partial output is removed best-effort, but only
+ * when it lies inside the job's workDir; a cleanup problem never masks the original error.
+ */
+export function removePartialFfmpegOutput(args: string[], workDir: string): void {
+  try {
+    const out = args[args.length - 1];
+    if (typeof out !== 'string' || out === '' || out.startsWith('-')) return;
+    if (!resolve(out).startsWith(resolve(workDir) + sep)) return;
+    rmSync(out, { force: true });
+  } catch {
+    /* best-effort */
+  }
+}
+
 export function createExecute(deps: OrchestratorDeps): ExecuteFn {
   const ffmpeg: FfmpegFn = deps.ffmpeg ?? runFfmpeg;
   const frames = deps.framesPerTransition ?? 33;
@@ -445,6 +461,7 @@ export function createExecute(deps: OrchestratorDeps): ExecuteFn {
       try {
         await ffmpeg(args, { signal });
       } catch (e) {
+        removePartialFfmpegOutput(args, workDir);
         guard();
         throw e;
       }
