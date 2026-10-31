@@ -25,7 +25,7 @@ test('verticalCropArgs center-crops 16:9 to 9:16 and re-encodes at 720x1280', ()
   assert.deepEqual(verticalCropArgs({ input: 'in.mp4', out: 'out.mp4' }), [
     '-i', 'in.mp4',
     '-vf', 'crop=ih*9/16:ih,scale=720:1280',
-    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '19', '-pix_fmt', 'yuv420p',
+    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p',
     '-c:a', 'copy',
     'out.mp4',
   ]);

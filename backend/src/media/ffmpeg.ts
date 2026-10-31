@@ -30,6 +30,13 @@ function resolveStallTimeoutMs(option: number | undefined): number {
 const STDERR_TAIL_LINES = 15;
 const num = (n: number) => String(Number(n.toFixed(6)));
 
+/**
+ * CRF used on every intermediate libx264 encode (Ken Burns, xfade, normalize, vertical passes).
+ * Clips are joined with `concat -c copy`, so this CRF is the final video quality — explicit,
+ * higher than the x264 default (23) instead of an accidental fallback.
+ */
+export const VIDEO_CRF = 18;
+
 export function runFfmpeg(args: string[], opts: RunFfmpegOptions = {}): Promise<void> {
   const { spawnImpl = nodeSpawn, signal } = opts;
   if (signal?.aborted) return Promise.reject(new Error('ffmpeg aborted'));
@@ -99,7 +106,7 @@ export function kenBurnsArgs(o: KenBurnsOptions): string[] {
   return [
     '-loop', '1', '-framerate', String(fps), '-i', image,
     '-vf', vf,
-    '-t', num(durationSec), '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p', out,
+    '-t', num(durationSec), '-c:v', 'libx264', '-preset', 'veryfast', '-crf', String(VIDEO_CRF), '-pix_fmt', 'yuv420p', out,
   ];
 }
 
@@ -130,7 +137,7 @@ export function xfadeArgs(o: XfadeOptions): string[] {
     ...clips.flatMap((c) => ['-i', c]),
     '-filter_complex', filters.join(';'),
     '-map', `[v${clips.length - 1}]`,
-    '-c:v', 'libx264', '-pix_fmt', 'yuv420p', out,
+    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', String(VIDEO_CRF), '-pix_fmt', 'yuv420p', out,
   ];
 }
 
@@ -199,7 +206,7 @@ export function burnSubtitlesArgs(o: { input: string; srt: string; out: string; 
   return [
     '-i', o.input,
     '-vf', vf,
-    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '19', '-pix_fmt', 'yuv420p',
+    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', String(VIDEO_CRF), '-pix_fmt', 'yuv420p',
     '-c:a', 'copy',
     o.out,
   ];
@@ -210,7 +217,7 @@ export function verticalCropArgs(o: { input: string; out: string }): string[] {
   return [
     '-i', o.input,
     '-vf', 'crop=ih*9/16:ih,scale=720:1280',
-    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '19', '-pix_fmt', 'yuv420p',
+    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', String(VIDEO_CRF), '-pix_fmt', 'yuv420p',
     '-c:a', 'copy',
     o.out,
   ];
@@ -224,7 +231,7 @@ export function verticalBurnSubtitlesArgs(o: { input: string; srt: string; out: 
   return [
     '-i', o.input,
     '-vf', `crop=ih*9/16:ih,scale=720:1280,${subtitleFilter(o.srt, o.style)}`,
-    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '19', '-pix_fmt', 'yuv420p',
+    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', String(VIDEO_CRF), '-pix_fmt', 'yuv420p',
     '-c:a', 'copy',
     o.out,
   ];
@@ -256,5 +263,5 @@ export function normalizeClipArgs(o: NormalizeClipOptions): string[] {
   const vf =
     `scale=${width}:${height}:force_original_aspect_ratio=decrease,` +
     `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,fps=${fps},setsar=1,format=yuv420p`;
-  return ['-i', input, '-vf', vf, '-an', '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p', out];
+  return ['-i', input, '-vf', vf, '-an', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', String(VIDEO_CRF), '-pix_fmt', 'yuv420p', out];
 }

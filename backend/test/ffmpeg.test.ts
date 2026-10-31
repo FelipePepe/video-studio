@@ -17,6 +17,7 @@ import {
   runFfmpeg,
   verticalCropArgs,
   verticalBurnSubtitlesArgs,
+  VIDEO_CRF,
   xfadeArgs,
 } from '../src/media/ffmpeg';
 
@@ -82,8 +83,24 @@ test('kenBurnsArgs builds a zoompan clip with defaults', () => {
     '-vf',
     "scale=2560:1440:force_original_aspect_ratio=increase,crop=2560:1440," +
       "zoompan=z='min(1+0.00125*on,1.15)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1280x720:fps=24,format=yuv420p",
-    '-t', '5', '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p', 'out.mp4',
+    '-t', '5', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p', 'out.mp4',
   ]);
+});
+
+test('VIDEO_CRF is 18 and every intermediate encode passes it explicitly', () => {
+  assert.equal(VIDEO_CRF, 18);
+  const builderArgs: Array<[string, string[]]> = [
+    ['kenBurnsArgs', kenBurnsArgs({ image: 'i', durationSec: 1, out: 'o' })],
+    ['xfadeArgs', xfadeArgs({ clips: ['a', 'b'], durationsSec: [3, 3], transitionSec: 1, out: 'o' })],
+    ['normalizeClipArgs', normalizeClipArgs({ input: 'i', out: 'o' })],
+    ['burnSubtitlesArgs', burnSubtitlesArgs({ input: 'i', srt: 's.srt', out: 'o' })],
+    ['verticalCropArgs', verticalCropArgs({ input: 'i', out: 'o' })],
+    ['verticalBurnSubtitlesArgs', verticalBurnSubtitlesArgs({ input: 'i', srt: 's.srt', out: 'o' })],
+  ];
+  for (const [name, args] of builderArgs) {
+    assert.ok(args.includes('-crf'), `${name} carries an explicit -crf`);
+    assert.equal(args[args.indexOf('-crf') + 1], String(VIDEO_CRF), `${name} uses CRF ${VIDEO_CRF}`);
+  }
 });
 
 test('kenBurnsArgs honors size, fps and zoom and validates input', () => {
@@ -108,7 +125,7 @@ test('xfadeArgs chains xfade filters with cumulative offsets', () => {
     '-i', 'a.mp4', '-i', 'b.mp4', '-i', 'c.mp4',
     '-filter_complex',
     '[0:v][1:v]xfade=transition=fade:duration=1:offset=4[v1];[v1][2:v]xfade=transition=fade:duration=1:offset=7[v2]',
-    '-map', '[v2]', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', 'o.mp4',
+    '-map', '[v2]', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p', 'o.mp4',
   ]);
 });
 
@@ -167,7 +184,7 @@ test('verticalBurnSubtitlesArgs folds crop + scale + subtitles into a single enc
   assert.deepEqual(verticalBurnSubtitlesArgs({ input: 'v.mp4', srt: 'sub.srt', out: 'out.mp4' }), [
     '-i', 'v.mp4',
     '-vf', 'crop=ih*9/16:ih,scale=720:1280,subtitles=sub.srt',
-    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '19', '-pix_fmt', 'yuv420p',
+    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p',
     '-c:a', 'copy',
     'out.mp4',
   ]);
@@ -187,7 +204,7 @@ test('normalizeClipArgs re-encodes to the shared stream parameters', () => {
   assert.deepEqual(args, [
     '-i', 't.mp4',
     '-vf', 'scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,fps=24,setsar=1,format=yuv420p',
-    '-an', '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p', 'n.mp4',
+    '-an', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p', 'n.mp4',
   ]);
   assert.match(normalizeClipArgs({ input: 'a', out: 'b', width: 640, height: 360, fps: 30 }).join(' '), /scale=640:360.*pad=640:360.*fps=30/);
 });
