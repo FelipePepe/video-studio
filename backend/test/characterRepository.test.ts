@@ -129,3 +129,50 @@ test('a failing insert cleans the second directory and keeps the first character
   assert.equal(repo.get('dup')?.name, first.name);
   assert.ok(existsSync(join(dir, 'dup', 'character.png')));
 });
+
+const mouthBox = { x: 100, y: 200, w: 50, h: 20 };
+
+test('migration 5 adds the mouth column on fresh and migrated databases', () => {
+  const cols = (d: DatabaseSync) => (d.prepare('PRAGMA table_info(characters)').all() as { name: string }[]).map((c) => c.name);
+  const fresh = openDatabase(':memory:');
+  assert.ok(cols(fresh).includes('mouth'));
+  fresh.close();
+
+  const old = new DatabaseSync(':memory:');
+  old.exec('PRAGMA user_version = 3');
+  runMigrations(old);
+  assert.ok(cols(old).includes('mouth'));
+  assert.ok(MIGRATIONS.some((m) => m.version === 5 && m.name === 'characters-mouth'));
+  old.close();
+
+  // v4 database that already has the table without the column
+  const v4 = new DatabaseSync(':memory:');
+  v4.exec('PRAGMA user_version = 3');
+  runMigrations(v4, MIGRATIONS.filter((m) => m.version <= 4));
+  assert.equal(cols(v4).includes('mouth'), false);
+  runMigrations(v4);
+  assert.ok(cols(v4).includes('mouth'));
+  v4.close();
+});
+
+test('mouth round-trips, NULL reads back as null, updateAnalysis rewrites the analysis', () => {
+  const { repo, db } = setup(() => 'id-m');
+  assert.equal(repo.create(input()).mouth, null);
+  repo.remove('id-m');
+  const c = repo.create({ ...input(), analysis: { ...analysis, mouth: mouthBox } });
+  assert.deepEqual(c.mouth, mouthBox);
+  assert.deepEqual(repo.get('id-m')?.mouth, mouthBox);
+
+  const next: CharacterAnalysis = { keyColor: '0x010203', width: 800, height: 900, crop: { x: 1, y: 2, w: 3, h: 4 }, mouth: null };
+  const u = repo.updateAnalysis('id-m', next);
+  assert.equal(u?.keyColor, '0x010203');
+  assert.deepEqual(u?.crop, next.crop);
+  assert.equal(u?.width, 800);
+  assert.equal(u?.height, 900);
+  assert.equal(u?.mouth, null);
+  assert.notEqual(u?.updatedAt, c.updatedAt);
+  assert.equal(repo.updateAnalysis('ghost', next), null);
+  assert.equal(repo.updateAnalysis('../x', next), null);
+  db.exec("UPDATE characters SET mouth = NULL");
+  assert.equal(repo.get('id-m')?.mouth, null);
+});

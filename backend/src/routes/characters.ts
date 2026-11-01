@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { Router, type Request, type Response } from 'express';
@@ -12,6 +12,7 @@ export interface CharactersDeps {
   repo: CharacterRepository;
   generate: CharacterGenerator;
   runFfmpegCapture: AnalyzeDeps['runFfmpegCapture'];
+  runFfmpegRaw: NonNullable<AnalyzeDeps['runFfmpegRaw']>;
 }
 
 function toJson(c: Character) {
@@ -25,6 +26,7 @@ function toJson(c: Character) {
     width: c.width,
     height: c.height,
     mouthY: c.mouthY,
+    mouth: c.mouth,
     imageUrl: `/api/characters/${c.id}/image`,
     createdAt: c.createdAt,
     updatedAt: c.updatedAt,
@@ -81,7 +83,7 @@ export function charactersRouter(deps: CharactersDeps): Router {
       try {
         const tmpPng = join(tmpDir, 'character.png');
         writeFileSync(tmpPng, png);
-        analysis = await analyzeCharacter(png, tmpPng, { runFfmpegCapture: deps.runFfmpegCapture });
+        analysis = await analyzeCharacter(png, tmpPng, { runFfmpegCapture: deps.runFfmpegCapture, runFfmpegRaw: deps.runFfmpegRaw });
       } catch (e) {
         return void res.status(422).json({ error: `could not analyse the generated image: ${errMsg(e)}` });
       } finally {
@@ -120,6 +122,25 @@ export function charactersRouter(deps: CharactersDeps): Router {
     res.sendFile(basename(c.imagePath), { root: dirname(c.imagePath) }, (err) => {
       if (err && !res.headersSent) res.status(404).json({ error: 'character image not found' });
     });
+  });
+
+  router.post('/:id/reanalyze', async (req, res) => {
+    const id = validId(req, res);
+    if (!id) return;
+    const c = deps.repo.get(id);
+    if (!c) return void res.status(404).json({ error: 'character not found' });
+    let analysis: CharacterAnalysis;
+    try {
+      analysis = await analyzeCharacter(readFileSync(c.imagePath), c.imagePath, {
+        runFfmpegCapture: deps.runFfmpegCapture,
+        runFfmpegRaw: deps.runFfmpegRaw,
+      });
+    } catch (e) {
+      return void res.status(422).json({ error: `could not analyse the stored image: ${errMsg(e)}` });
+    }
+    const updated = deps.repo.updateAnalysis(id, analysis);
+    if (!updated) return void res.status(404).json({ error: 'character not found' });
+    res.json(toJson(updated));
   });
 
   router.post('/:id/approve', (req, res) => {

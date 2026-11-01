@@ -14,6 +14,7 @@ const base: Character = {
   width: 1024,
   height: 1024,
   mouthY: null,
+  mouth: null,
   status: 'approved',
   createdAt: 't',
   updatedAt: 't',
@@ -40,4 +41,12 @@ test('rejections: not approved, unknown, invalid id, missing file', async () => 
   await assert.rejects(createPresenterAssets(spy, () => true)('../x'));
   assert.equal(called, false);
   await assert.rejects(createPresenterAssets(repoOf(base), () => false)('ana'), /image is missing/);
+});
+
+test('mouth is included when present and omitted when null', async () => {
+  const mouth = { x: 5, y: 6, w: 7, h: 8 };
+  const r = await createPresenterAssets(repoOf({ ...base, mouth }), () => true)('ana');
+  assert.deepEqual(r.mouth, mouth);
+  const n = await createPresenterAssets(repoOf(base), () => true)('ana');
+  assert.equal('mouth' in n, false);
 });

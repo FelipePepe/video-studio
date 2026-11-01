@@ -13,7 +13,7 @@ import { charactersRouter } from './routes/characters';
 import { createCharacterRepository } from './characters/characterRepository';
 import { comfyCharacterGenerator, type CharacterGenerator } from './characters/characterGenerator';
 import { createPresenterAssets } from './characters/presenterAssets';
-import { runFfmpegCapture, type AnalyzeDeps } from './media/characterAnalysis';
+import { runFfmpegCapture, runFfmpegRaw, type AnalyzeDeps } from './media/characterAnalysis';
 import { EventHub } from './jobs/eventHub';
 import { JobRunner } from './jobs/runner';
 import { makeTokenAuth } from './config/auth';
@@ -43,6 +43,8 @@ export interface AppOptions {
   characterGenerator?: CharacterGenerator;
   /** ffmpeg runner that returns stderr (cropdetect), used to analyse a generated character. */
   runFfmpegCapture?: AnalyzeDeps['runFfmpegCapture'];
+  /** ffmpeg runner that returns stdout bytes (mouth mask). Injectable for tests. */
+  runFfmpegRaw?: AnalyzeDeps['runFfmpegRaw'];
   /** Music library directory (background music picker). Defaults to the MUSIC_DIR env var; empty = disabled. */
   musicDir?: string;
   apiKey?: string;
@@ -137,6 +139,7 @@ export function buildApp(opts: AppOptions = {}): Express {
       repo: characterRepo,
       generate: opts.characterGenerator ?? comfyCharacterGenerator(resolvers.resolveComfy),
       runFfmpegCapture: opts.runFfmpegCapture ?? runFfmpegCapture,
+      runFfmpegRaw: opts.runFfmpegRaw ?? runFfmpegRaw,
     }),
   );
   app.use('/api/jobs', jobsRouter({ db, runner: jobRunner, hub: eventHub, heartbeatMs: opts.jobs?.heartbeatMs }));

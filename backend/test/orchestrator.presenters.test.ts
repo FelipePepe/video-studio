@@ -52,6 +52,7 @@ interface Opts {
   assetsReject?: boolean;
   throwOn?: string;
   abortOnSprite?: boolean;
+  mouthFor?: string[];
 }
 
 function harness(opts: Opts = {}) {
@@ -112,7 +113,12 @@ function harness(opts: Opts = {}) {
       : {
           presenterAssets: async (id: string): Promise<PresenterAssets> => {
             if (opts.assetsReject) throw new Error('no such character');
-            return { imagePath: `/x/${id}.png`, keyColor: '0x1e941b', crop: { x: 10, y: 20, w: 300, h: 400 } };
+            return {
+              imagePath: `/x/${id}.png`,
+              keyColor: '0x1e941b',
+              crop: { x: 10, y: 20, w: 300, h: 400 },
+              ...(opts.mouthFor?.includes(id) ? { mouth: { x: 100, y: 250, w: 120, h: 40 } } : {}),
+            };
           },
         }),
   });
@@ -250,4 +256,45 @@ test('an abort during the presenters stage is not degraded', async () => {
   const h = harness({ abortOnSprite: true });
   await assert.rejects(h.execute(h.job, h.ctx), (e: Error) => e.name === 'AbortError');
   assert.ok(!h.warnings().some((m) => m.includes('presenters failed')));
+});
+
+test('presenters with a mouth use the mouth sprite builder; the jaw path is gone for them', async () => {
+  const h = harness({ mouthFor: ['ana', 'leo'] });
+  await h.execute(h.job, h.ctx);
+  const sprites = h.sprites();
+  assert.equal(sprites.length, 6);
+  assert.deepEqual(sprites.map((s) => s[s.length - 1].split('/').pop()).sort(), [
+    'A_closed.png', 'A_mid.png', 'A_open.png', 'B_closed.png', 'B_mid.png', 'B_open.png',
+  ]);
+  for (const s of sprites) {
+    assert.ok(has(s, 'crop=300:400:10:20'));
+    assert.ok(has(s, '0x1e941b'));
+    assert.equal(has(s, 'pad='), false, 'no jaw pad');
+  }
+  const nonClosed = sprites.filter((s) => !s[s.length - 1].endsWith('_closed.png'));
+  assert.equal(nonClosed.length, 4);
+  for (const s of nonClosed) assert.ok(has(s, 'geq'), 'mouth ellipse is drawn');
+  assert.equal(h.clips().length, 2);
+});
+
+test('without a mouth the jaw sprites are unchanged', async () => {
+  const h = harness();
+  await h.execute(h.job, h.ctx);
+  const open = h.sprites().filter((s) => s[s.length - 1].endsWith('_open.png'));
+  assert.equal(open.length, 2);
+  for (const s of open) {
+    assert.equal(has(s, 'geq'), false);
+    assert.ok(has(s, 'pad='));
+  }
+});
+
+test('mixed: A has a mouth, B uses the jaw sprite', async () => {
+  const h = harness({ mouthFor: ['ana'] });
+  await h.execute(h.job, h.ctx);
+  const open = (k: string) => h.sprites().find((s) => s[s.length - 1].endsWith(`${k}_open.png`))!;
+  assert.ok(has(open('A'), 'geq'));
+  assert.equal(has(open('A'), 'pad='), false);
+  assert.ok(has(open('B'), 'pad='));
+  assert.equal(has(open('B'), 'geq'), false);
+  assert.equal(h.clips().length, 2);
 });

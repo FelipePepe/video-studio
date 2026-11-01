@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS characters (
   width INTEGER NOT NULL,
   height INTEGER NOT NULL,
   mouth_y REAL,
+  mouth TEXT,
   status TEXT NOT NULL DEFAULT 'generated' CHECK (status IN ('generated','approved')),
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL

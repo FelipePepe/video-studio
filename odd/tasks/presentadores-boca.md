@@ -19,8 +19,8 @@ Replace the "jaw split" mouth (cuts the whole character in two at a fixed height
 ## Tasks
 - [x] A1 mouth detection in `characterAnalysis.ts` (+ test) — 32 tests; real boxes: Ana {346,491,340,174}, Leo {329,439,386,162} (bright red OR dark maroon mask)
 - [x] A3 mouth sprite builder `presenterMouthSpriteArgs` in `media/ffmpeg.ts` (+ test) — real-ffmpeg sheet looked right (closed/mid/open inside the lips)
-- [ ] A2 migration v5 + repository + presenterAssets + reanalyze route (+ tests)
-- [ ] A4 orchestrator wiring (+ test)
+- [x] A2 migration v5 + repository + presenterAssets + reanalyze route (+ tests) — column `mouth` (fresh + migrated paths), `updateAnalysis`, `POST /:id/reanalyze` (422 on failure), create passes `runFfmpegRaw`; RED seen first (9 failing assertions across 4 files)
+- [x] A4 orchestrator wiring (+ test) — `executePresenters` uses `presenterMouthSpriteArgs` when `assets.mouth` is set, jaw path otherwise; tests cover with/without/mixed
 - [ ] A5 real check on Ana and Leo (backfill, sprites, one rendered clip, frame check)
 - [ ] C1 generator comparison on the Spark (Flux vs Qwen-Image vs current)
 - [ ] C2 integrate the chosen generator (+ tests)

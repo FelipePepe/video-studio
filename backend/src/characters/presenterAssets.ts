@@ -18,6 +18,7 @@ export function createPresenterAssets(
       keyColor: c.keyColor,
       crop: c.crop,
       ...(c.mouthY !== null ? { mouthY: c.mouthY } : {}),
+      ...(c.mouth !== null ? { mouth: c.mouth } : {}),
     };
   };
 }
