@@ -176,9 +176,12 @@ test('presenterOverlayArgs: defaults for 720p place A bottom-left, B bottom-righ
   const args = presenterOverlayArgs({ ...overlayBase, videoHeight: 720 });
   const filter = filterOf(args);
   assert.equal(filter,
-    '[1:v]scale=-2:288[a];' +
-    '[2:v]scale=-2:288[b];' +
-    '[0:v][a]overlay=x=14:y=main_h-overlay_h-14:eof_action=pass:format=auto[t];' +
+    // every input restarts at pts 0: without it the overlay intermittently drops the presenters
+    // around the cut between clips (12 of 30 real runs lost 2-10 frames; 0 of 30 with the reset)
+    '[0:v]setpts=PTS-STARTPTS[m];' +
+    '[1:v]setpts=PTS-STARTPTS,scale=-2:288[a];' +
+    '[2:v]setpts=PTS-STARTPTS,scale=-2:288[b];' +
+    '[m][a]overlay=x=14:y=main_h-overlay_h-14:eof_action=pass:format=auto[t];' +
     '[t][b]overlay=x=main_w-overlay_w-14:y=main_h-overlay_h-14:eof_action=pass:format=auto[v]');
   assert.deepEqual(args.slice(0, 6), ['-i', VIDEO, '-i', CLIP_A, '-i', CLIP_B], 'inputs in order: video, clipA, clipB');
 

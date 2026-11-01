@@ -491,10 +491,14 @@ export function presenterOverlayArgs(o: PresenterOverlayOptions): string[] {
   }
   const H = 2 * Math.round(V * ratio / 2); // even, for yuv420p
   const M = Math.round(V * marginRatio);
+  // Every input restarts at pts 0. Without the setpts resets the overlay filter intermittently
+  // drops the presenters for a few frames around the cut between clips (a framesync race: 12 of
+  // 30 real runs lost 2-10 frames, 0 of 30 with the reset).
   const filter =
-    `[1:v]scale=-2:${H}[a];` +
-    `[2:v]scale=-2:${H}[b];` +
-    `[0:v][a]overlay=x=${M}:y=main_h-overlay_h-${M}:eof_action=pass:format=auto[t];` +
+    `[0:v]setpts=PTS-STARTPTS[m];` +
+    `[1:v]setpts=PTS-STARTPTS,scale=-2:${H}[a];` +
+    `[2:v]setpts=PTS-STARTPTS,scale=-2:${H}[b];` +
+    `[m][a]overlay=x=${M}:y=main_h-overlay_h-${M}:eof_action=pass:format=auto[t];` +
     `[t][b]overlay=x=main_w-overlay_w-${M}:y=main_h-overlay_h-${M}:eof_action=pass:format=auto[v]`;
   return [
     '-i', o.video, '-i', o.clipA, '-i', o.clipB,

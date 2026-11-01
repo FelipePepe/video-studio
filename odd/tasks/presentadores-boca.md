@@ -29,4 +29,4 @@ Replace the "jaw split" mouth (cuts the whole character in two at a fixed height
 TDD on, runners: backend `node --test --import tsx test/<file>.test.ts`; full suite `cd backend && pnpm test`; `pnpm typecheck` at the root. Delegated writers per task; no git commands for writers; parent commits per task. Push/PR only with user OK. ~400 changed lines is advisory.
 
 ## Progress
-(see checklist; evidence below as tasks close)
+- A5 real check (2026-11-01, job cb1bab8b, 2 scenes, fast mode default, mouths backfilled via `POST /reanalyze`): 8.7 s, 0 warnings; mouths open INSIDE the lips, nothing is cut. It exposed a pre-existing intermittent bug: the presenter overlay lost the presenters for 2-10 frames around the cut between clips (framesync race; 12 of 30 identical real runs). Fix: `setpts=PTS-STARTPTS` on all three overlay inputs = 0 of 30 runs with holes. Tests updated (presenter.test.ts, orchestrator.presenters.test.ts).

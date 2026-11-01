@@ -176,7 +176,7 @@ test('happy path renders sprites, two clips of equal length and one overlay befo
 
   const overlays = h.overlays();
   assert.equal(overlays.length, 1);
-  assert.ok(has(overlays[0], '[2:v]scale=-2:288'));
+  assert.ok(has(overlays[0], '[2:v]setpts=PTS-STARTPTS,scale=-2:288'));
   assert.equal(overlays[0][overlays[0].indexOf('-i') + 1], join(h.workDir, 'video.mp4'));
   assert.equal(overlays[0][overlays[0].length - 1], join(h.workDir, 'video_p.mp4'));
   assert.equal(h.muxCall()[h.muxCall().indexOf('-i') + 1], join(h.workDir, 'video_p.mp4'));
