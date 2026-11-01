@@ -28,7 +28,7 @@ Two original felt-puppet presenters (A/B, from the dialogue `speaker` of phase 2
 - [x] Real render with presenters — job eff174be done 2026-11-01 02:36 local (5 h: stills 30 min, transitions 4.5 h, presenters 9 s, assemble 85 s), 0 warnings, 6 scenes. ffprobe: video.mp4 952 frames regular 1/24; overlay output lost 13 frames (one 0.583 s pts gap) because ffmpeg's default mp4 vfr mode drops frames whose timestamps collide after the overlay -> fixed with `-fps_mode cfr` (full re-run of the overlay: 952 frames, no gaps). final.mp4 audio 39.593 s = narration. Frame check: A bottom-left, B bottom-right, correct size. NOT re-rendered end to end after the fix.
 - [x] Browser check of the UI (headless Chromium 156 against Vite + the real backend, ES locale): dialogue draft shows the "Presentadores en pantalla" switch; turning it on opens PresenterSetup with the create form and the two approved characters (images served, no page errors). NOT exercised in the browser: picking A/B and the approve body (covered by unit tests) and the progress stage (needs a 5 h render). The 502 seen once was Ollama returning invalid JSON for a short text, not the UI.
 - [ ] Visual polish found in the frame check: green fringe around both characters (chromakey spill; try despill or a larger blend) and the open-mouth gap shows as a hard dark bar on Leo — pending, not blocking
-- [ ] PR to `develop`
+- [x] PR to `develop` — https://github.com/FelipePepe/video-studio/pull/77 (open, not merged)
 - [ ] 3B lip-sync spike — BLOCKED (needs user authorization for destination, operation, credential)
 
 ## Evidence and decisions
