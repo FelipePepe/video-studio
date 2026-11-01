@@ -62,7 +62,7 @@ describe('ReviewPanel presenters', () => {
     const { props, user } = setup({ draft });
     expect(screen.queryByRole('switch', { name: 'Presentadores en pantalla' })).not.toBeInTheDocument();
     await user.click(approveBtn());
-    expect(props.onApprove).toHaveBeenCalledWith(undefined);
+    expect(props.onApprove).toHaveBeenCalledWith({ useLightx2v: true });
   });
 
   it('offers an OFF switch for a dialogue and loads characters only when it is turned on', async () => {
@@ -79,17 +79,17 @@ describe('ReviewPanel presenters', () => {
     const { props, user } = setup();
     await chooseBoth(user);
     await user.click(approveBtn());
-    expect(props.onApprove).toHaveBeenCalledWith({ presenters: { mode: 'volume', a: 'c1', b: 'c2' } });
+    expect(props.onApprove).toHaveBeenCalledWith({ useLightx2v: true, presenters: { mode: 'volume', a: 'c1', b: 'c2' } });
   });
 
   it('omits presenters when only one or none is chosen', async () => {
     const { props, user } = setup();
     await user.click(presentersSwitch());
     await user.click(approveBtn());
-    expect(props.onApprove).toHaveBeenLastCalledWith(undefined);
+    expect(props.onApprove).toHaveBeenLastCalledWith({ useLightx2v: true });
     await user.selectOptions(await screen.findByLabelText('Presentador A'), 'Ana');
     await user.click(approveBtn());
-    expect(props.onApprove).toHaveBeenLastCalledWith(undefined);
+    expect(props.onApprove).toHaveBeenLastCalledWith({ useLightx2v: true });
   });
 
   it('omits presenters after switching off again', async () => {
@@ -97,7 +97,7 @@ describe('ReviewPanel presenters', () => {
     await chooseBoth(user);
     await user.click(presentersSwitch());
     await user.click(approveBtn());
-    expect(props.onApprove).toHaveBeenCalledWith(undefined);
+    expect(props.onApprove).toHaveBeenCalledWith({ useLightx2v: true });
   });
 
   it('combines presenters with the other options without extra keys', async () => {
@@ -107,6 +107,7 @@ describe('ReviewPanel presenters', () => {
     await user.click(screen.getByRole('switch', { name: /Subtítulos/i }));
     await user.click(approveBtn());
     expect(props.onApprove).toHaveBeenCalledWith({
+      useLightx2v: true,
       subtitles: false,
       vertical: true,
       presenters: { mode: 'volume', a: 'c1', b: 'c2' },
@@ -119,7 +120,7 @@ describe('ReviewPanel presenters', () => {
     rerender({ draft });
     expect(screen.queryByRole('switch', { name: 'Presentadores en pantalla' })).not.toBeInTheDocument();
     await user.click(approveBtn());
-    expect(props.onApprove).toHaveBeenCalledWith(undefined);
+    expect(props.onApprove).toHaveBeenCalledWith({ useLightx2v: true });
     // Back to a dialogue: the previous choice is gone and the switch is off again.
     rerender({ draft: dialogueDraft });
     expect(presentersSwitch()).not.toBeChecked();

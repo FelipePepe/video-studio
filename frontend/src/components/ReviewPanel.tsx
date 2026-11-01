@@ -78,7 +78,7 @@ export function ReviewPanel({ draft, api, error, onSave, onApprove, onBack }: Re
   const [musicError, setMusicError] = useState<string | null>(null);
   const [subtitles, setSubtitles] = useState(true);
   const [vertical, setVertical] = useState(false);
-  const [fastMode, setFastMode] = useState(false);
+  const [fastMode, setFastMode] = useState(true); // ON by default (user decision 2026-11-01; omitted from the body when turned OFF)
   const [presentersOn, setPresentersOn] = useState(false);
   const [presenterA, setPresenterA] = useState('');
   const [presenterB, setPresenterB] = useState('');
@@ -146,7 +146,7 @@ export function ReviewPanel({ draft, api, error, onSave, onApprove, onBack }: Re
     }
     if (!subtitles) body.subtitles = false; // ON is the backend default
     if (vertical) body.vertical = true; // OFF is the backend default
-    if (fastMode) body.useLightx2v = true; // OFF is the backend default
+    if (fastMode) body.useLightx2v = true; // the backend default (no key) is the normal, slower path
     if (presentersOn && isDialogue && characterApi && presenterA !== '' && presenterB !== '' && presenterA !== presenterB) {
       body.presenters = { mode: 'volume', a: presenterA, b: presenterB };
     }
