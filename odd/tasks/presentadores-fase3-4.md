@@ -25,11 +25,14 @@ Two original felt-puppet presenters (A/B, from the dialogue `speaker` of phase 2
 - [x] T14 orchestrator stage `presenters` (overlay on video.mp4 inside assemble, cumulative-rounded bounds) — 11 new tests green, typecheck green
 - [x] T15 character store + routes (/api/characters, migration v4, createPresenterAssets) — 19 new tests, backend 553 green, typecheck green
 - [x] T16 UI (PresenterSetup + render option + presenters stage, ES/EN) — frontend 265 green, typecheck green; usePipeline/ProgressStages tests written without a captured RED run
-- [ ] Real render with presenters, ffprobe, frame check, browser check of the UI — IN PROGRESS 2026-10-31: job eff174be (draft 0a190e4b, 6 scenes, Ana=A ae6242e2 / Leo=B 57f21c48, hosts from /api/config) started 21:36 local; stills ~4.5 min each; then transitions, presenters, assemble. Output in `backend/data/jobs/eff174be-8074-4cff-95b2-9b273d0ac17b/`. Check: ffprobe duration/frames vs cumulative bounds (T14 drift risk), one frame with both presenters. UI browser check still pending.
+- [x] Real render with presenters — job eff174be done 2026-11-01 02:36 local (5 h: stills 30 min, transitions 4.5 h, presenters 9 s, assemble 85 s), 0 warnings, 6 scenes. ffprobe: video.mp4 952 frames regular 1/24; overlay output lost 13 frames (one 0.583 s pts gap) because ffmpeg's default mp4 vfr mode drops frames whose timestamps collide after the overlay -> fixed with `-fps_mode cfr` (full re-run of the overlay: 952 frames, no gaps). final.mp4 audio 39.593 s = narration. Frame check: A bottom-left, B bottom-right, correct size. NOT re-rendered end to end after the fix.
+- [ ] Browser check of the UI (PresenterSetup, render option, presenters stage) — pending
+- [ ] Visual polish found in the frame check: green fringe around both characters (chromakey spill; try despill or a larger blend) and the open-mouth gap shows as a hard dark bar on Leo — pending, not blocking
 - [ ] PR to `develop`
 - [ ] 3B lip-sync spike — BLOCKED (needs user authorization for destination, operation, credential)
 
 ## Evidence and decisions
+- Render timing reference (Wan2.2 on the GB10): 1-frame still ~4.5 min, 33-frame transition ~53 min each. A 6-scene video takes ~5 h; use 2-3 scenes for checks.
 - Real ffmpeg found what fakes could not (3f92d5b): `alphaextract` needs `format=yuva420p` before it and `cropdetect` needs `skip=0` for a 1-frame input. Sampled key colours on real characters: 0x3ad637, 0xa3dd09.
 - One image per character; mouth = lower jaw dropped by ffmpeg (closed 0 / mid 0.5 / open 1 of `drop`), a darkened copy of the image shows through the gap as the mouth interior. Three separate generations would not keep identity.
 - Real run on three scenes of the last render: composition, voices and audio sync work; presenters were tiny because the character fills ~1/3 of the generated image -> crop to bbox (T11c/T15a).

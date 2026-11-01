@@ -184,6 +184,7 @@ test('presenterOverlayArgs: defaults for 720p place A bottom-left, B bottom-righ
   const x264 = args.filter((a) => a === 'libx264');
   assert.equal(x264.length, 1, 'exactly one libx264 pass');
   assert.equal(args[args.indexOf('-crf') + 1], String(VIDEO_CRF), '-crf equals VIDEO_CRF');
+  assert.equal(args[args.indexOf('-fps_mode') + 1], 'cfr', 'constant frame rate: the default vfr mode drops frames whose timestamps collide after the overlay');
   assert.equal(args[args.indexOf('-c:a') + 1], 'copy', 'audio copied');
   assert.ok(args.includes('0:a?'), 'optional audio map present');
   assert.equal(args.at(-1), OUT, 'output path last');

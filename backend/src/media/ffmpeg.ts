@@ -433,6 +433,8 @@ export function presenterOverlayArgs(o: PresenterOverlayOptions): string[] {
     '-i', o.video, '-i', o.clipA, '-i', o.clipB,
     '-filter_complex', filter,
     '-map', '[v]', '-map', '0:a?',
+    // vfr (the mp4 default) drops frames whose timestamps collide after the overlay: ~13 per render, a visible jump.
+    '-fps_mode', 'cfr',
     '-c:v', 'libx264', '-preset', 'veryfast', '-crf', String(VIDEO_CRF), '-pix_fmt', 'yuv420p',
     '-c:a', 'copy', o.out,
   ];
