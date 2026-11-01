@@ -126,4 +126,19 @@ describe('ReviewPanel render options', () => {
     expect((await screen.findAllByText('Masculina')).length).toBeGreaterThanOrEqual(1);
     expect((await screen.findAllByText('Femenina')).length).toBeGreaterThanOrEqual(1);
   });
+
+  it('fast mode is OFF by default and omits useLightx2v from the approve body', async () => {
+    const { props, user } = setup();
+    expect(screen.getByRole('switch', { name: 'Modo rápido' })).not.toBeChecked();
+    expect(screen.getByText(/13 veces más rápido/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Aprobar y generar' }));
+    expect(props.onApprove).toHaveBeenCalledWith(undefined);
+  });
+
+  it('fast mode ON sends useLightx2v: true', async () => {
+    const { props, user } = setup();
+    await user.click(screen.getByRole('switch', { name: 'Modo rápido' }));
+    await user.click(screen.getByRole('button', { name: 'Aprobar y generar' }));
+    expect(props.onApprove).toHaveBeenCalledWith({ useLightx2v: true });
+  });
 });

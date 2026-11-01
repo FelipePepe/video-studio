@@ -6,6 +6,7 @@ import {
   I2V_MODEL,
   LORA,
   LIGHTX2V_STILL_CFG,
+  NON_DISTILLED_I2V_SHIFT,
   T2V_LOW_MODEL,
   T2V_MODEL,
   T5_ENCODER,
@@ -350,4 +351,16 @@ test('I2V lightx2v uses the i2v LoRAs', () => {
   );
   const { high } = samplerPair(wf);
   assert.equal(high.inputs.steps, 4);
+});
+
+test('shift: I2V without lightx2v uses NON_DISTILLED_I2V_SHIFT (16); lightx2v and T2V keep 5', () => {
+  const shifts = (wf: ReturnType<typeof buildT2VWorkflow>) => {
+    const { high, low } = samplerPair(wf);
+    return [high.inputs.shift, low.inputs.shift];
+  };
+  assert.equal(NON_DISTILLED_I2V_SHIFT, 16);
+  assert.deepEqual(shifts(buildI2VWorkflow({ prompt: 'p', seed: 1, startImage: 'a.png' })), [16, 16]);
+  assert.deepEqual(shifts(buildI2VWorkflow({ prompt: 'p', seed: 1, startImage: 'a.png', useLightx2v: true })), [5, 5]);
+  assert.deepEqual(shifts(buildT2VWorkflow({ prompt: 'p', seed: 1 })), [5, 5]);
+  assert.deepEqual(shifts(buildT2VWorkflow({ prompt: 'p', seed: 1, useLightx2v: true })), [5, 5]);
 });

@@ -85,6 +85,8 @@ export interface ApproveBody {
   subtitles?: boolean;
   /** Render vertical 9:16 (OFF by default). */
   vertical?: boolean;
+  /** Fast mode: lightx2v 4-step LoRA for I2V transitions (OFF by default). */
+  useLightx2v?: boolean;
   /** On-screen presenters (character ids). Only send when both are chosen and different. */
   presenters?: PresenterOptions;
 }

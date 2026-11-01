@@ -51,6 +51,14 @@ export const DEFAULTS = {
   fps: 16,
 } as const;
 
+/**
+ * Sampler shift for I2V without the lightx2v LoRA. Real renders on the Spark (2026-11-01): the
+ * default shift 5 produces noisy, over-saturated I2V transitions; shift 16 at cfg 6 / 50 steps is
+ * clean at 1280x720. Not validated for T2V stills, nor needed for lightx2v (distilled), so those
+ * keep DEFAULTS.shift.
+ */
+export const NON_DISTILLED_I2V_SHIFT = 16;
+
 const DEFAULT_NEGATIVE = 'blurry, low quality, distorted, watermark, text, static, deformed';
 
 interface CommonOptions {
@@ -70,6 +78,8 @@ interface CommonOptions {
   saveImage?: boolean;
   /** doc §1: attach the lightx2v 4-step LoRA (high/low) to the dual-expert and drop to 4 total steps. ~10× faster, same quality. */
   useLightx2v?: boolean;
+  /** Sampler shift. Defaults to `DEFAULTS.shift`; `buildI2VWorkflow` sets it for the non-distilled path. */
+  shift?: number;
 }
 
 export type T2VOptions = CommonOptions;
@@ -158,7 +168,7 @@ function buildTail(
     text_embeds: [shared.text, 0],
     steps,
     cfg: o.cfg ?? DEFAULTS.cfg,
-    shift: DEFAULTS.shift,
+    shift: o.shift ?? DEFAULTS.shift,
     seed: o.seed,
     force_offload: true,
     scheduler: DEFAULTS.scheduler,
@@ -262,7 +272,8 @@ export function buildI2VWorkflow(o: I2VOptions): Workflow {
   };
   if (end) encodeInputs.end_image = [end, 0];
   const embeds = b.add('WanVideoImageToVideoEncode', encodeInputs);
-  return buildTail(b, withLightx2v(o), shared, high, low, embeds);
+  const shift = o.shift ?? (o.useLightx2v ? DEFAULTS.shift : NON_DISTILLED_I2V_SHIFT);
+  return buildTail(b, withLightx2v({ ...o, shift }), shared, high, low, embeds);
 }
 
 export interface ACEStepMusicOptions {

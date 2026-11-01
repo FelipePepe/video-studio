@@ -78,6 +78,7 @@ export function ReviewPanel({ draft, api, error, onSave, onApprove, onBack }: Re
   const [musicError, setMusicError] = useState<string | null>(null);
   const [subtitles, setSubtitles] = useState(true);
   const [vertical, setVertical] = useState(false);
+  const [fastMode, setFastMode] = useState(false);
   const [presentersOn, setPresentersOn] = useState(false);
   const [presenterA, setPresenterA] = useState('');
   const [presenterB, setPresenterB] = useState('');
@@ -145,6 +146,7 @@ export function ReviewPanel({ draft, api, error, onSave, onApprove, onBack }: Re
     }
     if (!subtitles) body.subtitles = false; // ON is the backend default
     if (vertical) body.vertical = true; // OFF is the backend default
+    if (fastMode) body.useLightx2v = true; // OFF is the backend default
     if (presentersOn && isDialogue && characterApi && presenterA !== '' && presenterB !== '' && presenterA !== presenterB) {
       body.presenters = { mode: 'volume', a: presenterA, b: presenterB };
     }
@@ -212,6 +214,12 @@ export function ReviewPanel({ draft, api, error, onSave, onApprove, onBack }: Re
           <label className="switch" htmlFor={`${baseId}-vertical`}>{t('review.vertical')}</label>
           <input id={`${baseId}-vertical`} className="switch__input" type="checkbox" role="switch" checked={vertical} onChange={(e) => setVertical(e.target.checked)} />
         </div>
+
+        <div className="render-options__row">
+          <label className="switch" htmlFor={`${baseId}-fast`}>{t('review.fastMode')}</label>
+          <input id={`${baseId}-fast`} className="switch__input" type="checkbox" role="switch" aria-describedby={`${baseId}-fast-hint`} checked={fastMode} onChange={(e) => setFastMode(e.target.checked)} />
+        </div>
+        <p id={`${baseId}-fast-hint`} className="presenters__note">{t('review.fastModeHint')}</p>
 
         {isDialogue && characterApi && (
           <>
