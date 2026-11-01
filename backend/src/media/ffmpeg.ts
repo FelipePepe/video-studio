@@ -486,21 +486,22 @@ export interface PresenterOverlayOptions {
   marginRatio?: number;      // margin to the edges as a fraction of videoHeight. default 0.02, must be in [0, 0.2]
 }
 
-export function presenterOverlayArgs(o: PresenterOverlayOptions): string[] {
-  const V = o.videoHeight;
-  if (typeof V !== 'number' || !Number.isInteger(V) || V <= 0) {
-    throw new Error('presenterOverlayArgs: videoHeight must be a positive integer');
+/** Presenter height and edge margin in px, shared by the overlay and by the subtitle margins so they cannot drift. */
+export function presenterGeometry(videoHeight: number, heightRatio = 0.4, marginRatio = 0.02, who = 'presenterGeometry'): { H: number; M: number } {
+  if (typeof videoHeight !== 'number' || !Number.isInteger(videoHeight) || videoHeight <= 0) {
+    throw new Error(`${who}: videoHeight must be a positive integer`);
   }
-  const ratio = o.heightRatio ?? 0.4;
-  if (typeof ratio !== 'number' || !Number.isFinite(ratio) || ratio <= 0.1 || ratio > 0.9) {
-    throw new Error('presenterOverlayArgs: heightRatio must be a finite number in (0.1, 0.9]');
+  if (typeof heightRatio !== 'number' || !Number.isFinite(heightRatio) || heightRatio <= 0.1 || heightRatio > 0.9) {
+    throw new Error(`${who}: heightRatio must be a finite number in (0.1, 0.9]`);
   }
-  const marginRatio = o.marginRatio ?? 0.02;
   if (typeof marginRatio !== 'number' || !Number.isFinite(marginRatio) || marginRatio < 0 || marginRatio > 0.2) {
-    throw new Error('presenterOverlayArgs: marginRatio must be a finite number in [0, 0.2]');
+    throw new Error(`${who}: marginRatio must be a finite number in [0, 0.2]`);
   }
-  const H = 2 * Math.round(V * ratio / 2); // even, for yuv420p
-  const M = Math.round(V * marginRatio);
+  return { H: 2 * Math.round(videoHeight * heightRatio / 2), M: Math.round(videoHeight * marginRatio) }; // H even, for yuv420p
+}
+
+export function presenterOverlayArgs(o: PresenterOverlayOptions): string[] {
+  const { H, M } = presenterGeometry(o.videoHeight, o.heightRatio, o.marginRatio, 'presenterOverlayArgs');
   // Every input restarts at pts 0. Without the setpts resets the overlay filter intermittently
   // drops the presenters for a few frames around the cut between clips (a framesync race: 12 of
   // 30 real runs lost 2-10 frames, 0 of 30 with the reset).

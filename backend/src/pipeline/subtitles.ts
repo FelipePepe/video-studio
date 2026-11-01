@@ -1,3 +1,5 @@
+import { presenterGeometry } from '../media/ffmpeg';
+
 export interface SubtitleCue {
   text: string;
   startSec: number;
@@ -59,4 +61,39 @@ export function sceneCues(
     if (i < gaps && (transitionPresent.length === 0 || transitionPresent[i])) t += transitionSec;
   }
   return cues;
+}
+
+const LIBASS_PLAY_RES_X = 384; // ffmpeg's default libass script width; MarginL/R are in this space
+
+export interface PresenterSubtitleStyleOptions {
+  videoWidth: number;
+  videoHeight: number;
+  /** Crop box of each presenter (A bottom-left, B bottom-right); only w/h matter. */
+  cropA: { w: number; h: number };
+  cropB: { w: number; h: number };
+  heightRatio?: number;
+  marginRatio?: number;
+  /** Free pixels kept between a presenter and the text. Default 18. */
+  gapPx?: number;
+}
+
+/**
+ * libass force_style (`MarginL=..,MarginR=..`) that keeps the burned subtitles in the free centre
+ * column between the two presenters overlaid by presenterOverlayArgs. Presenter width is rounded
+ * up to an even number (scale=-2) so the margin is never smaller than the real sprite.
+ */
+export function presenterSubtitleStyle(o: PresenterSubtitleStyleOptions): string {
+  const posInt = (v: unknown) => typeof v === 'number' && Number.isInteger(v) && v > 0;
+  if (!posInt(o.videoWidth)) throw new Error('presenterSubtitleStyle: videoWidth must be a positive integer');
+  const gap = o.gapPx ?? 18;
+  if (typeof gap !== 'number' || !Number.isFinite(gap) || gap < 0) throw new Error('presenterSubtitleStyle: gapPx must be a non-negative number');
+  const { H, M } = presenterGeometry(o.videoHeight, o.heightRatio, o.marginRatio, 'presenterSubtitleStyle');
+  const units = (name: string, crop: { w: number; h: number }) => {
+    if (!crop || !Number.isInteger(crop.w) || !Number.isInteger(crop.h) || crop.w < 2 || crop.h < 2) {
+      throw new Error(`presenterSubtitleStyle: ${name} must have integer w and h >= 2`);
+    }
+    const width = 2 * Math.ceil((H * crop.w) / crop.h / 2);
+    return Math.ceil(((M + width + gap) * LIBASS_PLAY_RES_X) / o.videoWidth);
+  };
+  return `MarginL=${units('cropA', o.cropA)},MarginR=${units('cropB', o.cropB)}`;
 }

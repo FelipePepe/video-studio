@@ -53,6 +53,7 @@ interface Opts {
   throwOn?: string;
   abortOnSprite?: boolean;
   mouthFor?: string[];
+  subtitles?: boolean;
 }
 
 function harness(opts: Opts = {}) {
@@ -64,7 +65,7 @@ function harness(opts: Opts = {}) {
     escaleta: scenes(opts.speakers !== false),
   });
   const options: ApproveOptions | null =
-    opts.presenters === false ? null : { presenters: { mode: 'volume', a: 'ana', b: 'leo' } };
+    opts.presenters === false ? null : { presenters: { mode: 'volume', a: 'ana', b: 'leo' }, ...(opts.subtitles === false ? { subtitles: false } : {}) };
   const job = createJob(db, draft.id, undefined, undefined, options);
   const controller = new AbortController();
   const events: EmitInput[] = [];
@@ -127,8 +128,9 @@ function harness(opts: Opts = {}) {
   const overlays = () => ffmpegCalls.filter((a) => has(a, '[2:v]'));
   const frames = (a: string[]) => Number(a[a.indexOf('-frames:v') + 1]);
   const warnings = () => events.filter((e) => e.warning).map((e) => e.message ?? '');
+  const burnCall = () => ffmpegCalls.find((a) => a[a.length - 1].endsWith('final.mp4') && has(a, 'subtitles='));
   const muxCall = () => ffmpegCalls.find((a) => a[a.length - 1].endsWith('muxed.mp4'))!;
-  return { workDir, execute, job, ctx, events, ffmpegCalls, sprites, clips, overlays, frames, warnings, muxCall };
+  return { workDir, execute, job, ctx, events, ffmpegCalls, sprites, clips, overlays, frames, warnings, muxCall, burnCall };
 }
 
 test('sceneFrameBounds sums exactly to round(total * fps) with no drift', () => {
@@ -297,4 +299,32 @@ test('mixed: A has a mouth, B uses the jaw sprite', async () => {
   assert.ok(has(open('B'), 'pad='));
   assert.equal(has(open('B'), 'geq'), false);
   assert.equal(h.clips().length, 2);
+});
+
+test('the master subtitles get margins that clear both presenters', async () => {
+  const h = harness();
+  await h.execute(h.job, h.ctx);
+  // crop 300x400 -> width 216 ; 14 + 216 + 18 = 248 px -> ceil(248 * 0.3) = 75 units each side
+  const vf = h.burnCall()![h.burnCall()!.indexOf('-vf') + 1];
+  assert.ok(vf.includes("force_style='MarginL=75,MarginR=75'"), vf);
+});
+
+test('subtitles keep the default style when there are no presenters', async () => {
+  const h = harness({ presenters: false });
+  await h.execute(h.job, h.ctx);
+  assert.ok(!h.burnCall()!.join(' ').includes('force_style'));
+});
+
+test('subtitles keep the default style when the presenters degrade away', async () => {
+  for (const opts of [{ throwOn: '[2:v]' }, { throwOn: 'chromakey' }]) {
+    const h = harness(opts);
+    await h.execute(h.job, h.ctx);
+    assert.ok(!h.burnCall()!.join(' ').includes('force_style'), JSON.stringify(opts));
+  }
+});
+
+test('with subtitles off there is no burn at all, presenters or not', async () => {
+  const h = harness({ subtitles: false });
+  await h.execute(h.job, h.ctx);
+  assert.equal(h.burnCall(), undefined);
 });

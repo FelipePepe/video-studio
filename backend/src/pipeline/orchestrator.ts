@@ -30,7 +30,7 @@ import { mouthStates, presenterTimelines, type MouthState, type SceneTrack } fro
 import { parseWav, type PcmFormat, wavDurationSec, wavSilence } from '../media/wav';
 import type { MouthBox } from '../media/characterAnalysis';
 import { getDraft } from './draftRepository';
-import { buildSrt, sceneCues } from './subtitles';
+import { buildSrt, sceneCues, presenterSubtitleStyle } from './subtitles';
 import { DEFAULT_MUSIC_VOLUME, type Escaleta } from './types';
 import { ContentCache, TTS_CACHE_VERSION, WORKFLOW_VERSION } from './contentCache';
 import { buildChapters, type Chapter } from './chapters';
@@ -129,6 +129,9 @@ interface AssembleResult {
 interface PresenterClips {
   clipA: string;
   clipB: string;
+  /** Stored crop boxes, used to keep the subtitles clear of the overlaid sprites. */
+  cropA: { w: number; h: number };
+  cropB: { w: number; h: number };
 }
 
 interface Shared {
@@ -412,7 +415,7 @@ async function executePresenters(s: Shared, tts: TTSResult, transitions: Transit
       clips.push(out);
       s.step('presenters', k + 1, 2);
     }
-    return { clipA: clips[0], clipB: clips[1] };
+    return { clipA: clips[0], clipB: clips[1], cropA: assetsA.crop, cropB: assetsB.crop };
   } catch (e) {
     s.guard();
     s.warn('presenters', `presenters failed, rendering without them: ${message(e)}`);
@@ -462,12 +465,14 @@ async function executeAssemble(s: Shared, tts: TTSResult, stills: StillsResult, 
   writeFileSync(videoList, buildConcatList(videoParts));
   writeFileSync(audioList, buildConcatList(audioParts));
   await run(concatArgs({ listFile: videoList, out: video }));
+  let presentersOverlaid = false;
   if (presenters) {
     // Overlay on the silent concat so subtitles, the vertical variant and the cover include them.
     const overlaid = join(workDir, 'video_p.mp4');
     try {
       await run(presenterOverlayArgs({ video, clipA: presenters.clipA, clipB: presenters.clipB, out: overlaid, videoHeight: 720 }));
       video = overlaid;
+      presentersOverlaid = true;
     } catch (e) {
       guard();
       s.warn('assemble', `presenter overlay failed, rendering without presenters: ${message(e)}`);
@@ -502,7 +507,11 @@ async function executeAssemble(s: Shared, tts: TTSResult, stills: StillsResult, 
     const srtPath = join(workDir, 'subtitles.srt');
     const present = durations.slice(0, -1).map((_, i) => transitions[i] !== undefined);
     writeFileSync(srtPath, buildSrt(sceneCues(durations, transitionSec, escaleta.map((sc) => sc.narration), present)));
-    await run(burnSubtitlesArgs({ input: basePath, srt: srtPath, out: finalPath }));
+    // With presenters on screen the text must stay in the free centre column.
+    const style = presenters && presentersOverlaid
+      ? presenterSubtitleStyle({ videoWidth: 1280, videoHeight: 720, cropA: presenters.cropA, cropB: presenters.cropB })
+      : undefined;
+    await run(burnSubtitlesArgs({ input: basePath, srt: srtPath, out: finalPath, ...(style ? { style } : {}) }));
     deliverable = finalPath;
   }
 
