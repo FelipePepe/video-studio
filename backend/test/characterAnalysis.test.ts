@@ -6,6 +6,8 @@ import {
   analyzeCharacter,
   largestRedBlob,
   mouthMaskArgs,
+  normalizeMouthBox,
+  selectMouthBlob,
   pngSize,
   readPngPixel,
   runFfmpegCapture,
@@ -293,6 +295,8 @@ test('mouthMaskArgs downscales to <=256 and emits a gray rawvideo mask', () => {
   assert.ok(vf.includes('gt(r(X,Y),140)') && vf.includes('lt(g(X,Y),70)') && vf.includes('lt(b(X,Y),90)'));
   // dark maroon lips (open-mouth shading, e.g. Leo) must also count as mouth
   assert.ok(vf.includes('gt(r(X,Y),80)') && vf.includes('lt(g(X,Y),50)') && vf.includes('lt(b(X,Y),60)') && vf.includes('max('));
+  // orange hair (blue < green) must not match: lips are crimson (blue >= 0.8 green) in BOTH clauses
+  assert.equal(vf.split('gte(b(X,Y),0.8*g(X,Y))').length - 1, 6); // 2 clauses x r,g,b expressions
   assert.ok(vf.endsWith('format=gray'));
   assert.deepEqual(args.slice(-5), ['-frames:v', '1', '-f', 'rawvideo', '-']);
   assert.ok(mouthMaskArgs('/tmp/p.png', 512, 1024).join(' ').includes('scale=128:256'));
@@ -333,4 +337,53 @@ test('analyzeCharacter mouth is null for an empty or tiny mask', async () => {
   const tiny = Buffer.from(maskWith(100, 100, [[10, 10, 4, 4]])); // 16/10000 = 0.16 % < 0.3 %
   const t = await analyzeCharacter(png, '/tmp/p.png', { ...fakeCapture(CROP_LINES), runFfmpegRaw: () => Promise.resolve(tiny) });
   assert.equal(t.mouth, null);
+});
+
+// ---------------------- thin-smile selection / normalisation ----------------------
+
+const blob = (x: number, y: number, w: number, h: number) => ({ x, y, w, h, area: w * h });
+
+test('selectMouthBlob: a thin wide line beats a larger round blob (nose)', () => {
+  const nose = blob(100, 100, 30, 30);
+  const line = blob(80, 160, 100, 4);
+  assert.equal(selectMouthBlob([nose, line]), line);
+});
+
+test('selectMouthBlob: among wide blobs the larger area wins', () => {
+  const a = blob(0, 0, 60, 6), b = blob(0, 50, 100, 8);
+  assert.equal(selectMouthBlob([a, b]), b);
+});
+
+test('selectMouthBlob: with no wide blob the largest one wins', () => {
+  const a = blob(0, 0, 10, 10), b = blob(40, 40, 20, 20);
+  assert.equal(selectMouthBlob([a, b]), b);
+});
+
+test('selectMouthBlob: empty list gives null', () => {
+  assert.equal(selectMouthBlob([]), null);
+});
+
+test('normalizeMouthBox leaves a wide-mouth box untouched', () => {
+  assert.deepEqual(normalizeMouthBox({ x: 346, y: 491, w: 340, h: 174 }, 1024, 1024), { x: 346, y: 491, w: 340, h: 174 });
+});
+
+test('normalizeMouthBox grows a thin smile to h = 0.4 w centred on the line', () => {
+  assert.deepEqual(normalizeMouthBox({ x: 390, y: 700, w: 260, h: 20 }, 1024, 1024), { x: 390, y: 658, w: 260, h: 104 });
+});
+
+test('normalizeMouthBox clamps the grown box to the image', () => {
+  assert.deepEqual(normalizeMouthBox({ x: 10, y: 5, w: 200, h: 6 }, 1024, 1024), { x: 10, y: 0, w: 200, h: 80 });
+  assert.deepEqual(normalizeMouthBox({ x: 10, y: 1018, w: 200, h: 6 }, 1024, 1024), { x: 10, y: 944, w: 200, h: 80 });
+});
+
+test('analyzeCharacter picks a thin smile over a bigger round nose and widens it', async () => {
+  const png = makePng({ width: 512, height: 512, pixelAt: UNIFORM(1, 2, 3) });
+  // 256 mask, scale 2: nose 20x20 (area 400), smile 100x4 (area 400 tie on purpose smaller: 100x3=300)
+  const mask = Buffer.from(maskWith(256, 256, [[120, 100, 20, 20], [80, 150, 100, 3]]));
+  const r = await analyzeCharacter(png, '/tmp/p.png', { ...fakeCapture(CROP_LINES), runFfmpegRaw: () => Promise.resolve(mask) });
+  // smile full: x=160,y=300,w=200,h=6; pad 3% -> 6 / 0 ; then h grows to 0.4*212 = 85 centred
+  assert.equal(r.mouth!.x, 154);
+  assert.equal(r.mouth!.w, 212);
+  assert.equal(r.mouth!.h, 85);
+  assert.ok(r.mouth!.y < 300 && r.mouth!.y + r.mouth!.h > 306);
 });
