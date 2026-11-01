@@ -47,3 +47,6 @@ Review T15a when `pi` finishes, commit, launch T13; then write briefs T14, T15, 
 
 ## Verification (per plan)
 `pnpm typecheck` + `pnpm test` green after each task; real short job with `presenters` against the Spark by HTTP (3 scenes, `useLightx2v`, `vertical`); `ffprobe`; frame check that the active presenter follows the speaker; browser check (Playwright) of the setup UI.
+
+## Idea parked (not started, not authorised)
+- Timeline view like a professional video editor (layers: scenes/transitions, narration + music, presenters A/B mouth states, subtitles, on a time/frame ruler). Assessment 2026-11-01: (1) read-only timeline from job artifacts + `sceneFrameBounds` is viable and low risk; (2) limited edit with re-assemble only (~85 s, reuse cached clips) is medium effort; (3) full NLE with arbitrary layers and real-time preview is not recommended (needs a project model and an in-browser compositor). Decide after the user has judged the real render.
