@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   presenterSpriteArgs,
+  presenterMouthSpriteArgs,
   presenterConcatList,
   presenterClipArgs,
   presenterOverlayArgs,
@@ -215,4 +216,65 @@ test('presenterOverlayArgs: rejects invalid videoHeight, heightRatio and marginR
   assert.throws(bad({ heightRatio: 1 }), /heightRatio/);
   assert.throws(bad({ marginRatio: -0.1 }), /marginRatio/);
   assert.throws(bad({ marginRatio: 0.5 }), /marginRatio/);
+});
+
+// -- presenterMouthSpriteArgs: mouth drawn inside the lip box ----------------------------------------------
+
+const MOUTH = { x: 330, y: 470, w: 230, h: 120 };
+
+test('presenterMouthSpriteArgs: closed has no ellipse sources, mid one, open two', () => {
+  const count = (state: 'closed' | 'mid' | 'open') => {
+    const args = presenterMouthSpriteArgs({ image: SPRITE, out: `/tmp/m_${state}.png`, state, mouth: MOUTH });
+    assert.deepEqual(args.slice(0, 2), ['-i', SPRITE]);
+    assert.deepEqual(args.slice(-3), ['-frames:v', '1', `/tmp/m_${state}.png`]);
+    const f = filterOf(args);
+    assert.match(f, /chromakey=0x00FF00:0\.06:0\.02/);
+    return (f.match(/color=c=/g) ?? []).length;
+  };
+  assert.equal(count('closed'), 0);
+  assert.equal(count('mid'), 1);
+  assert.equal(count('open'), 2);
+});
+
+test('presenterMouthSpriteArgs: ellipse sizes and offsets derive from the lip box', () => {
+  const mid = filterOf(presenterMouthSpriteArgs({ image: SPRITE, out: '/tmp/o.png', state: 'mid', mouth: MOUTH }));
+  // 0.62*230 = 143 (142.6), 0.34*120 = 41 (40.8); centred: x 330+round((230-143)/2)=374 (43.5 -> 44 => 374), y 470+round((120-41)/2)
+  assert.ok(mid.includes('s=143x41'), mid);
+  assert.match(mid, /overlay=374:510/);
+  const open = filterOf(presenterMouthSpriteArgs({ image: SPRITE, out: '/tmp/o.png', state: 'open', mouth: MOUTH }));
+  assert.ok(open.includes('s=161x86'), open); // 0.70*230=161, 0.72*120=86.4
+  assert.ok(open.includes('s=97x26'), open); // tongue 0.42*230=96.6, 0.22*120=26.4
+});
+
+test('presenterMouthSpriteArgs: crop is applied first and subtracted from the mouth coordinates', () => {
+  const crop = { x: 198, y: 132, w: 622, h: 720 };
+  const a = filterOf(presenterMouthSpriteArgs({ image: SPRITE, out: '/tmp/o.png', state: 'mid', mouth: MOUTH }));
+  const b = filterOf(presenterMouthSpriteArgs({ image: SPRITE, out: '/tmp/o.png', state: 'mid', mouth: MOUTH, crop }));
+  assert.ok(b.startsWith('[0:v]crop=622:720:198:132,format=rgba'), b);
+  assert.match(a, /overlay=374:510/);
+  assert.match(b, /overlay=176:378/); // 374-198, 510-132
+});
+
+test('presenterMouthSpriteArgs: key overrides land in the filter', () => {
+  const f = filterOf(
+    presenterMouthSpriteArgs({ image: SPRITE, out: '/tmp/o.png', state: 'closed', mouth: MOUTH, keyColor: '0x3ad637', keySimilarity: 0.1, keyBlend: 0.05 }),
+  );
+  assert.match(f, /chromakey=0x3ad637:0\.1:0\.05/);
+});
+
+test('presenterMouthSpriteArgs: validation errors', () => {
+  const base = { image: SPRITE, out: '/tmp/o.png', state: 'open' as const, mouth: MOUTH };
+  assert.throws(() => presenterMouthSpriteArgs({ ...base, state: 'wide' as never }), /state must be/);
+  assert.throws(() => presenterMouthSpriteArgs({ ...base, mouth: { ...MOUTH, w: 1 } }), /mouth must use/);
+  assert.throws(() => presenterMouthSpriteArgs({ ...base, mouth: { ...MOUTH, x: -1 } }), /mouth must use/);
+  assert.throws(() => presenterMouthSpriteArgs({ ...base, mouth: { ...MOUTH, y: 1.5 } }), /mouth must use/);
+  assert.throws(() => presenterMouthSpriteArgs({ ...base, crop: { x: 0, y: 0, w: 1, h: 10 } }), /crop must use/);
+  assert.throws(
+    () => presenterMouthSpriteArgs({ ...base, crop: { x: 400, y: 0, w: 300, h: 900 } }),
+    /mouth box must fall inside the crop/,
+  );
+  assert.throws(
+    () => presenterMouthSpriteArgs({ ...base, crop: { x: 0, y: 0, w: 500, h: 500 } }),
+    /mouth box must fall inside the crop/,
+  );
 });

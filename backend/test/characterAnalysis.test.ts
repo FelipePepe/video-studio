@@ -4,6 +4,8 @@ import { deflateSync, crc32 } from 'node:zlib';
 
 import {
   analyzeCharacter,
+  largestRedBlob,
+  mouthMaskArgs,
   pngSize,
   readPngPixel,
   runFfmpegCapture,
@@ -253,4 +255,82 @@ test('analyzeCharacter throws when the detected box has zero width or height', a
 
 test('runFfmpegCapture is exported as a function (default implementation)', () => {
   assert.equal(typeof runFfmpegCapture, 'function');
+});
+
+// ------------------------------ mouth detection -----------------------------
+
+function maskWith(w: number, h: number, rects: Array<[number, number, number, number]>): Uint8Array {
+  const m = new Uint8Array(w * h);
+  for (const [x, y, rw, rh] of rects) for (let j = y; j < y + rh; j++) for (let i = x; i < x + rw; i++) m[j * w + i] = 255;
+  return m;
+}
+
+test('largestRedBlob returns null for an empty mask', () => {
+  assert.equal(largestRedBlob(new Uint8Array(100 * 100), 100, 100), null);
+});
+
+test('largestRedBlob picks the bigger of two blobs', () => {
+  const m = maskWith(100, 100, [[5, 5, 6, 6], [40, 60, 20, 10]]);
+  assert.deepEqual(largestRedBlob(m, 100, 100), { x: 40, y: 60, w: 20, h: 10, area: 200 });
+});
+
+test('largestRedBlob prefers a mouth-sized blob below a nose-sized blob', () => {
+  const m = maskWith(100, 100, [[45, 30, 8, 8], [30, 70, 40, 12]]);
+  const b = largestRedBlob(m, 100, 100)!;
+  assert.deepEqual({ x: b.x, y: b.y, w: b.w, h: b.h }, { x: 30, y: 70, w: 40, h: 12 });
+});
+
+test('largestRedBlob uses 4-neighbour connectivity (diagonals do not join)', () => {
+  const m = maskWith(10, 10, [[1, 1, 1, 1], [2, 2, 1, 1]]);
+  assert.equal(largestRedBlob(m, 10, 10)!.area, 1);
+});
+
+test('mouthMaskArgs downscales to <=256 and emits a gray rawvideo mask', () => {
+  const args = mouthMaskArgs('/tmp/p.png', 1024, 1024);
+  assert.deepEqual(args.slice(0, 2), ['-i', '/tmp/p.png']);
+  const vf = args[args.indexOf('-vf') + 1]!;
+  assert.ok(vf.includes('scale=256:256'));
+  assert.ok(vf.includes('gt(r(X,Y),140)') && vf.includes('lt(g(X,Y),70)') && vf.includes('lt(b(X,Y),90)'));
+  // dark maroon lips (open-mouth shading, e.g. Leo) must also count as mouth
+  assert.ok(vf.includes('gt(r(X,Y),80)') && vf.includes('lt(g(X,Y),50)') && vf.includes('lt(b(X,Y),60)') && vf.includes('max('));
+  assert.ok(vf.endsWith('format=gray'));
+  assert.deepEqual(args.slice(-5), ['-frames:v', '1', '-f', 'rawvideo', '-']);
+  assert.ok(mouthMaskArgs('/tmp/p.png', 512, 1024).join(' ').includes('scale=128:256'));
+  assert.ok(mouthMaskArgs('/tmp/p.png', 100, 50).join(' ').includes('scale=100:50'));
+});
+
+test('analyzeCharacter maps the mouth blob back to full-image pixels', async () => {
+  const png = makePng({ width: 512, height: 512, pixelAt: UNIFORM(1, 2, 3) });
+  // 256x256 mask (scale 2): blob x=100..119, y=180..189 (w20,h10)
+  const mask = Buffer.from(maskWith(256, 256, [[100, 180, 20, 10]]));
+  const cap = fakeCapture(CROP_LINES);
+  const calls: string[][] = [];
+  const r = await analyzeCharacter(png, '/tmp/p.png', {
+    ...cap,
+    runFfmpegRaw: (a) => { calls.push(a); return Promise.resolve(mask); },
+  });
+  assert.equal(calls.length, 1);
+  // full: x=200,y=360,w=40,h=20; pad 3% -> 1.2/0.6 -> round 1 / 1
+  assert.deepEqual(r.mouth, { x: 199, y: 359, w: 42, h: 22 });
+});
+
+test('analyzeCharacter clamps the padded mouth to the image', async () => {
+  const png = makePng({ width: 256, height: 256, pixelAt: UNIFORM(1, 2, 3) });
+  const mask = Buffer.from(maskWith(256, 256, [[0, 0, 100, 100]]));
+  const r = await analyzeCharacter(png, '/tmp/p.png', { ...fakeCapture(CROP_LINES), runFfmpegRaw: () => Promise.resolve(mask) });
+  assert.deepEqual(r.mouth, { x: 0, y: 0, w: 103, h: 103 });
+});
+
+test('analyzeCharacter mouth is null without runFfmpegRaw', async () => {
+  const png = makePng({ width: 100, height: 100, pixelAt: UNIFORM(1, 2, 3) });
+  assert.equal((await analyzeCharacter(png, '/tmp/p.png', fakeCapture(CROP_LINES))).mouth, null);
+});
+
+test('analyzeCharacter mouth is null for an empty or tiny mask', async () => {
+  const png = makePng({ width: 100, height: 100, pixelAt: UNIFORM(1, 2, 3) });
+  const empty = await analyzeCharacter(png, '/tmp/p.png', { ...fakeCapture(CROP_LINES), runFfmpegRaw: () => Promise.resolve(Buffer.alloc(100 * 100)) });
+  assert.equal(empty.mouth, null);
+  const tiny = Buffer.from(maskWith(100, 100, [[10, 10, 4, 4]])); // 16/10000 = 0.16 % < 0.3 %
+  const t = await analyzeCharacter(png, '/tmp/p.png', { ...fakeCapture(CROP_LINES), runFfmpegRaw: () => Promise.resolve(tiny) });
+  assert.equal(t.mouth, null);
 });

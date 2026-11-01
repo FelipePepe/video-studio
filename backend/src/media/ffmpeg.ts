@@ -343,6 +343,73 @@ export function presenterSpriteArgs(o: PresenterSpriteOptions): string[] {
   return ['-i', o.image, '-filter_complex', filter, '-frames:v', '1', o.out];
 }
 
+export interface PresenterMouthSpriteOptions {
+  image: string;
+  out: string;               // .png
+  state: MouthState;
+  mouth: { x: number; y: number; w: number; h: number }; // lip box in FULL-image pixels
+  keyColor?: string;         // default '0x00FF00'
+  keySimilarity?: number;    // default 0.06
+  keyBlend?: number;         // default 0.02
+  crop?: { x: number; y: number; w: number; h: number }; // optional character box in full-image pixels
+}
+
+/** Soft-edged filled ellipse of size w x h as an RGBA lavfi source; the alpha ramps over the outer ~15% of the radius. */
+function ellipseSource(w: number, h: number, rgb: [number, number, number]): string {
+  const r = `sqrt(pow((X+0.5-${w}/2)/(${w}/2),2)+pow((Y+0.5-${h}/2)/(${h}/2),2))`;
+  return (
+    `color=c=black@0:s=${w}x${h}:r=1:d=1,format=rgba,` +
+    `geq=r=${rgb[0]}:g=${rgb[1]}:b=${rgb[2]}:a='255*clip((1-${r})*6.5,0,1)'`
+  );
+}
+
+/**
+ * Builds one presenter sprite whose mouth changes only inside the lip box: optional crop, green
+ * key to alpha, then (mid/open) a dark mouth-interior ellipse centred on the box, plus a tongue
+ * ellipse when open. The canvas never changes size, so all three states are interchangeable.
+ */
+export function presenterMouthSpriteArgs(o: PresenterMouthSpriteOptions): string[] {
+  if (o.state !== 'closed' && o.state !== 'mid' && o.state !== 'open') {
+    throw new Error('presenterMouthSprite: state must be "closed", "mid" or "open"');
+  }
+  const isPix = (n: unknown): n is number => typeof n === 'number' && Number.isInteger(n) && n >= 0;
+  const box = (b: { x: number; y: number; w: number; h: number } | undefined): boolean =>
+    !!b && isPix(b.x) && isPix(b.y) && isPix(b.w) && isPix(b.h) && b.w >= 2 && b.h >= 2;
+  if (!box(o.mouth)) {
+    throw new Error('presenterMouthSprite: mouth must use non-negative integer x, y pixels with w and h >= 2');
+  }
+  if (o.crop !== undefined && !box(o.crop)) {
+    throw new Error('presenterMouthSprite: crop must use non-negative integer x, y pixels with w and h >= 2');
+  }
+  const c = o.crop;
+  if (c && (o.mouth.x < c.x || o.mouth.y < c.y || o.mouth.x + o.mouth.w > c.x + c.w || o.mouth.y + o.mouth.h > c.y + c.h)) {
+    throw new Error('presenterMouthSprite: mouth box must fall inside the crop');
+  }
+  const mx = o.mouth.x - (c?.x ?? 0);
+  const my = o.mouth.y - (c?.y ?? 0);
+  const { w: mw, h: mh } = o.mouth;
+  const key = `${o.keyColor ?? '0x00FF00'}:${o.keySimilarity ?? 0.06}:${o.keyBlend ?? 0.02}`;
+  const cropF = c ? `crop=${c.w}:${c.h}:${c.x}:${c.y},` : '';
+  const base = `[0:v]${cropF}format=rgba,chromakey=${key}`;
+  if (o.state === 'closed') return ['-i', o.image, '-filter_complex', base, '-frames:v', '1', o.out];
+
+  const open = o.state === 'open';
+  const iw = Math.max(2, Math.round(mw * (open ? 0.7 : 0.62)));
+  const ih = Math.max(2, Math.round(mh * (open ? 0.72 : 0.34)));
+  const ix = mx + Math.round((mw - iw) / 2);
+  const iy = my + Math.round((mh - ih) / 2);
+  let filter = `${base}[base];${ellipseSource(iw, ih, [42, 10, 16])}[int];[base][int]overlay=${ix}:${iy}:format=auto`;
+  if (open) {
+    const tw = Math.max(2, Math.round(mw * 0.42));
+    const th = Math.max(2, Math.round(mh * 0.22));
+    const margin = Math.max(1, Math.round(mh * 0.04));
+    const tx = mx + Math.round((mw - tw) / 2);
+    const ty = iy + ih - margin - th;
+    filter += `[b1];${ellipseSource(tw, th, [217, 102, 122])}[tongue];[b1][tongue]overlay=${tx}:${ty}:format=auto`;
+  }
+  return ['-i', o.image, '-filter_complex', filter, '-frames:v', '1', o.out];
+}
+
 /**
  * Concat-demuxer script for a mouth-state timeline: consecutive equal states are merged
  * into one `file`/`duration` run (duration = run length / fps), and the last file is

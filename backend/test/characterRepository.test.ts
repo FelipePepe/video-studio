@@ -28,6 +28,7 @@ const analysis: CharacterAnalysis = {
   width: 1024,
   height: 1024,
   crop: { x: 10, y: 20, w: 300, h: 400 },
+  mouth: null,
 };
 const png = Buffer.from('fake-png-bytes');
 
