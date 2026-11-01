@@ -31,6 +31,9 @@ Replace the "jaw split" mouth (cuts the whole character in two at a fixed height
 ## Rules
 TDD on, runners: backend `node --test --import tsx test/<file>.test.ts`; full suite `cd backend && pnpm test`; `pnpm typecheck` at the root. Delegated writers per task; no git commands for writers; parent commits per task. Push/PR only with user OK. ~400 changed lines is advisory.
 
+## Pull request
+- PR #78 https://github.com/FelipePepe/video-studio/pull/78 (open, base `feature/presentadores-fase3-4`, retarget to `develop` after #77 merges; CI does not run on stacked PRs, run it after the retarget)
+
 ## Progress
 - A5 real check (2026-11-01, job cb1bab8b, 2 scenes, fast mode default, mouths backfilled via `POST /reanalyze`): 8.7 s, 0 warnings; mouths open INSIDE the lips, nothing is cut. It exposed a pre-existing intermittent bug: the presenter overlay lost the presenters for 2-10 frames around the cut between clips (framesync race; 12 of 30 identical real runs). Fix: `setpts=PTS-STARTPTS` on all three overlay inputs = 0 of 30 runs with holes. Tests updated (presenter.test.ts, orchestrator.presenters.test.ts).
 - A5 definitive (2026-11-01 21:25, job f18cd89b, 2 scenes, fast mode default): characters generated with Qwen-Image (Lola = orange yarn hair, purple/mustard sweater; Teo = blue spiky hair), mouths detected on the thin smile (Lola {439,462,162,65}, Teo {393,557,258,103}), 0 warnings, 6.28 s, 157 frames. Looked at the final frames: sharp felt puppets, no green halo (despill), the mouth opens on the smile with a dark interior and tongue, nothing is split. Remaining: a faint grey haze on the fuzzy hair tips; Leo's resting mouth is already an open smile (old Wan character); the lighter bottom band in some Qwen backdrops (seed 7).
