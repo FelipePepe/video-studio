@@ -29,7 +29,7 @@ test('presenterSpriteArgs: one filter per mouth state with jaw drop scaling', ()
   for (const state of ['closed', 'mid', 'open'] as const) {
     const args = presenterSpriteArgs({ image: SPRITE, out: `/tmp/out_${state}.png`, state });
     const filter = filterOf(args);
-    assert.match(filter, /chromakey=0x00FF00:0\.06:0\.02/, `chromakey defaults for ${state}`);
+    assert.match(filter, /chromakey=0x00FF00:0\.06:0\.02,despill=type=green/, `chromakey defaults for ${state}`);
     assert.match(filter, /split=4/);
     assert.match(filter, /lutrgb=/);
     assert.ok(
@@ -280,4 +280,18 @@ test('presenterMouthSpriteArgs: validation errors', () => {
     () => presenterMouthSpriteArgs({ ...base, crop: { x: 0, y: 0, w: 500, h: 500 } }),
     /mouth box must fall inside the crop/,
   );
+});
+
+test('both sprite builders clean the keyed edge (despill + alpha erosion) right after the chromakey', () => {
+  const sprite = filterOf(presenterSpriteArgs({ image: SPRITE, out: '/tmp/o.png', state: 'mid' }));
+  assert.match(sprite, /chromakey=[^,]+,despill=type=green:mix=0\.5:expand=0,split\[ca\]\[cb\];\[ca\]alphaextract,erosion,erosion,lut=[^;]*;\[cb\]\[cm\]alphamerge,split=4/);
+  for (const state of ['closed', 'mid', 'open'] as const) {
+    const f = filterOf(presenterMouthSpriteArgs({ image: SPRITE, out: '/tmp/o.png', state, mouth: MOUTH }));
+    assert.match(f, /chromakey=[^,]+,despill=type=green/, state);
+    assert.match(f, /alphaextract,erosion,erosion/, state);
+    assert.match(f, /\[cb\]\[cm\]alphamerge/, state);
+    if (state !== 'closed') {
+      assert.ok(f.indexOf('alphamerge') < f.indexOf('color=c='), 'edge cleanup runs before the mouth ellipses');
+    }
+  }
 });

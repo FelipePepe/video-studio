@@ -303,6 +303,16 @@ export interface PresenterSpriteOptions {
 }
 
 /**
+ * Edge cleanup after the chroma key: despill removes the green cast on the fringe pixels and the
+ * alpha matte is eroded twice and steepened so the semi-transparent halo disappears.
+ * Chosen by eye on real characters over a dark background.
+ */
+const EDGE_CLEAN =
+  `despill=type=green:mix=0.5:expand=0,split[ca][cb];` +
+  `[ca]alphaextract,erosion,erosion,lut=y='clip((val-60)*1.6\\,0\\,255)'[cm];` +
+  `[cb][cm]alphamerge`;
+
+/**
  * Builds one presenter sprite for a mouth state: optional crop to the character box, green key
  * to alpha, a canvas pad for the jaw travel, a darkened copy showing through the gap, and the
  * jaw (bottom crop) offset by the state's drop fraction (0 closed / 0.5 mid / 1 open).
@@ -332,7 +342,7 @@ export function presenterSpriteArgs(o: PresenterSpriteOptions): string[] {
   const s = num(MOUTH_STATE_SCALE[o.state]);
   const crop = o.crop ? `crop=${o.crop.w}:${o.crop.h}:${o.crop.x}:${o.crop.y},` : '';
   const filter =
-    `[0:v]${crop}format=rgba,chromakey=${key},split=4[c][d][a][b];` +
+    `[0:v]${crop}format=rgba,chromakey=${key},${EDGE_CLEAN},split=4[c][d][a][b];` +
     `[c]colorchannelmixer=aa=0,pad=iw:ceil(ih*(1+${dl})):0:0:color=0x00000000[canvas];` +
     `[d]lutrgb=r=val*0.25:g=val*0.2:b=val*0.2[dark];` +
     `[a]crop=iw:floor(ih*${my}):0:0[top];` +
@@ -390,7 +400,7 @@ export function presenterMouthSpriteArgs(o: PresenterMouthSpriteOptions): string
   const { w: mw, h: mh } = o.mouth;
   const key = `${o.keyColor ?? '0x00FF00'}:${o.keySimilarity ?? 0.06}:${o.keyBlend ?? 0.02}`;
   const cropF = c ? `crop=${c.w}:${c.h}:${c.x}:${c.y},` : '';
-  const base = `[0:v]${cropF}format=rgba,chromakey=${key}`;
+  const base = `[0:v]${cropF}format=rgba,chromakey=${key},${EDGE_CLEAN}`;
   if (o.state === 'closed') return ['-i', o.image, '-filter_complex', base, '-frames:v', '1', o.out];
 
   const open = o.state === 'open';

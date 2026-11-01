@@ -24,6 +24,9 @@ Replace the "jaw split" mouth (cuts the whole character in two at a fixed height
 - [ ] A5 real check on Ana and Leo (backfill, sprites, one rendered clip, frame check)
 - [x] C1 generator comparison on the Spark: Qwen-Image chosen (98 s, sharp, flat green bg); Flux dev 60 s but full-body with gradient bg and floor shadow; current Wan still blurry
 - [x] C2 integrate the chosen generator (+ tests)
+- [x] C4 prompt: positive no-green sweater instruction + stronger uniform-backdrop wording + extra negatives (+ tests); real check on Mara seeds 7/11: sweater purple/mustard, no green on the character; seed 11 backdrop uniform, seed 7 still has a slightly lighter band at the very bottom
+- [x] C3 mouth detector robust for thin smiles in `characterAnalysis.ts` (+ tests) — crimson test (b >= 0.8 g) in both clauses, shape-based `selectMouthBlob` (wide beats round), `normalizeMouthBox` (h >= 0.4 w), min blob 0.2 %; real boxes: Ana {351,491,326,170}, Leo {329,439,386,162}, Mara {410,533,228,91}, Teo {393,557,258,103}
+- [x] C5 green fringe after the chroma key: `EDGE_CLEAN` in `media/ffmpeg.ts` (despill mix 0.5 + 2x alpha erosion + alpha lut) right after the chromakey in both sprite builders; checked by eye on Mara/Teo/Ana/Leo over #3a1a4a
 
 ## Rules
 TDD on, runners: backend `node --test --import tsx test/<file>.test.ts`; full suite `cd backend && pnpm test`; `pnpm typecheck` at the root. Delegated writers per task; no git commands for writers; parent commits per task. Push/PR only with user OK. ~400 changed lines is advisory.
