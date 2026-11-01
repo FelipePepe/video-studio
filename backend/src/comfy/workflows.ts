@@ -14,6 +14,9 @@ export const T2V_MODEL = 'wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors';
 export const T2V_LOW_MODEL = 'wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors';
 export const I2V_MODEL = 'wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors';
 export const I2V_LOW_MODEL = 'wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors';
+export const QWEN_IMAGE_MODEL = 'qwen_image_fp8_e4m3fn.safetensors';
+export const QWEN_TEXT_ENCODER = 'qwen_2.5_vl_7b_fp8_scaled.safetensors';
+export const QWEN_VAE = 'qwen_image_vae.safetensors';
 export const T5_ENCODER = 'umt5-xxl-enc-fp8_e4m3fn-fixed.safetensors';
 
 // ACE-Step 1.5 (doc §7): the checkpoint on the target box is v1.5, so we use the *1.5* node
@@ -352,5 +355,46 @@ export function buildACEStepMusicWorkflow(o: ACEStepMusicOptions = {}): Workflow
   });
   const decoded = b.add('VAEDecodeAudio', { samples: [sampler, 1], vae: [checkpoint, 2] });
   b.add('SaveAudio', { audio: [decoded, 0], filename_prefix: o.filenamePrefix ?? 'vs_music' });
+  return b.nodes;
+}
+
+export interface QwenImageOptions {
+  prompt: string;
+  negativePrompt?: string;
+  seed: number;
+  width?: number;
+  height?: number;
+  steps?: number;
+  cfg?: number;
+  filenamePrefix?: string;
+}
+
+/**
+ * Qwen-Image text-to-image (tested on the Spark: ~98 s at 1024x1024, sharp head-and-shoulders).
+ * UNETLoader + CLIPLoader(qwen_image) + VAELoader -> ModelSamplingAuraFlow -> KSampler -> VAEDecode -> SaveImage.
+ */
+export function buildQwenImageWorkflow(o: QwenImageOptions): Workflow {
+  const b = new Builder();
+  const unet = b.add('UNETLoader', { unet_name: QWEN_IMAGE_MODEL, weight_dtype: 'default' });
+  const clip = b.add('CLIPLoader', { clip_name: QWEN_TEXT_ENCODER, type: 'qwen_image', device: 'default' });
+  const vae = b.add('VAELoader', { vae_name: QWEN_VAE });
+  const aura = b.add('ModelSamplingAuraFlow', { model: [unet, 0], shift: 3.1 });
+  const positive = b.add('CLIPTextEncode', { text: o.prompt, clip: [clip, 0] });
+  const negative = b.add('CLIPTextEncode', { text: o.negativePrompt ?? '', clip: [clip, 0] });
+  const latent = b.add('EmptySD3LatentImage', { width: o.width ?? 1024, height: o.height ?? 1024, batch_size: 1 });
+  const sampler = b.add('KSampler', {
+    model: [aura, 0],
+    positive: [positive, 0],
+    negative: [negative, 0],
+    latent_image: [latent, 0],
+    seed: o.seed,
+    steps: o.steps ?? 25,
+    cfg: o.cfg ?? 2.5,
+    sampler_name: 'euler',
+    scheduler: 'simple',
+    denoise: 1.0,
+  });
+  const decoded = b.add('VAEDecode', { samples: [sampler, 0], vae: [vae, 0] });
+  b.add('SaveImage', { images: [decoded, 0], filename_prefix: o.filenamePrefix ?? 'character' });
   return b.nodes;
 }

@@ -5,6 +5,9 @@ import {
   I2V_LOW_MODEL,
   I2V_MODEL,
   LORA,
+  QWEN_IMAGE_MODEL,
+  QWEN_TEXT_ENCODER,
+  QWEN_VAE,
   LIGHTX2V_STILL_CFG,
   NON_DISTILLED_I2V_SHIFT,
   T2V_LOW_MODEL,
@@ -12,6 +15,7 @@ import {
   T5_ENCODER,
   WAN_VAE,
   buildI2VWorkflow,
+  buildQwenImageWorkflow,
   buildT2VWorkflow,
   type Workflow,
   type WorkflowNode,
@@ -363,4 +367,57 @@ test('shift: I2V without lightx2v uses NON_DISTILLED_I2V_SHIFT (16); lightx2v an
   assert.deepEqual(shifts(buildI2VWorkflow({ prompt: 'p', seed: 1, startImage: 'a.png', useLightx2v: true })), [5, 5]);
   assert.deepEqual(shifts(buildT2VWorkflow({ prompt: 'p', seed: 1 })), [5, 5]);
   assert.deepEqual(shifts(buildT2VWorkflow({ prompt: 'p', seed: 1, useLightx2v: true })), [5, 5]);
+});
+
+test('buildQwenImageWorkflow wires UNET/CLIP/VAE -> AuraFlow -> KSampler -> VAEDecode -> SaveImage', () => {
+  const wf = buildQwenImageWorkflow({ prompt: 'a felt owl', negativePrompt: 'blurry', seed: 7 });
+  assertConnectionsValid(wf);
+  assert.equal(one(wf, 'UNETLoader').inputs.unet_name, QWEN_IMAGE_MODEL);
+  assert.equal(one(wf, 'UNETLoader').inputs.weight_dtype, 'default');
+  const clip = one(wf, 'CLIPLoader');
+  assert.equal(clip.inputs.clip_name, QWEN_TEXT_ENCODER);
+  assert.equal(clip.inputs.type, 'qwen_image');
+  assert.equal(one(wf, 'VAELoader').inputs.vae_name, QWEN_VAE);
+  const aura = one(wf, 'ModelSamplingAuraFlow');
+  assert.equal(aura.inputs.shift, 3.1);
+  assert.equal(conn(wf, aura, 'model'), one(wf, 'UNETLoader').id);
+  const ks = one(wf, 'KSampler');
+  assert.equal(conn(wf, ks, 'model'), aura.id);
+  const encoders = byType(wf, 'CLIPTextEncode');
+  assert.equal(encoders.length, 2);
+  for (const e of encoders) assert.equal(conn(wf, e, 'clip'), clip.id);
+  assert.equal(wf[conn(wf, ks, 'positive')].inputs.text, 'a felt owl');
+  assert.equal(wf[conn(wf, ks, 'negative')].inputs.text, 'blurry');
+  assert.equal(conn(wf, ks, 'latent_image'), one(wf, 'EmptySD3LatentImage').id);
+  const decode = one(wf, 'VAEDecode');
+  assert.equal(conn(wf, decode, 'samples'), ks.id);
+  assert.equal(conn(wf, decode, 'vae'), one(wf, 'VAELoader').id);
+  assert.equal(conn(wf, one(wf, 'SaveImage'), 'images'), decode.id);
+});
+
+test('buildQwenImageWorkflow passes seed/size/steps/cfg/prefix through and has sane defaults', () => {
+  const custom = buildQwenImageWorkflow({
+    prompt: 'p', seed: 99, width: 768, height: 512, steps: 10, cfg: 4, filenamePrefix: 'x',
+  });
+  const ks = one(custom, 'KSampler');
+  assert.equal(ks.inputs.seed, 99);
+  assert.equal(ks.inputs.steps, 10);
+  assert.equal(ks.inputs.cfg, 4);
+  const lat = one(custom, 'EmptySD3LatentImage');
+  assert.equal(lat.inputs.width, 768);
+  assert.equal(lat.inputs.height, 512);
+  assert.equal(one(custom, 'SaveImage').inputs.filename_prefix, 'x');
+
+  const def = buildQwenImageWorkflow({ prompt: 'p', seed: 1 });
+  const dk = one(def, 'KSampler');
+  assert.equal(dk.inputs.steps, 25);
+  assert.equal(dk.inputs.cfg, 2.5);
+  assert.equal(dk.inputs.sampler_name, 'euler');
+  assert.equal(dk.inputs.scheduler, 'simple');
+  assert.equal(dk.inputs.denoise, 1);
+  assert.equal(one(def, 'EmptySD3LatentImage').inputs.width, 1024);
+  assert.equal(one(def, 'EmptySD3LatentImage').inputs.height, 1024);
+  assert.equal(one(def, 'EmptySD3LatentImage').inputs.batch_size, 1);
+  assert.equal(one(def, 'SaveImage').inputs.filename_prefix, 'character');
+  assert.equal(byType(def, 'WanVideoSampler').length, 0);
 });

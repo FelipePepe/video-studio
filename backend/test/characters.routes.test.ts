@@ -64,7 +64,7 @@ function makePng(): Buffer {
 const PNG = makePng();
 const goodCapture = async () => '... crop=20:30:22:17';
 
-function setup(o: { generate?: CharacterGenerator; capture?: () => Promise<string>; apiKey?: string } = {}) {
+function setup(o: { generate?: CharacterGenerator; capture?: () => Promise<string>; raw?: (args: string[]) => Promise<Buffer>; apiKey?: string } = {}) {
   const charactersDir = mkdtempSync(join(tmpdir(), 'charroutes-'));
   dirs.push(charactersDir);
   const inputs: CharacterGenInput[] = [];
@@ -75,6 +75,7 @@ function setup(o: { generate?: CharacterGenerator; capture?: () => Promise<strin
     charactersDir,
     characterGenerator: generate,
     runFfmpegCapture: o.capture ?? goodCapture,
+    runFfmpegRaw: o.raw ?? (async () => Buffer.alloc(0)),
     apiKey: o.apiKey,
   });
   return { app, charactersDir, inputs };
@@ -92,7 +93,7 @@ test('POST creates a character and builds a safe prompt', async () => {
   assert.equal('imagePath' in res.body, false);
   assert.equal(JSON.stringify(res.body).includes(charactersDir), false);
   assert.match(inputs[0].prompt, /a red fox in a scarf/);
-  assert.match(inputs[0].prompt, /green background/);
+  assert.match(inputs[0].prompt, /uniform flat pure bright green \(#00FF00\) backdrop/i);
   assert.match(inputs[0].negativePrompt, /green clothing/);
   assert.doesNotMatch(inputs[0].prompt + inputs[0].negativePrompt, /muppet/i);
 });
@@ -232,4 +233,45 @@ test('auth: writes need the token, reads do not', async () => {
   assert.equal((await request(app).delete(`/api/characters/${c.id}`)).status, 401);
   assert.equal((await request(app).get('/api/characters')).status, 200);
   assert.equal((await request(app).get(`/api/characters/${c.id}/image`)).status, 200);
+});
+
+test('POST passes runFfmpegRaw to the analysis so new characters get a mouth lookup', async () => {
+  let calls = 0;
+  const { app } = setup({ raw: async () => { calls++; return Buffer.alloc(0); } });
+  const res = await request(app).post('/api/characters').send(body);
+  assert.equal(res.status, 201);
+  assert.equal(calls, 1);
+  assert.equal(res.body.mouth, null);
+});
+
+test('reanalyze rewrites the analysis from the stored PNG', async () => {
+  let calls = 0;
+  const { app, charactersDir } = setup({ raw: async () => { calls++; return Buffer.alloc(0); } });
+  const c = (await request(app).post('/api/characters').send(body)).body;
+  const before = calls;
+  const res = await request(app).post(`/api/characters/${c.id}/reanalyze`);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.id, c.id);
+  assert.deepEqual(res.body.crop, c.crop);
+  assert.ok('mouth' in res.body);
+  assert.equal(calls, before + 1, 'reanalyze passes runFfmpegRaw');
+  assert.equal('imagePath' in res.body, false);
+  assert.equal(JSON.stringify(res.body).includes(charactersDir), false);
+});
+
+test('reanalyze: 400 invalid id, 404 unknown, 422 on analysis failure, token guarded', async () => {
+  const { app } = setup();
+  assert.equal((await request(app).post('/api/characters/bad.id/reanalyze')).status, 400);
+  assert.equal((await request(app).post('/api/characters/ghost/reanalyze')).status, 404);
+
+  let fail = false;
+  const f = setup({ capture: async () => { if (fail) throw new Error('ffmpeg down'); return '... crop=20:30:22:17'; } });
+  const c = (await request(f.app).post('/api/characters').send(body)).body;
+  fail = true;
+  const res = await request(f.app).post(`/api/characters/${c.id}/reanalyze`);
+  assert.equal(res.status, 422);
+  assert.match(res.body.error, /could not analyse the stored image: ffmpeg down/);
+
+  const g = setup({ apiKey: 'k' });
+  assert.equal((await request(g.app).post('/api/characters/ghost/reanalyze')).status, 401);
 });

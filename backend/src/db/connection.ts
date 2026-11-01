@@ -87,6 +87,15 @@ export const MIGRATIONS: Migration[] = [
       db.exec('CREATE INDEX IF NOT EXISTS idx_characters_status_created ON characters(status, created_at)');
     },
   },
+  {
+    version: 5,
+    name: 'characters-mouth',
+    up(db) {
+      // JSON {x,y,w,h} of the lips in full-image px; fresh databases already have the column from SCHEMA_SQL.
+      const columns = (db.prepare('PRAGMA table_info(characters)').all() as { name: string }[]).map((c) => c.name);
+      if (!columns.includes('mouth')) db.exec('ALTER TABLE characters ADD COLUMN mouth TEXT');
+    },
+  },
 ];
 
 export function runMigrations(db: DatabaseSync, migrations: Migration[] = MIGRATIONS): void {

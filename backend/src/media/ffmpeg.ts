@@ -303,6 +303,16 @@ export interface PresenterSpriteOptions {
 }
 
 /**
+ * Edge cleanup after the chroma key: despill removes the green cast on the fringe pixels and the
+ * alpha matte is eroded twice and steepened so the semi-transparent halo disappears.
+ * Chosen by eye on real characters over a dark background.
+ */
+const EDGE_CLEAN =
+  `despill=type=green:mix=0.5:expand=0,split[ca][cb];` +
+  `[ca]alphaextract,erosion,erosion,lut=y='clip((val-60)*1.6\\,0\\,255)'[cm];` +
+  `[cb][cm]alphamerge`;
+
+/**
  * Builds one presenter sprite for a mouth state: optional crop to the character box, green key
  * to alpha, a canvas pad for the jaw travel, a darkened copy showing through the gap, and the
  * jaw (bottom crop) offset by the state's drop fraction (0 closed / 0.5 mid / 1 open).
@@ -332,7 +342,7 @@ export function presenterSpriteArgs(o: PresenterSpriteOptions): string[] {
   const s = num(MOUTH_STATE_SCALE[o.state]);
   const crop = o.crop ? `crop=${o.crop.w}:${o.crop.h}:${o.crop.x}:${o.crop.y},` : '';
   const filter =
-    `[0:v]${crop}format=rgba,chromakey=${key},split=4[c][d][a][b];` +
+    `[0:v]${crop}format=rgba,chromakey=${key},${EDGE_CLEAN},split=4[c][d][a][b];` +
     `[c]colorchannelmixer=aa=0,pad=iw:ceil(ih*(1+${dl})):0:0:color=0x00000000[canvas];` +
     `[d]lutrgb=r=val*0.25:g=val*0.2:b=val*0.2[dark];` +
     `[a]crop=iw:floor(ih*${my}):0:0[top];` +
@@ -340,6 +350,73 @@ export function presenterSpriteArgs(o: PresenterSpriteOptions): string[] {
     `[canvas][dark]overlay=0:0:format=auto[c0];` +
     `[c0][top]overlay=0:0:format=auto[c1];` +
     `[c1][bot]overlay=0:floor(main_h/(1+${dl})*${my})+round(main_h/(1+${dl})*${dl}*${s}):format=auto`;
+  return ['-i', o.image, '-filter_complex', filter, '-frames:v', '1', o.out];
+}
+
+export interface PresenterMouthSpriteOptions {
+  image: string;
+  out: string;               // .png
+  state: MouthState;
+  mouth: { x: number; y: number; w: number; h: number }; // lip box in FULL-image pixels
+  keyColor?: string;         // default '0x00FF00'
+  keySimilarity?: number;    // default 0.06
+  keyBlend?: number;         // default 0.02
+  crop?: { x: number; y: number; w: number; h: number }; // optional character box in full-image pixels
+}
+
+/** Soft-edged filled ellipse of size w x h as an RGBA lavfi source; the alpha ramps over the outer ~15% of the radius. */
+function ellipseSource(w: number, h: number, rgb: [number, number, number]): string {
+  const r = `sqrt(pow((X+0.5-${w}/2)/(${w}/2),2)+pow((Y+0.5-${h}/2)/(${h}/2),2))`;
+  return (
+    `color=c=black@0:s=${w}x${h}:r=1:d=1,format=rgba,` +
+    `geq=r=${rgb[0]}:g=${rgb[1]}:b=${rgb[2]}:a='255*clip((1-${r})*6.5,0,1)'`
+  );
+}
+
+/**
+ * Builds one presenter sprite whose mouth changes only inside the lip box: optional crop, green
+ * key to alpha, then (mid/open) a dark mouth-interior ellipse centred on the box, plus a tongue
+ * ellipse when open. The canvas never changes size, so all three states are interchangeable.
+ */
+export function presenterMouthSpriteArgs(o: PresenterMouthSpriteOptions): string[] {
+  if (o.state !== 'closed' && o.state !== 'mid' && o.state !== 'open') {
+    throw new Error('presenterMouthSprite: state must be "closed", "mid" or "open"');
+  }
+  const isPix = (n: unknown): n is number => typeof n === 'number' && Number.isInteger(n) && n >= 0;
+  const box = (b: { x: number; y: number; w: number; h: number } | undefined): boolean =>
+    !!b && isPix(b.x) && isPix(b.y) && isPix(b.w) && isPix(b.h) && b.w >= 2 && b.h >= 2;
+  if (!box(o.mouth)) {
+    throw new Error('presenterMouthSprite: mouth must use non-negative integer x, y pixels with w and h >= 2');
+  }
+  if (o.crop !== undefined && !box(o.crop)) {
+    throw new Error('presenterMouthSprite: crop must use non-negative integer x, y pixels with w and h >= 2');
+  }
+  const c = o.crop;
+  if (c && (o.mouth.x < c.x || o.mouth.y < c.y || o.mouth.x + o.mouth.w > c.x + c.w || o.mouth.y + o.mouth.h > c.y + c.h)) {
+    throw new Error('presenterMouthSprite: mouth box must fall inside the crop');
+  }
+  const mx = o.mouth.x - (c?.x ?? 0);
+  const my = o.mouth.y - (c?.y ?? 0);
+  const { w: mw, h: mh } = o.mouth;
+  const key = `${o.keyColor ?? '0x00FF00'}:${o.keySimilarity ?? 0.06}:${o.keyBlend ?? 0.02}`;
+  const cropF = c ? `crop=${c.w}:${c.h}:${c.x}:${c.y},` : '';
+  const base = `[0:v]${cropF}format=rgba,chromakey=${key},${EDGE_CLEAN}`;
+  if (o.state === 'closed') return ['-i', o.image, '-filter_complex', base, '-frames:v', '1', o.out];
+
+  const open = o.state === 'open';
+  const iw = Math.max(2, Math.round(mw * (open ? 0.7 : 0.62)));
+  const ih = Math.max(2, Math.round(mh * (open ? 0.72 : 0.34)));
+  const ix = mx + Math.round((mw - iw) / 2);
+  const iy = my + Math.round((mh - ih) / 2);
+  let filter = `${base}[base];${ellipseSource(iw, ih, [42, 10, 16])}[int];[base][int]overlay=${ix}:${iy}:format=auto`;
+  if (open) {
+    const tw = Math.max(2, Math.round(mw * 0.42));
+    const th = Math.max(2, Math.round(mh * 0.22));
+    const margin = Math.max(1, Math.round(mh * 0.04));
+    const tx = mx + Math.round((mw - tw) / 2);
+    const ty = iy + ih - margin - th;
+    filter += `[b1];${ellipseSource(tw, th, [217, 102, 122])}[tongue];[b1][tongue]overlay=${tx}:${ty}:format=auto`;
+  }
   return ['-i', o.image, '-filter_complex', filter, '-frames:v', '1', o.out];
 }
 
@@ -424,10 +501,14 @@ export function presenterOverlayArgs(o: PresenterOverlayOptions): string[] {
   }
   const H = 2 * Math.round(V * ratio / 2); // even, for yuv420p
   const M = Math.round(V * marginRatio);
+  // Every input restarts at pts 0. Without the setpts resets the overlay filter intermittently
+  // drops the presenters for a few frames around the cut between clips (a framesync race: 12 of
+  // 30 real runs lost 2-10 frames, 0 of 30 with the reset).
   const filter =
-    `[1:v]scale=-2:${H}[a];` +
-    `[2:v]scale=-2:${H}[b];` +
-    `[0:v][a]overlay=x=${M}:y=main_h-overlay_h-${M}:eof_action=pass:format=auto[t];` +
+    `[0:v]setpts=PTS-STARTPTS[m];` +
+    `[1:v]setpts=PTS-STARTPTS,scale=-2:${H}[a];` +
+    `[2:v]setpts=PTS-STARTPTS,scale=-2:${H}[b];` +
+    `[m][a]overlay=x=${M}:y=main_h-overlay_h-${M}:eof_action=pass:format=auto[t];` +
     `[t][b]overlay=x=main_w-overlay_w-${M}:y=main_h-overlay_h-${M}:eof_action=pass:format=auto[v]`;
   return [
     '-i', o.video, '-i', o.clipA, '-i', o.clipB,

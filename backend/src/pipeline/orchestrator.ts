@@ -22,11 +22,13 @@ import {
   presenterClipArgs,
   presenterConcatList,
   presenterOverlayArgs,
+  presenterMouthSpriteArgs,
   presenterSpriteArgs,
   runFfmpeg,
 } from '../media/ffmpeg';
 import { mouthStates, presenterTimelines, type MouthState, type SceneTrack } from '../media/audioEnvelope';
 import { parseWav, type PcmFormat, wavDurationSec, wavSilence } from '../media/wav';
+import type { MouthBox } from '../media/characterAnalysis';
 import { getDraft } from './draftRepository';
 import { buildSrt, sceneCues } from './subtitles';
 import { DEFAULT_MUSIC_VOLUME, type Escaleta } from './types';
@@ -42,6 +44,8 @@ export interface PresenterAssets {
   crop: { x: number; y: number; w: number; h: number };
   /** Fraction of the cropped height; the presenterSpriteArgs default applies when absent. */
   mouthY?: number;
+  /** Lips box in FULL-image px; when present the mouth sprite replaces the jaw split. */
+  mouth?: MouthBox;
 }
 
 export type FfmpegFn = (args: string[], opts?: { signal?: AbortSignal }) => Promise<void>;
@@ -380,14 +384,23 @@ async function executePresenters(s: Shared, tts: TTSResult, transitions: Transit
         s.guard();
         sprites[state] = join(dir, `${key}_${state}.png`);
         await s.run(
-          presenterSpriteArgs({
-            image: assets.imagePath,
-            out: sprites[state],
-            state,
-            keyColor: assets.keyColor,
-            crop: assets.crop,
-            ...(assets.mouthY !== undefined ? { mouthY: assets.mouthY } : {}),
-          }),
+          assets.mouth
+            ? presenterMouthSpriteArgs({
+                image: assets.imagePath,
+                out: sprites[state],
+                state,
+                mouth: assets.mouth,
+                keyColor: assets.keyColor,
+                crop: assets.crop,
+              })
+            : presenterSpriteArgs({
+                image: assets.imagePath,
+                out: sprites[state],
+                state,
+                keyColor: assets.keyColor,
+                crop: assets.crop,
+                ...(assets.mouthY !== undefined ? { mouthY: assets.mouthY } : {}),
+              }),
         );
       }
       s.guard();

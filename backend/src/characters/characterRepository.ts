@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import type { CharacterAnalysis } from '../media/characterAnalysis';
+import type { CharacterAnalysis, MouthBox } from '../media/characterAnalysis';
 import type { Clock } from '../pipeline/draftRepository';
 import type { IdFactory } from '../jobs/jobRepository';
 
@@ -22,6 +22,8 @@ export interface Character {
   width: number;
   height: number;
   mouthY: number | null;
+  /** Lips box in full-image px; null when not detected. */
+  mouth: MouthBox | null;
   status: CharacterStatus;
   createdAt: string;
   updatedAt: string;
@@ -33,6 +35,8 @@ export interface CharacterRepository {
   get(id: string): Character | undefined;
   /** Newest first. */
   list(): Character[];
+  /** Rewrites key colour, crop, size and mouth from a fresh analysis. Null when the id is invalid or unknown. */
+  updateAnalysis(id: string, analysis: CharacterAnalysis): Character | null;
   approve(id: string, opts?: { mouthY?: number }): Character | undefined;
   /** Deletes the row and the `<id>/` directory. */
   remove(id: string): boolean;
@@ -49,6 +53,7 @@ interface CharacterRow {
   width: number;
   height: number;
   mouth_y: number | null;
+  mouth: string | null;
   status: CharacterStatus;
   created_at: string;
   updated_at: string;
@@ -66,6 +71,7 @@ function fromRow(r: CharacterRow): Character {
     width: r.width,
     height: r.height,
     mouthY: r.mouth_y,
+    mouth: r.mouth ? (JSON.parse(r.mouth) as MouthBox) : null,
     status: r.status,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
@@ -106,9 +112,9 @@ export function createCharacterRepository(
       try {
         writeFileSync(imagePath, png);
         db.prepare(
-          `INSERT INTO characters (id, name, description, seed, image_path, key_color, crop, width, height, mouth_y, status, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'generated', ?, ?)`,
-        ).run(id, name, description, seed, imagePath, analysis.keyColor, JSON.stringify(analysis.crop), analysis.width, analysis.height, ts, ts);
+          `INSERT INTO characters (id, name, description, seed, image_path, key_color, crop, width, height, mouth_y, mouth, status, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, 'generated', ?, ?)`,
+        ).run(id, name, description, seed, imagePath, analysis.keyColor, JSON.stringify(analysis.crop), analysis.width, analysis.height, analysis.mouth ? JSON.stringify(analysis.mouth) : null, ts, ts);
       } catch (e) {
         rmSync(dir, { recursive: true, force: true });
         throw e;
@@ -119,6 +125,19 @@ export function createCharacterRepository(
     list() {
       const rows = db.prepare('SELECT * FROM characters ORDER BY created_at DESC, rowid DESC').all() as unknown as CharacterRow[];
       return rows.map(fromRow);
+    },
+    updateAnalysis(id, analysis) {
+      if (!get(id)) return null;
+      db.prepare('UPDATE characters SET key_color = ?, crop = ?, width = ?, height = ?, mouth = ?, updated_at = ? WHERE id = ?').run(
+        analysis.keyColor,
+        JSON.stringify(analysis.crop),
+        analysis.width,
+        analysis.height,
+        analysis.mouth ? JSON.stringify(analysis.mouth) : null,
+        clock().toISOString(),
+        id,
+      );
+      return get(id) ?? null;
     },
     approve(id, opts = {}) {
       if (!get(id)) return undefined;
