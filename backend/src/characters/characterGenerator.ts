@@ -1,5 +1,5 @@
 import { extractOutputFile, type ComfyClient } from '../clients/comfy';
-import { buildT2VWorkflow } from '../comfy/workflows';
+import { buildQwenImageWorkflow } from '../comfy/workflows';
 
 export interface CharacterGenInput {
   prompt: string;
@@ -11,12 +11,13 @@ export interface CharacterGenInput {
 /** Returns the bytes of ONE PNG. */
 export type CharacterGenerator = (input: CharacterGenInput) => Promise<Buffer>;
 
-const DEFAULT_NEGATIVE = 'blurry, low quality, distorted, watermark, text, static, deformed';
+const NEGATIVE =
+  'blurry, low quality, deformed, text, watermark, extra characters, green clothing, green hair, green skin, shadows on the background, gradient background, full body, hands';
 
 export function buildCharacterPrompt(description: string): { prompt: string; negativePrompt: string } {
   return {
-    prompt: `${description.trim()}. Original hand-made felt puppet character, front view, upper body, facing the camera, mouth closed, soft felt texture, studio lighting, centred, on a flat solid uniform bright green background, nothing else in the frame, no text`,
-    negativePrompt: `${DEFAULT_NEGATIVE}, green clothing, green fur, green skin, shadows on the background, gradient background, multiple characters, text, watermark`,
+    prompt: `${description.trim()}. Head and shoulders, front view facing the camera, gentle closed-mouth smile with red felt lips, wool felt fabric texture with visible stitching, soft even studio lighting, crisp sharp focus, on a plain flat solid pure green (#00FF00) chroma key background, no gradient, no vignette, no shadows, no floor`,
+    negativePrompt: NEGATIVE,
   };
 }
 
@@ -24,18 +25,7 @@ export function comfyCharacterGenerator(resolveComfy: () => ComfyClient): Charac
   return async ({ prompt, negativePrompt, seed, signal }) => {
     const comfy = resolveComfy();
     const id = await comfy.submit(
-      buildT2VWorkflow({
-        prompt,
-        negativePrompt,
-        seed,
-        numFrames: 1,
-        pingpong: false,
-        saveImage: true,
-        useLightx2v: true,
-        width: 1024,
-        height: 1024,
-        filenamePrefix: 'character',
-      }),
+      buildQwenImageWorkflow({ prompt, negativePrompt, seed, filenamePrefix: 'character' }),
     );
     const outputs = await comfy.waitForCompletion(id, { signal });
     const file = extractOutputFile(outputs);

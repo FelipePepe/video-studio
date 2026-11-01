@@ -93,7 +93,7 @@ test('POST creates a character and builds a safe prompt', async () => {
   assert.equal('imagePath' in res.body, false);
   assert.equal(JSON.stringify(res.body).includes(charactersDir), false);
   assert.match(inputs[0].prompt, /a red fox in a scarf/);
-  assert.match(inputs[0].prompt, /green background/);
+  assert.match(inputs[0].prompt, /chroma key background/);
   assert.match(inputs[0].negativePrompt, /green clothing/);
   assert.doesNotMatch(inputs[0].prompt + inputs[0].negativePrompt, /muppet/i);
 });

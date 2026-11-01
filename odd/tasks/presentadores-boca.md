@@ -22,8 +22,8 @@ Replace the "jaw split" mouth (cuts the whole character in two at a fixed height
 - [x] A2 migration v5 + repository + presenterAssets + reanalyze route (+ tests) — column `mouth` (fresh + migrated paths), `updateAnalysis`, `POST /:id/reanalyze` (422 on failure), create passes `runFfmpegRaw`; RED seen first (9 failing assertions across 4 files)
 - [x] A4 orchestrator wiring (+ test) — `executePresenters` uses `presenterMouthSpriteArgs` when `assets.mouth` is set, jaw path otherwise; tests cover with/without/mixed
 - [ ] A5 real check on Ana and Leo (backfill, sprites, one rendered clip, frame check)
-- [ ] C1 generator comparison on the Spark (Flux vs Qwen-Image vs current)
-- [ ] C2 integrate the chosen generator (+ tests)
+- [x] C1 generator comparison on the Spark: Qwen-Image chosen (98 s, sharp, flat green bg); Flux dev 60 s but full-body with gradient bg and floor shadow; current Wan still blurry
+- [x] C2 integrate the chosen generator (+ tests)
 
 ## Rules
 TDD on, runners: backend `node --test --import tsx test/<file>.test.ts`; full suite `cd backend && pnpm test`; `pnpm typecheck` at the root. Delegated writers per task; no git commands for writers; parent commits per task. Push/PR only with user OK. ~400 changed lines is advisory.
