@@ -9,12 +9,17 @@ import { pipelineRouter } from './routes/pipeline';
 import { jobsRouter } from './routes/jobs';
 import { voicesRouter } from './routes/voices';
 import { musicRouter } from './routes/music';
+import { charactersRouter } from './routes/characters';
+import { createCharacterRepository } from './characters/characterRepository';
+import { comfyCharacterGenerator, type CharacterGenerator } from './characters/characterGenerator';
+import { createPresenterAssets } from './characters/presenterAssets';
+import { runFfmpegCapture, type AnalyzeDeps } from './media/characterAnalysis';
 import { EventHub } from './jobs/eventHub';
 import { JobRunner } from './jobs/runner';
 import { makeTokenAuth } from './config/auth';
 import type { ExecuteFn } from './jobs/types';
 import { resolveCacheDir } from './pipeline/contentCache';
-import { createExecute, type FfmpegFn } from './pipeline/orchestrator';
+import { createExecute, type FfmpegFn, type OrchestratorDeps } from './pipeline/orchestrator';
 import { ComfyClient } from './clients/comfy';
 import { OllamaClient } from './clients/ollama';
 import { PiperClient } from './clients/piper';
@@ -30,6 +35,14 @@ export interface AppOptions {
   piper?: PiperClient;
   fetchImpl?: typeof fetch;
   ffmpeg?: FfmpegFn;
+  /** Resolves a character id to its approved image and analysis (character store, T15). */
+  presenterAssets?: OrchestratorDeps['presenterAssets'];
+  /** Directory for generated character images. Defaults to `data/characters` (resolved absolute). */
+  charactersDir?: string;
+  /** Character image generator (ComfyUI 1-frame still by default). Injectable for tests. */
+  characterGenerator?: CharacterGenerator;
+  /** ffmpeg runner that returns stderr (cropdetect), used to analyse a generated character. */
+  runFfmpegCapture?: AnalyzeDeps['runFfmpegCapture'];
   /** Music library directory (background music picker). Defaults to the MUSIC_DIR env var; empty = disabled. */
   musicDir?: string;
   apiKey?: string;
@@ -82,6 +95,7 @@ export function buildApp(opts: AppOptions = {}): Express {
     resolvePiper: () => opts.piper ?? new PiperClient(effective().piperHost),
   };
   const eventHub = new EventHub();
+  const characterRepo = createCharacterRepository(db, resolvePath(opts.charactersDir ?? 'data/characters'));
   const jobRunner = new JobRunner({
     db,
     hub: eventHub,
@@ -92,6 +106,7 @@ export function buildApp(opts: AppOptions = {}): Express {
         resolveComfy: resolvers.resolveComfy,
         resolvePiper: resolvers.resolvePiper,
         ffmpeg: opts.ffmpeg,
+        presenterAssets: opts.presenterAssets ?? createPresenterAssets(characterRepo),
         cacheDir: resolveCacheDir(opts.jobs?.cacheDir),
       }),
     workDir: resolvePath(opts.jobs?.workDir ?? 'data/jobs'),
@@ -114,6 +129,14 @@ export function buildApp(opts: AppOptions = {}): Express {
       heartbeatMs: opts.jobs?.heartbeatMs,
       maxConcurrentDrafts: opts.draftConcurrency,
       musicDir: () => opts.musicDir ?? process.env.MUSIC_DIR ?? '',
+    }),
+  );
+  app.use(
+    '/api/characters',
+    charactersRouter({
+      repo: characterRepo,
+      generate: opts.characterGenerator ?? comfyCharacterGenerator(resolvers.resolveComfy),
+      runFfmpegCapture: opts.runFfmpegCapture ?? runFfmpegCapture,
     }),
   );
   app.use('/api/jobs', jobsRouter({ db, runner: jobRunner, hub: eventHub, heartbeatMs: opts.jobs?.heartbeatMs }));

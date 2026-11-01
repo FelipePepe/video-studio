@@ -7,7 +7,7 @@ import { DraftInputError, DraftValidationError, generateDraft, validateEscaleta 
 import { createDraft, DraftLockedError, getDraft, markApproved, updateEscaleta } from '../pipeline/draftRepository';
 import { generatePublishMetadata, PublishInputError } from '../pipeline/publish';
 import { getLatestJobForDraft } from '../jobs/jobRepository';
-import type { ApproveOptions } from '../pipeline/types';
+import type { ApproveOptions, PresenterOptions } from '../pipeline/types';
 import type { Job, JobEvent } from '../jobs/types';
 import type { EventHub } from '../jobs/eventHub';
 import type { JobRunner } from '../jobs/runner';
@@ -46,12 +46,30 @@ function abortOnClose(res: Response): AbortController {
 
 class ApproveOptionsError extends Error {}
 
+const CHARACTER_ID = /^[A-Za-z0-9_-]{1,64}$/;
+
+function parsePresenters(value: unknown): PresenterOptions {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new ApproveOptionsError('presenters must be an object');
+  const p = value as Record<string, unknown>;
+  for (const key of Object.keys(p)) {
+    if (key !== 'mode' && key !== 'a' && key !== 'b') throw new ApproveOptionsError(`Unknown presenters option: ${key}`);
+  }
+  if (p.mode === 'lipsync') throw new ApproveOptionsError('presenters.mode "lipsync" is not available yet');
+  if (p.mode !== 'volume') throw new ApproveOptionsError('presenters.mode must be "volume"');
+  for (const k of ['a', 'b'] as const) {
+    const v = p[k];
+    if (typeof v !== 'string' || !CHARACTER_ID.test(v)) throw new ApproveOptionsError(`presenters.${k} must be a character id`);
+  }
+  if (p.a === p.b) throw new ApproveOptionsError('presenters a and b must be different characters');
+  return { mode: 'volume', a: p.a as string, b: p.b as string };
+}
+
 function parseApproveOptions(body: unknown, musicDir?: string): ApproveOptions | null {
   if (body === undefined || body === null) return null;
   if (typeof body !== 'object' || Array.isArray(body)) throw new ApproveOptionsError('Body must be a JSON object');
   const o = body as Record<string, unknown>;
   for (const key of Object.keys(o)) {
-    if (key !== 'music' && key !== 'musicVolume' && key !== 'subtitles' && key !== 'vertical' && key !== 'style' && key !== 'useLightx2v') throw new ApproveOptionsError(`Unknown approve option: ${key}`);
+    if (key !== 'music' && key !== 'musicVolume' && key !== 'subtitles' && key !== 'vertical' && key !== 'style' && key !== 'useLightx2v' && key !== 'presenters') throw new ApproveOptionsError(`Unknown approve option: ${key}`);
   }
   if (Object.keys(o).length === 0) return null;
   const opts: ApproveOptions = {};
@@ -99,6 +117,7 @@ function parseApproveOptions(body: unknown, musicDir?: string): ApproveOptions |
     if (typeof o.useLightx2v !== 'boolean') throw new ApproveOptionsError('useLightx2v must be a boolean');
     opts.useLightx2v = o.useLightx2v;
   }
+  if (o.presenters !== undefined) opts.presenters = parsePresenters(o.presenters);
   return opts;
 }
 

@@ -1,6 +1,6 @@
 import { vi } from 'vitest';
 import type { ApiClient, ApproveOptions } from '../../src/api/client';
-import type { Draft, DraftCreated, Escaleta, Job, JobEvent, MusicLibrary, VoiceOption } from '../../src/api/types';
+import type { Character, Draft, DraftCreated, Escaleta, Job, JobEvent, MusicLibrary, VoiceOption } from '../../src/api/types';
 
 export const draft: DraftCreated = {
   id: 'd1',
@@ -14,6 +14,7 @@ export const draft: DraftCreated = {
 export type PipelineApi = Pick<
   ApiClient,
   'createDraft' | 'approveDraft' | 'cancelJob' | 'putSegments' | 'listMusic' | 'listVoices' | 'getJob' | 'getDraft' | 'watchJob' | 'listJobs'
+  | 'listCharacters' | 'createCharacter' | 'approveCharacter' | 'deleteCharacter'
 >;
 
 export const fullDraft = (id: string, escaleta: Escaleta = draft.escaleta): Draft => ({
@@ -47,6 +48,22 @@ export const fakeJob = (over: Partial<Job> = {}): Job => ({
   ...over,
 });
 
+export const fakeCharacter = (over: Partial<Character> = {}): Character => ({
+  id: 'c1',
+  name: 'Ana',
+  description: 'A felt puppet',
+  status: 'generated',
+  keyColor: '0x00ff00',
+  crop: { x: 0, y: 0, w: 10, h: 10 },
+  width: 100,
+  height: 120,
+  mouthY: null,
+  imageUrl: '/api/characters/c1/image',
+  createdAt: '2026-01-01T00:00:00Z',
+  updatedAt: '2026-01-01T00:00:00Z',
+  ...over,
+});
+
 /** A fake api whose approve stream is driven by the test through `emit` / `finish` / `fail`. */
 export function makeFakeApi() {
   let options: ApproveOptions | undefined;
@@ -77,6 +94,10 @@ export function makeFakeApi() {
     ),
     listMusic: vi.fn(async () => null as MusicLibrary | null),
     listVoices: vi.fn(async () => [] as VoiceOption[]),
+    listCharacters: vi.fn(async () => [] as Character[]),
+    createCharacter: vi.fn(async (): Promise<Character> => fakeCharacter()),
+    approveCharacter: vi.fn(async (): Promise<Character> => fakeCharacter({ status: 'approved' })),
+    deleteCharacter: vi.fn(async (): Promise<void> => undefined),
     putSegments: vi.fn(async (id: string, escaleta: Escaleta): Promise<Draft> => fullDraft(id, escaleta)),
   } satisfies PipelineApi;
   return {

@@ -10,12 +10,16 @@ export interface Settings {
 
 export type Voice = 'male' | 'female' | string;
 
+export type Speaker = 'A' | 'B';
+
 export interface Scene {
   scene: number;
   title: string;
   narration: string;
   visualPrompt: string;
   voice: Voice;
+  /** Presenter who delivers the line: A uses voiceA, B uses voiceB. Absent = legacy narration. */
+  speaker?: Speaker;
 }
 
 export type Escaleta = Scene[];
@@ -81,6 +85,34 @@ export interface ApproveBody {
   subtitles?: boolean;
   /** Render vertical 9:16 (OFF by default). */
   vertical?: boolean;
+  /** Fast mode: lightx2v 4-step LoRA for I2V transitions (OFF by default). */
+  useLightx2v?: boolean;
+  /** On-screen presenters (character ids). Only send when both are chosen and different. */
+  presenters?: PresenterOptions;
+}
+
+export type CharacterStatus = 'generated' | 'approved';
+
+/** A felt-puppet character from /api/characters. */
+export interface Character {
+  id: string;
+  name: string;
+  description: string;
+  status: CharacterStatus;
+  keyColor: string;
+  crop: { x: number; y: number; w: number; h: number };
+  width: number;
+  height: number;
+  mouthY: number | null;
+  imageUrl: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PresenterOptions {
+  mode: 'volume';
+  a: string;
+  b: string;
 }
 
 /** One entry of GET /api/music (backend/src/lib/musicLibrary.ts). */
@@ -113,6 +145,10 @@ export interface DraftRequest {
   voiceA?: Voice;
   voiceB?: Voice;
   mix?: boolean;
+  /** Presentation format (absent or 'narration' = classic one-voice draft). */
+  format?: 'narration' | 'dialogue';
+  /** Presenter names for dialogue drafts (A speaks with voiceA, B with voiceB). */
+  hosts?: { a: string; b: string };
 }
 
 /** Response of POST /api/pipeline/draft. */

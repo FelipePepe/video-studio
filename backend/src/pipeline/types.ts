@@ -1,5 +1,9 @@
 export type Voice = 'male' | 'female' | string;
 
+export type PresenterMode = 'volume';
+/** The two on-screen presenters. `a` and `b` are character ids from the character store. */
+export interface PresenterOptions { mode: PresenterMode; a: string; b: string; }
+
 /** Options the approve endpoint accepts (E1: BGM, E2: subtitles). Stored as JSON on the job row. */
 export interface ApproveOptions {
   /** Absolute path of a BGM file readable by the server. */
@@ -20,9 +24,13 @@ export interface ApproveOptions {
    * Cuts the denoise from 50 to 4 steps (~10× faster, same quality). Default false.
    */
   useLightx2v?: boolean;
+  /** On-screen presenters: speaker A uses character `a`, speaker B uses character `b`. */
+  presenters?: PresenterOptions;
 }
 
 export const DEFAULT_MUSIC_VOLUME = 0.25;
+
+export type Speaker = 'A' | 'B';
 
 export interface Scene {
   scene: number;
@@ -30,6 +38,8 @@ export interface Scene {
   narration: string;
   visualPrompt: string;
   voice: Voice;
+  /** Presenter who delivers the line: A uses voiceA, B uses voiceB. Absent = legacy narration. */
+  speaker?: Speaker;
 }
 
 export type Escaleta = Scene[];

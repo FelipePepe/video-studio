@@ -696,3 +696,58 @@ describe('usePipeline stale loads never override the user', () => {
     expect(fake.api.watchJob).not.toHaveBeenCalled();
   });
 });
+
+describe('usePipeline presenters stage', () => {
+  const presenters = { mode: 'volume' as const, a: 'c1', b: 'c2' };
+  const ids = (r: { current: ReturnType<typeof usePipeline> }) => r.current.stages.map((s) => s.id);
+
+  it('lists five stages when approving with presenters and advances them correctly', async () => {
+    const { fake, hook } = await toReview();
+    act(() => {
+      void hook.result.current.approve({ body: { presenters } });
+    });
+    expect(ids(hook.result)).toEqual(['tts', 'images', 'transitions', 'presenters', 'assemble']);
+    expect(stageStates(hook.result)).toEqual(['pending', 'pending', 'pending', 'pending', 'pending']);
+    act(() => fake.emit({ type: 'stage', stage: 'presenters', jobId: 'j1' }));
+    expect(stageStates(hook.result)).toEqual(['done', 'done', 'done', 'active', 'pending']);
+  });
+
+  it('keeps four stages without presenters and assemble still closes the first three', async () => {
+    const { fake, hook } = await toReview();
+    act(() => {
+      void hook.result.current.approve();
+    });
+    expect(ids(hook.result)).toEqual(['tts', 'images', 'transitions', 'assemble']);
+    act(() => fake.emit({ type: 'stage', stage: 'assemble', jobId: 'j1' }));
+    expect(stageStates(hook.result)).toEqual(['done', 'done', 'done', 'active']);
+  });
+
+  it('inserts the stage as a fallback when a presenters event arrives without the option', async () => {
+    const { fake, hook } = await toRendering();
+    act(() => fake.emit({ type: 'stage', stage: 'images', jobId: 'j1' }));
+    act(() => fake.emit({ type: 'stage', stage: 'presenters', jobId: 'j1' }));
+    expect(ids(hook.result)).toEqual(['tts', 'images', 'transitions', 'presenters', 'assemble']);
+    expect(stageStates(hook.result)).toEqual(['done', 'done', 'done', 'active', 'pending']);
+  });
+
+  it('openJob of a job with presenters lists five stages and reset returns to four', async () => {
+    const fake = makeFakeApi();
+    fake.api.getJob.mockResolvedValue(fakeJob({ options: { presenters } }));
+    const hook = renderHook(() => usePipeline(fake.api));
+    await act(async () => {
+      void hook.result.current.openJob('j1');
+    });
+    await waitFor(() => expect(fake.api.watchJob).toHaveBeenCalled());
+    expect(ids(hook.result)).toEqual(['tts', 'images', 'transitions', 'presenters', 'assemble']);
+    act(() => hook.result.current.reset());
+    expect(ids(hook.result)).toEqual(['tts', 'images', 'transitions', 'assemble']);
+  });
+
+  it('records presenters degradation messages as warnings', async () => {
+    const { fake, hook } = await toRendering();
+    act(() =>
+      fake.emit({ type: 'progress', stage: 'presenters', jobId: 'j1', message: 'presenters failed, rendering without them: x' }),
+    );
+    expect(hook.result.current.warnings).toEqual(['presenters failed, rendering without them: x']);
+  });
+});

@@ -315,8 +315,8 @@ test('assembles Ken Burns clips with the WAV durations, alternating with transit
   await h2.execute(h2.job, h2.ctx);
   const vCall = h2.ffmpegCalls.find((a) => a[a.length - 1] === join(h2.workDir, 'final_v.mp4'))!;
   assert.ok(vCall, 'vertical deliverable produced');
-  const vFilt = vCall[vCall.indexOf('-vf') + 1];
-  assert.ok(/^crop=ih\*9\/16:ih,scale=720:1280,subtitles=/.test(vFilt), 'one chained filter, not two encodes');
+  const vFilt = vCall[vCall.indexOf('-filter_complex') + 1];
+  assert.ok(/overlay=[^;]*\[o\];\[o\]subtitles=/.test(vFilt), 'one chained filter, not two encodes');
   assert.equal(h2.ffmpegCalls.filter((a) => a[a.length - 1] === join(h2.workDir, 'base_v.mp4')).length, 0, 'no intermediate vertical base');
   assert.match(vFilt, /force_style=/ , 'vertical style applied in the same pass');
 });

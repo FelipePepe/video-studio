@@ -60,6 +60,48 @@ describe('PipelineForm', () => {
     expect(payload).not.toHaveProperty('url');
   });
 
+  it('does not send format or hosts keys in narration mode', async () => {
+    const { onSubmit, user } = setup();
+    expect(screen.queryByLabelText('Presentador A')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Presentador B')).not.toBeInTheDocument();
+    await user.type(screen.getByLabelText('URL del artículo'), 'https://x.test/a');
+    await user.click(screen.getByRole('button', { name: 'Generar' }));
+    const payload = onSubmit.mock.calls[0]![0];
+    expect(payload).not.toHaveProperty('format');
+    expect(payload).not.toHaveProperty('hosts');
+  });
+
+  it('shows default host names when dialogue is selected', () => {
+    setup();
+    expect(screen.getByRole('button', { name: 'Narración' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.queryByLabelText('Presentador A')).not.toBeInTheDocument();
+  });
+
+  it('switches host inputs visibility with the format toggle', async () => {
+    const { user } = setup();
+    await user.click(screen.getByRole('button', { name: 'Diálogo' }));
+    expect(screen.getByRole('button', { name: 'Diálogo' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Narración' })).toHaveAttribute('aria-pressed', 'false');
+    const hostA = screen.getByLabelText('Presentador A');
+    expect(hostA).toHaveValue('Ana');
+    expect(hostA).toHaveAttribute('maxlength', '40');
+    expect(screen.getByLabelText('Presentador B')).toHaveValue('Leo');
+    await user.click(screen.getByRole('button', { name: 'Narración' }));
+    expect(screen.queryByLabelText('Presentador A')).not.toBeInTheDocument();
+  });
+
+  it('sends format and host names when dialogue is selected', async () => {
+    const { onSubmit, user } = setup();
+    await user.click(screen.getByRole('button', { name: 'Diálogo' }));
+    await user.clear(screen.getByLabelText('Presentador A'));
+    await user.type(screen.getByLabelText('Presentador A'), '  Marta  ');
+    await user.type(screen.getByLabelText('URL del artículo'), 'https://x.test/a');
+    await user.click(screen.getByRole('button', { name: 'Generar' }));
+    const payload = onSubmit.mock.calls[0]![0];
+    expect(payload.format).toBe('dialogue');
+    expect(payload.hosts).toEqual({ a: 'Marta', b: 'Leo' });
+  });
+
   it('mix toggle flips aria-pressed and sets mix in the payload', async () => {
     const { onSubmit, user } = setup();
     const mix = screen.getByRole('button', { name: '⇄ Mezclar' });

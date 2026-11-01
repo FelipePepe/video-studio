@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import type { Escaleta, Scene } from '../api/types';
+import type { Escaleta, Scene, Speaker } from '../api/types';
 import { format, useI18n, type MessageKey } from '../i18n';
 import { FIELD_LIMITS, MAX_SCENES, emptyScene, renumber, sceneErrors, type TextField } from '../lib/escaleta';
 
@@ -8,6 +8,8 @@ export interface SegmentEditorProps {
   onChange: (next: Escaleta) => void;
   /** Voice options for the per-scene selector (Piper roster via the API). Defaults to the male/female roles. */
   voices?: string[];
+  /** Dialogue mode: maps speaker to voice (A → voiceA, B → voiceB). Defaults to the male/female roles. */
+  speakerVoices?: Record<Speaker, string>;
 }
 
 const VOICES = ['male', 'female'];
@@ -21,7 +23,12 @@ const FIELD_LABEL: Record<TextField, MessageKey> = {
 type Action = 'up' | 'down';
 
 /** Controlled editor: one editable card per scene, reorder/add/delete, live validation. */
-export function SegmentEditor({ scenes, onChange, voices: voiceOptions }: SegmentEditorProps) {
+export function SegmentEditor({
+  scenes,
+  onChange,
+  voices: voiceOptions,
+  speakerVoices: speakerVoicesProp,
+}: SegmentEditorProps) {
   const { t } = useI18n();
   const baseId = useId();
   const [announcement, setAnnouncement] = useState('');
@@ -30,6 +37,18 @@ export function SegmentEditor({ scenes, onChange, voices: voiceOptions }: Segmen
 
   // Roles first (with their labels), then the Piper roster, never dropping a voice an existing scene already uses.
   const voiceList = voiceOptions ?? VOICES;
+
+  // Dialogue drafts carry a speaker per scene; once any scene has one, every scene exposes the speaker select.
+  const hasSpeakers = scenes.some((s) => s.speaker !== undefined);
+
+  // The draft's voiceA/voiceB are not known here, so unless the caller says otherwise each speaker
+  // reuses the voice of the first scene that already has it, falling back to the male/female roles.
+  const speakerVoices: Record<Speaker, string> = speakerVoicesProp ?? {
+    A: scenes.find((s) => s.speaker === 'A')?.voice ?? 'male',
+    B: scenes.find((s) => s.speaker === 'B')?.voice ?? 'female',
+  };
+
+  const flip = (s: Speaker): Speaker => (s === 'A' ? 'B' : 'A');
 
   // After a move, keep keyboard focus on the moved scene's control.
   useEffect(() => {
@@ -63,8 +82,13 @@ export function SegmentEditor({ scenes, onChange, voices: voiceOptions }: Segmen
 
   const addBelow = (index: number) => {
     if (scenes.length >= MAX_SCENES) return;
+    const above = scenes[index]!;
+    // A new dialogue scene continues the conversation with the flipped speaker.
+    const created: Scene = above.speaker
+      ? { ...emptyScene(above.voice), speaker: flip(above.speaker), voice: speakerVoices[flip(above.speaker)] }
+      : emptyScene(above.voice);
     const next = [...scenes];
-    next.splice(index + 1, 0, emptyScene(scenes[index]!.voice));
+    next.splice(index + 1, 0, created);
     setAnnouncement(format(t('editor.added'), { n: index + 2 }));
     onChange(renumber(next));
   };
@@ -137,6 +161,25 @@ export function SegmentEditor({ scenes, onChange, voices: voiceOptions }: Segmen
                     ))}
                   </select>
                 </div>
+                {hasSpeakers && (
+                  <div className="field field--inline">
+                    <label htmlFor={`${id}-speaker`}>{t('editor.speaker')}</label>
+                    <select
+                      id={`${id}-speaker`}
+                      value={scene.speaker ?? 'A'}
+                      onChange={(e) => {
+                        const speaker = e.target.value as Speaker;
+                        update(index, { speaker, voice: speakerVoices[speaker] });
+                      }}
+                    >
+                      {(['A', 'B'] as const).map((s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 <button type="button" className="btn" aria-label={format(t('editor.add'), { n })} disabled={scenes.length >= MAX_SCENES} onClick={() => addBelow(index)}>
                   + {t('editor.addShort')}
                 </button>
