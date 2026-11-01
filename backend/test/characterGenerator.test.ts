@@ -6,10 +6,10 @@ import type { ComfyClient } from '../src/clients/comfy';
 test('buildCharacterPrompt puts the description first and asks for a pure green chroma key', () => {
   const { prompt, negativePrompt } = buildCharacterPrompt('  a grumpy owl professor  ');
   assert.ok(prompt.startsWith('a grumpy owl professor'));
-  for (const frag of ['head and shoulders', 'front view', 'red felt lips', 'stitching', '#00FF00', 'no gradient', 'no vignette', 'no shadows', 'no floor']) {
+  for (const frag of ['head and shoulders', 'front view', 'red felt lips', 'stitching', '#00FF00', 'no gradient', 'no vignette', 'no shadows', 'no floor', 'plain knitted sweater', 'purple, mustard yellow or maroon', 'no green anywhere on the character', 'only the background is green', 'perfectly uniform flat pure bright green', 'filling the whole frame', 'evenly lit', 'no floor line']) {
     assert.ok(prompt.toLowerCase().includes(frag.toLowerCase()), `prompt missing "${frag}"`);
   }
-  for (const frag of ['blurry', 'low quality', 'deformed', 'text', 'watermark', 'extra characters', 'green clothing', 'green hair', 'green skin', 'shadows on the background', 'gradient background', 'full body', 'hands']) {
+  for (const frag of ['blurry', 'low quality', 'deformed', 'text', 'watermark', 'extra characters', 'green clothing', 'green hair', 'green skin', 'shadows on the background', 'gradient background', 'full body', 'hands', 'green sweater', 'green shirt', 'green clothes', 'floor', 'table', 'horizon line', 'backdrop gradient']) {
     assert.ok(negativePrompt.includes(frag), `negative missing "${frag}"`);
   }
   assert.doesNotMatch(prompt, /muppet|sesame|kermit|disney/i);
