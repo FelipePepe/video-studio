@@ -176,3 +176,17 @@ test('mouth round-trips, NULL reads back as null, updateAnalysis rewrites the an
   db.exec("UPDATE characters SET mouth = NULL");
   assert.equal(repo.get('id-m')?.mouth, null);
 });
+
+test('imagePath follows the configured characters directory, not the path stored in the row (host to Docker move)', () => {
+  const { repo, db } = setup(() => 'ana');
+  const c = repo.create(input('Ana'));
+  // the row keeps the absolute path of the machine that created it
+  assert.ok(db.prepare('SELECT image_path FROM characters WHERE id = ?').get('ana'));
+  // same database, mounted somewhere else (e.g. /app/backend/data/characters inside a container)
+  const moved = resolve(tmp(), 'other-mount', 'characters');
+  const repo2 = createCharacterRepository(db, moved);
+  const again = repo2.get('ana');
+  assert.equal(again?.imagePath, join(moved, 'ana', 'character.png'));
+  assert.notEqual(again?.imagePath, c.imagePath);
+  assert.equal(repo2.list()[0]?.imagePath, join(moved, 'ana', 'character.png'));
+});

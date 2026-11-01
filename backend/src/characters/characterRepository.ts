@@ -59,13 +59,19 @@ interface CharacterRow {
   updated_at: string;
 }
 
-function fromRow(r: CharacterRow): Character {
+/**
+ * `root` is the configured characters directory. The image always lives at `<root>/<id>/character.png`,
+ * so the path is derived from it and NOT read from the row: the stored `image_path` is an absolute path of
+ * the machine that created the character and is wrong as soon as the data directory is mounted elsewhere
+ * (dev server on the host vs `/app/backend/data` in Docker).
+ */
+function fromRow(r: CharacterRow, root: string): Character {
   return {
     id: r.id,
     name: r.name,
     description: r.description,
     seed: r.seed,
-    imagePath: r.image_path,
+    imagePath: resolve(root, r.id, 'character.png'),
     keyColor: r.key_color,
     crop: JSON.parse(r.crop) as Character['crop'],
     width: r.width,
@@ -98,7 +104,7 @@ export function createCharacterRepository(
   const get = (id: string): Character | undefined => {
     if (!isValidCharacterId(id)) return undefined;
     const row = db.prepare('SELECT * FROM characters WHERE id = ?').get(id) as unknown as CharacterRow | undefined;
-    return row ? fromRow(row) : undefined;
+    return row ? fromRow(row, root) : undefined;
   };
 
   return {
@@ -124,7 +130,7 @@ export function createCharacterRepository(
     get,
     list() {
       const rows = db.prepare('SELECT * FROM characters ORDER BY created_at DESC, rowid DESC').all() as unknown as CharacterRow[];
-      return rows.map(fromRow);
+      return rows.map((r) => fromRow(r, root));
     },
     updateAnalysis(id, analysis) {
       if (!get(id)) return null;
