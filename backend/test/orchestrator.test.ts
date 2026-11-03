@@ -1,14 +1,28 @@
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { openDatabase } from '../src/db/connection';
 import { createDraft } from '../src/pipeline/draftRepository';
 import { createJob } from '../src/jobs/jobRepository';
-import { createExecute } from '../src/pipeline/orchestrator';
+import { createExecute, removePartialFfmpegOutput } from '../src/pipeline/orchestrator';
+import { ContentCache } from '../src/pipeline/contentCache';
+import {
+  burnSubtitlesArgs,
+  concatArgs,
+  coverArgs,
+  extractFrameArgs,
+  kenBurnsArgs,
+  muxAudioArgs,
+  musicMixArgs,
+  normalizeClipArgs,
+  verticalBurnSubtitlesArgs,
+  verticalCropArgs,
+  xfadeArgs,
+} from '../src/media/ffmpeg';
 import { parseWav, wavDurationSec, wavFromPcm } from '../src/media/wav';
-import type { ComfyClient } from '../src/clients/comfy';
+import { ComfyUnavailableError, type ComfyClient } from '../src/clients/comfy';
 import type { PiperClient } from '../src/clients/piper';
 import type { EmitInput, Job } from '../src/jobs/types';
 import type { Escaleta } from '../src/pipeline/types';
@@ -34,6 +48,11 @@ const scenes = (n: number): Escaleta =>
 interface Opts {
   sceneCount?: number;
   failI2V?: number[];
+  /** Per-I2V-call error thrown by submit (undefined entries succeed). */
+  i2vErrors?: Array<Error | undefined>;
+  /** Abort the job while an I2V prompt is waiting, with an infrastructure-shaped error. */
+  abortDuringI2V?: boolean;
+  transitionInfraAbortAfter?: number;
   failT2V?: number;
   failTts?: number;
   abortAfterTts?: number;
@@ -81,6 +100,7 @@ function harness(opts: Opts = {}) {
       const isI2V = Object.values(wf).some((n) => n.class_type === 'WanVideoImageToVideoEncode');
       const idx = isI2V ? i2vCalls++ : t2vCalls++;
       if (isI2V && opts.failI2V?.includes(idx)) throw new Error('GPU exploded');
+      if (isI2V && opts.i2vErrors?.[idx]) throw opts.i2vErrors[idx];
       if (!isI2V && opts.failT2V === idx) throw new Error('out of memory');
       const id = `p${workflows.length}`;
       pending.set(id, isI2V);
@@ -92,6 +112,10 @@ function harness(opts: Opts = {}) {
       o?.onProgress?.({ node: '7' });
       o?.onProgress?.({ done: true });
       if (o?.signal?.aborted) throw abortErr('aborted before wait');
+      if (opts.abortDuringI2V && pending.get(id)) {
+        controller.abort();
+        throw new ComfyUnavailableError('ComfyUI unreachable at http://c: aborted');
+      }
       if (opts.abortDuringWait) {
         controller.abort();
         throw abortErr('aborted during wait');
@@ -140,6 +164,7 @@ function harness(opts: Opts = {}) {
     resolvePiper: () => piper as unknown as PiperClient,
     ffmpeg,
     cacheDir: opts.cacheDir,
+    transitionInfraAbortAfter: opts.transitionInfraAbortAfter,
   });
   const list = (name: string) =>
     readFileSync(join(workDir, name), 'utf8')
@@ -278,8 +303,22 @@ test('assembles Ken Burns clips with the WAV durations, alternating with transit
   assert.ok(readFileSync(join(h.workDir, 'subtitles.srt'), 'utf8').includes('narration 0'));
 
   const cover = h.ffmpegCalls[h.ffmpegCalls.length - 1];
-  assert.equal(cover[1], join(h.workDir, 'muxed.mp4'), 'cover from the subtitle-free base (no burned subs)');
+  assert.equal(cover[0], '-ss', 'cover fast-seeks on the input side');
+  assert.equal(cover[0], '-ss', 'fast seek on the input side');
+  assert.equal(cover[2], '-i');
+  assert.equal(cover[3], join(h.workDir, 'muxed.mp4'), 'cover from the subtitle-free base (no burned subs)');
   assert.equal(cover[cover.length - 1], join(h.workDir, 'cover.jpg'));
+
+  // Vertical variant: crop + scale + subtitles in a SINGLE pass (no intermediate base_v).
+  const h2 = harness();
+  h2.job.options = { vertical: true };
+  await h2.execute(h2.job, h2.ctx);
+  const vCall = h2.ffmpegCalls.find((a) => a[a.length - 1] === join(h2.workDir, 'final_v.mp4'))!;
+  assert.ok(vCall, 'vertical deliverable produced');
+  const vFilt = vCall[vCall.indexOf('-filter_complex') + 1];
+  assert.ok(/overlay=[^;]*\[o\];\[o\]subtitles=/.test(vFilt), 'one chained filter, not two encodes');
+  assert.equal(h2.ffmpegCalls.filter((a) => a[a.length - 1] === join(h2.workDir, 'base_v.mp4')).length, 0, 'no intermediate vertical base');
+  assert.match(vFilt, /force_style=/ , 'vertical style applied in the same pass');
 });
 
 test('a failed transition degrades to a hard cut and is reported', async () => {
@@ -289,7 +328,8 @@ test('a failed transition degrades to a hard cut and is reported', async () => {
   assert.deepEqual(h.list('audio.txt'), ['scene_00.wav', 'scene_01.wav', 'silence_01.wav', 'scene_02.wav']);
   const msg = h.events.find((e) => e.message)?.message;
   assert.match(msg ?? '', /transition 0 failed, using a hard cut: GPU exploded/);
-  assert.equal(h.events.find((e) => e.message)?.type, 'stage');
+  assert.equal(h.events.find((e) => e.message)?.type, 'progress');
+  assert.equal(h.events.find((e) => e.message)?.warning, true);
 });
 
 test('all transitions failing still yields a hard-cut video', async () => {
@@ -425,4 +465,213 @@ test('with a cacheDir, a second run reuses TTS/stills/transitions without new cl
   assert.equal(h.ttsInputs.length, tts1, 'TTS cached: no new synthesize on the 2nd run');
   assert.equal(h.workflows.filter((w) => Object.values(w).some((n) => n.class_type === 'WanVideoEmptyEmbeds')).length, stills1, 'still cached: no new T2V on the 2nd run');
   assert.equal(h.comfy.uploads.length, uploads1, 'transitions cached: no new uploads on the 2nd run');
+});
+
+test('a cache hit that vanishes between has() and copyTo() regenerates instead of failing the job', async () => {
+  const cacheDir = mkdtempSync(join(tmpdir(), 'vs-cache-vanish-'));
+  dirs.push(cacheDir);
+  const h = harness({ cacheDir });
+  await h.execute(h.job, h.ctx);
+  const stills1 = h.workflows.filter((w) => Object.values(w).some((n) => n.class_type === 'WanVideoEmptyEmbeds')).length;
+  const tts1 = h.ttsInputs.length;
+  for (const f of readdirSync(cacheDir)) rmSync(join(cacheDir, f)); // entries pruned away...
+  const realHas = ContentCache.prototype.has;
+  ContentCache.prototype.has = () => true; // ...but has() still reported them
+  try {
+    const { outputPath } = await h.execute(h.job, h.ctx);
+    assert.equal(readFileSync(outputPath, 'utf8'), 'out:final.mp4');
+  } finally {
+    ContentCache.prototype.has = realHas;
+  }
+  assert.ok(h.ttsInputs.length > tts1, 'TTS regenerated');
+  assert.ok(h.workflows.filter((w) => Object.values(w).some((n) => n.class_type === 'WanVideoEmptyEmbeds')).length > stills1, 'stills regenerated');
+});
+
+test('an invalid WAV from TTS is never stored in the cache', async () => {
+  const cacheDir = mkdtempSync(join(tmpdir(), 'vs-cache-badwav-'));
+  dirs.push(cacheDir);
+  const h = harness({ cacheDir, sceneCount: 1 });
+  h.piper.synthesize = async () => Buffer.from('this is not a wav');
+  await assert.rejects(h.execute(h.job, h.ctx));
+  assert.deepEqual(readdirSync(cacheDir), []);
+});
+
+test('cache hits do not read whole png/mp4 files into memory (copy via the cache)', async () => {
+  const cacheDir = mkdtempSync(join(tmpdir(), 'vs-cache-copy-'));
+  dirs.push(cacheDir);
+  const h = harness({ cacheDir });
+  await h.execute(h.job, h.ctx);
+  const proto = ContentCache.prototype;
+  const real = { read: proto.read, copyTo: proto.copyTo };
+  const reads: string[] = [];
+  let copies = 0;
+  proto.read = function (this: ContentCache, k: string) {
+    reads.push(k);
+    return real.read.call(this, k);
+  };
+  proto.copyTo = function (this: ContentCache, k: string, d: string) {
+    copies++;
+    return real.copyTo.call(this, k, d);
+  };
+  try {
+    await h.execute(h.job, h.ctx);
+  } finally {
+    proto.read = real.read;
+    proto.copyTo = real.copyTo;
+  }
+  assert.equal(copies, 3 + 2, '3 stills + 2 transitions copied');
+  assert.ok(reads.length <= 3, 'only TTS wavs go through read()');
+});
+
+// B6: when ffmpeg fails the partial output (LAST argument) inside workDir is removed best-effort.
+type FailMode = 'exit' | 'abort' | 'timeout';
+
+async function failFirstFfmpeg(mode: FailMode) {
+  const h = harness({ sceneCount: 1 });
+  let target = '';
+  const execute = createExecute({
+    db: h.db,
+    resolveComfy: () => h.comfy as unknown as ComfyClient,
+    resolvePiper: () => h.piper as unknown as PiperClient,
+    ffmpeg: async (args) => {
+      target = args[args.length - 1];
+      writeFileSync(target, 'partial');
+      if (mode === 'abort') h.controller.abort();
+      throw new Error(mode === 'timeout' ? 'ffmpeg stalled: no output for 20ms' : mode === 'abort' ? 'ffmpeg aborted' : 'ffmpeg exited with code 1');
+    },
+  });
+  const err = await execute(h.job, h.ctx).then(
+    () => undefined,
+    (e: Error) => e,
+  );
+  return { err, target, workDir: h.workDir };
+}
+
+for (const mode of ['exit', 'timeout'] as const) { // 'timeout' = the stall watchdog fired
+  test(`ffmpeg ${mode} failure removes the partial output inside workDir and surfaces the original error`, async () => {
+    const { err, target, workDir } = await failFirstFfmpeg(mode);
+    assert.ok(err);
+    assert.match(err.message, mode === 'timeout' ? /stalled: no output for 20ms/ : /exited with code 1/);
+    assert.ok(target.startsWith(workDir));
+    assert.equal(existsSync(target), false);
+  });
+}
+
+test('ffmpeg abort removes the partial output and the job ends as an abort', async () => {
+  const { err, target } = await failFirstFfmpeg('abort');
+  assert.ok(err);
+  assert.equal(err.name, 'AbortError');
+  assert.equal(existsSync(target), false);
+});
+
+test('removePartialFfmpegOutput only removes files inside workDir', () => {
+  const root = mkdtempSync(join(tmpdir(), 'vs-clean-'));
+  dirs.push(root);
+  const workDir = join(root, 'job');
+  const sibling = join(root, 'job-sibling');
+  mkdirSync(workDir);
+  mkdirSync(sibling);
+  const inside = join(workDir, 'a.mp4');
+  const outside = join(sibling, 'b.mp4');
+  const optionLike = join(workDir, '-y');
+  for (const f of [inside, outside, optionLike]) writeFileSync(f, 'x');
+
+  removePartialFfmpegOutput(['-i', 'in', outside], workDir);
+  assert.equal(existsSync(outside), true, 'sibling dir sharing the prefix is kept');
+  removePartialFfmpegOutput(['-i', 'in', '-y'], workDir);
+  removePartialFfmpegOutput(['-i', 'in', ''], workDir);
+  removePartialFfmpegOutput([], workDir);
+  assert.equal(existsSync(optionLike), true, 'option-looking argument is never treated as output');
+  removePartialFfmpegOutput(['-i', 'in', join(workDir, 'missing.mp4')], workDir);
+  removePartialFfmpegOutput(['-i', 'in', inside], workDir);
+  assert.equal(existsSync(inside), false);
+});
+
+test('every ffmpeg args builder ends with the output path (contract used by the cleanup)', () => {
+  const out = '/work/out.mp4';
+  const cases: Record<string, string[]> = {
+    kenBurnsArgs: kenBurnsArgs({ image: 'i.png', durationSec: 2, out }),
+    xfadeArgs: xfadeArgs({ clips: ['a', 'b'], durationsSec: [3, 3], transitionSec: 1, out }),
+    concatArgs: concatArgs({ listFile: 'l.txt', out }),
+    muxAudioArgs: muxAudioArgs({ video: 'v', audio: 'a', out }),
+    musicMixArgs: musicMixArgs({ video: 'v', audio: 'a', music: 'm', out }),
+    extractFrameArgs: extractFrameArgs({ video: 'v', out }),
+    burnSubtitlesArgs: burnSubtitlesArgs({ input: 'v', srt: 's.srt', out }),
+    burnSubtitlesStyled: burnSubtitlesArgs({ input: 'v', srt: 's.srt', out, style: 'Fontsize=20' }),
+    verticalCropArgs: verticalCropArgs({ input: 'v', out }),
+    verticalBurnSubtitlesArgs: verticalBurnSubtitlesArgs({ input: 'v', srt: 's.srt', out }),
+    coverArgs: coverArgs({ input: 'v', atSec: 1, out }),
+    normalizeClipArgs: normalizeClipArgs({ input: 'v', out }),
+  };
+  for (const [name, args] of Object.entries(cases)) {
+    assert.equal(args[args.length - 1], out, `${name} must end with the output path`);
+  }
+});
+
+// F6: transition failure policy. A prompt ComfyUI rejected degrades to a hard cut; an
+// infrastructure failure also degrades, but N consecutive ones abort the job.
+const infra = (m = 'ComfyUI unreachable at http://c: ECONNREFUSED') => new ComfyUnavailableError(m);
+const rejected = () => new Error('ComfyUI /prompt failed: 400 bad workflow');
+const warnings = (h: ReturnType<typeof harness>) => h.events.filter((e) => e.warning);
+
+test('F6: a single infrastructure failure degrades to a hard cut with one warning and the job finishes', async () => {
+  const h = harness({ i2vErrors: [infra()] });
+  const res = await h.execute(h.job, h.ctx);
+  assert.ok(res.outputPath);
+  assert.deepEqual(h.list('video.txt'), ['kb_00.mp4', 'kb_01.mp4', 'tr_01.mp4', 'kb_02.mp4']);
+  const w = warnings(h);
+  assert.equal(w.length, 1);
+  assert.equal(w[0].type, 'progress');
+  assert.equal(w[0].stage, 'transitions');
+  assert.match(w[0].message ?? '', /transition 0 failed, using a hard cut: ComfyUI unreachable/);
+});
+
+test('F6: two consecutive infrastructure failures abort the job before assemble', async () => {
+  const h = harness({ sceneCount: 4, i2vErrors: [infra('ComfyUI unreachable at http://c: first'), infra('ComfyUI unreachable at http://c: second')] });
+  await assert.rejects(
+    h.execute(h.job, h.ctx),
+    /ComfyUI is unavailable: 2 consecutive transition failures \(last: ComfyUI unreachable at http:\/\/c: second\)/,
+  );
+  assert.equal(h.ffmpegCalls.length, 0, 'assemble must not run');
+  assert.equal(h.workflows.filter((w) => Object.values(w).some((n) => n.class_type === 'WanVideoImageToVideoEncode')).length, 2, 'no third attempt');
+  assert.equal(warnings(h).length, 1, 'the first failure was degraded and warned; the second aborted');
+  assert.ok(!h.events.some((e) => e.stage === 'assemble'));
+});
+
+test('F6: infra, rejected, infra does not abort (a rejection resets the counter)', async () => {
+  const h = harness({ sceneCount: 4, i2vErrors: [infra(), rejected(), infra()] });
+  await h.execute(h.job, h.ctx);
+  assert.equal(warnings(h).length, 3);
+  assert.deepEqual(h.list('video.txt'), ['kb_00.mp4', 'kb_01.mp4', 'kb_02.mp4', 'kb_03.mp4']);
+});
+
+test('F6: infra, success, infra does not abort (a success resets the counter)', async () => {
+  const h = harness({ sceneCount: 4, i2vErrors: [infra(), undefined, infra()] });
+  await h.execute(h.job, h.ctx);
+  assert.equal(warnings(h).length, 2);
+  assert.deepEqual(h.list('video.txt'), ['kb_00.mp4', 'kb_01.mp4', 'tr_01.mp4', 'kb_02.mp4', 'kb_03.mp4']);
+});
+
+test('F6: only rejected failures never abort and warn once per hard cut', async () => {
+  const h = harness({ sceneCount: 5, i2vErrors: [rejected(), rejected(), rejected(), rejected()] });
+  await h.execute(h.job, h.ctx);
+  assert.equal(warnings(h).length, 4);
+  assert.deepEqual(h.list('video.txt'), ['kb_00.mp4', 'kb_01.mp4', 'kb_02.mp4', 'kb_03.mp4', 'kb_04.mp4']);
+});
+
+test('F6: cancellation during a transition is neither counted nor warned', async () => {
+  const h = harness({ sceneCount: 4, abortDuringI2V: true });
+  await assert.rejects(h.execute(h.job, h.ctx), (e: Error) => e.name === 'AbortError');
+  assert.equal(warnings(h).length, 0);
+  assert.ok(!h.events.some((e) => /unavailable/.test(e.message ?? '')));
+});
+
+test('F6: the abort threshold is injectable', async () => {
+  const three = harness({ sceneCount: 5, transitionInfraAbortAfter: 3, i2vErrors: [infra(), infra(), infra()] });
+  await assert.rejects(three.execute(three.job, three.ctx), /ComfyUI is unavailable: 3 consecutive transition failures/);
+  assert.equal(warnings(three).length, 2);
+
+  const lenient = harness({ sceneCount: 4, transitionInfraAbortAfter: 3, i2vErrors: [infra(), infra()] });
+  await lenient.execute(lenient.job, lenient.ctx);
+  assert.equal(warnings(lenient).length, 2);
 });

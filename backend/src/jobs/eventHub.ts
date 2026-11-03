@@ -27,7 +27,21 @@ export class EventHub {
   publish(event: JobEvent): void {
     const buffer = this.buffers.get(event.jobId) ?? [];
     buffer.push(event);
-    if (buffer.length > this.replaySize) buffer.splice(0, buffer.length - this.replaySize);
+    if (buffer.length > this.replaySize) {
+      // Pin every stage event (the job's context: a reconnecting client must still see which stages
+      // happened) and evict the OLDEST non-stage events down to replaySize non-stage total.
+      const pinned = buffer.filter((e) => e.type === 'stage').length;
+      const nonStage = buffer.length - pinned;
+      const keepNonStage = Math.max(0, this.replaySize - pinned);
+      let drop = Math.max(0, nonStage - keepNonStage);
+      for (let i = 0; i < buffer.length && drop > 0; i++) {
+        if (buffer[i].type !== 'stage') {
+          buffer.splice(i, 1);
+          i--;
+          drop--;
+        }
+      }
+    }
     this.buffers.set(event.jobId, buffer);
     for (const listener of [...(this.listeners.get(event.jobId) ?? [])]) {
       try {

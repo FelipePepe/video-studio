@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, rmSync, writeFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
-import { buildSrt, sceneCues, type SubtitleCue } from '../src/pipeline/subtitles';
+import { buildSrt, sceneCues, presenterSubtitleStyle, type SubtitleCue } from '../src/pipeline/subtitles';
 import { burnSubtitlesArgs } from '../src/media/ffmpeg';
 import { openDatabase } from '../src/db/connection';
 import { createDraft } from '../src/pipeline/draftRepository';
@@ -53,7 +53,7 @@ test('burnSubtitlesArgs re-encodes with the subtitles filter and copy audio', ()
   assert.deepEqual(args, [
     '-i', 'in.mp4',
     '-vf', `subtitles=${path.replace(/\\/g, '\\\\').replace(/:/g, '\\:')}`,
-    '-c:v', 'libx264', '-crf', '19', '-pix_fmt', 'yuv420p',
+    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p',
     '-c:a', 'copy',
     'out.mp4',
   ]);
@@ -167,4 +167,37 @@ test('music + subtitles: music mix first (muxed.mp4), burn second (final.mp4)', 
   assert.equal(burn[burn.length - 1], join(h.workDir, 'final.mp4'));
   const cover = tail[2];
   assert.equal(cover[cover.length - 1], join(h.workDir, 'cover.jpg'));
+});
+
+test('presenterSubtitleStyle: 720p example keeps the text clear of both presenters', () => {
+  // A: 288 * 726/973 = 214.9 -> 216 (even) ; 14 + 216 + 18 = 248 px -> ceil(248 * 384/1280) = 75
+  // B: 288 * 652/983 = 191.01 -> 192 (even) ; 14 + 192 + 18 = 224 px -> ceil(224 * 0.3) = 68
+  const style = presenterSubtitleStyle({
+    videoWidth: 1280, videoHeight: 720,
+    cropA: { w: 726, h: 973 }, cropB: { w: 652, h: 983 },
+  });
+  assert.equal(style, 'MarginL=75,MarginR=68');
+});
+
+test('presenterSubtitleStyle: scales with another video size and custom ratios', () => {
+  // 1920x1080: H = 432, M = 22; crop 1:2 -> width 216 ; 22 + 216 + 18 = 256 px -> ceil(256 * 384/1920) = 52
+  const style = presenterSubtitleStyle({
+    videoWidth: 1920, videoHeight: 1080, cropA: { w: 100, h: 200 }, cropB: { w: 100, h: 200 },
+  });
+  assert.equal(style, 'MarginL=52,MarginR=52');
+  const wide = presenterSubtitleStyle({
+    videoWidth: 1280, videoHeight: 720, cropA: { w: 100, h: 200 }, cropB: { w: 100, h: 200 }, gapPx: 0,
+  });
+  // H=288 -> width 144 ; 14 + 144 = 158 px -> ceil(47.4) = 48
+  assert.equal(wide, 'MarginL=48,MarginR=48');
+});
+
+test('presenterSubtitleStyle rejects invalid input', () => {
+  const ok = { videoWidth: 1280, videoHeight: 720, cropA: { w: 300, h: 400 }, cropB: { w: 300, h: 400 } };
+  assert.throws(() => presenterSubtitleStyle({ ...ok, videoWidth: 0 }), /videoWidth/);
+  assert.throws(() => presenterSubtitleStyle({ ...ok, videoHeight: 720.5 }), /videoHeight/);
+  assert.throws(() => presenterSubtitleStyle({ ...ok, cropA: { w: 1, h: 400 } }), /cropA/);
+  assert.throws(() => presenterSubtitleStyle({ ...ok, cropB: { w: 300, h: 0 } }), /cropB/);
+  assert.throws(() => presenterSubtitleStyle({ ...ok, gapPx: -1 }), /gapPx/);
+  assert.throws(() => presenterSubtitleStyle({ ...ok, heightRatio: 2 }), /heightRatio/);
 });

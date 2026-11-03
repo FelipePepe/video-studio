@@ -91,3 +91,15 @@ test('OllamaClient.listModels throws when Ollama is unreachable', async () => {
   const client = new OllamaClient('http://127.0.0.1:11434', { fetchImpl });
   await assert.rejects(() => client.listModels(), /boom/);
 });
+
+test('GET /api/ollama/models answers [] once the tags timeout fires on a hung Ollama', async () => {
+  const { OllamaClient } = await import('../src/clients/ollama');
+  const fetchImpl = ((_u: unknown, init?: RequestInit) =>
+    new Promise((_r, reject) => init?.signal?.addEventListener('abort', () => reject(init.signal?.reason)))) as typeof fetch;
+  const ollama = new OllamaClient('http://127.0.0.1:11434', { fetchImpl, tagsTimeoutMs: 30 });
+  const a = buildApp({ db: openDatabase(':memory:'), envDefaults: loadEnvDefaults({} as NodeJS.ProcessEnv), ollama });
+  const started = Date.now();
+  const res = await request(a).get('/api/ollama/models').expect(200);
+  assert.deepEqual(res.body, { models: [] });
+  assert.ok(Date.now() - started < 2000);
+});

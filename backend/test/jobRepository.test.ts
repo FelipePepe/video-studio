@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { openDatabase } from '../src/db/connection';
 import { createDraft } from '../src/pipeline/draftRepository';
 import {
+  addJobWarning,
   createJob,
   deleteJob,
   failInterruptedJobs,
@@ -122,4 +123,48 @@ test('deleteJob removes the row (1 when present, 0 otherwise) and keeps other jo
   assert.equal(getJob(db, 'job-1'), undefined);
   assert.ok(getJob(db, 'job-2'), 'other job survives');
   assert.equal(deleteJob(db, 'missing'), 0);
+});
+
+test('F6: new jobs have an empty warnings array', () => {
+  const { db, draftId, ids, clock } = setup();
+  const job = createJob(db, draftId, clock, ids);
+  assert.deepEqual(job.warnings, []);
+});
+
+test('F6: addJobWarning appends in order and bumps updated_at', () => {
+  const { db, draftId, ids, clock } = setup();
+  const job = createJob(db, draftId, clock, ids);
+  const first = addJobWarning(db, job.id, 'first', clock);
+  const second = addJobWarning(db, job.id, 'second', clock);
+  assert.deepEqual(first?.warnings, ['first']);
+  assert.deepEqual(second?.warnings, ['first', 'second']);
+  assert.deepEqual(getJob(db, job.id)?.warnings, ['first', 'second']);
+  assert.ok((second?.updatedAt ?? '') > job.updatedAt);
+  assert.equal(addJobWarning(db, 'missing', 'x', clock), undefined);
+});
+
+test('F6: addJobWarning keeps the newest 50 entries and truncates each to 500 chars', () => {
+  const { db, draftId, ids, clock } = setup();
+  const job = createJob(db, draftId, clock, ids);
+  for (let i = 0; i < 55; i++) addJobWarning(db, job.id, `w${i}`, clock);
+  const warnings = getJob(db, job.id)?.warnings ?? [];
+  assert.equal(warnings.length, 50);
+  assert.equal(warnings[0], 'w5');
+  assert.equal(warnings[49], 'w54');
+  addJobWarning(db, job.id, 'x'.repeat(900), clock);
+  const last = getJob(db, job.id)?.warnings.at(-1) ?? '';
+  assert.equal(last.length, 500);
+});
+
+test('F6: a null, invalid or non-array warnings column reads as an empty array', () => {
+  const { db, draftId, ids, clock } = setup();
+  const job = createJob(db, draftId, clock, ids);
+  for (const raw of [null, 'not json', '{"a":1}', '[1,"ok",null]']) {
+    db.prepare('UPDATE jobs SET warnings = ? WHERE id = ?').run(raw, job.id);
+    const warnings = getJob(db, job.id)?.warnings;
+    assert.deepEqual(warnings, raw === '[1,"ok",null]' ? ['ok'] : []);
+  }
+  // appending over a corrupt value starts a fresh list instead of throwing
+  db.prepare('UPDATE jobs SET warnings = ? WHERE id = ?').run('not json', job.id);
+  assert.deepEqual(addJobWarning(db, job.id, 'fresh', clock)?.warnings, ['fresh']);
 });

@@ -57,7 +57,7 @@ describe('ReviewPanel render options', () => {
   it('applies with all defaults and approves with no body', async () => {
     const { props, user } = setup();
     await user.click(screen.getByRole('button', { name: 'Aprobar y generar' }));
-    expect(props.onApprove).toHaveBeenCalledWith(undefined);
+    expect(props.onApprove).toHaveBeenCalledWith({ useLightx2v: true });
   });
 
   it('music on with library: select a track and send its path with the current volume', async () => {
@@ -65,7 +65,7 @@ describe('ReviewPanel render options', () => {
     await user.click(screen.getByRole('switch', { name: /Música de fondo/i }));
     await user.selectOptions(screen.getByLabelText('Canción'), 'piano.ogg');
     await user.click(screen.getByRole('button', { name: 'Aprobar y generar' }));
-    expect(props.onApprove).toHaveBeenCalledWith({ music: '/music/piano.ogg', musicVolume: 0.25 });
+    expect(props.onApprove).toHaveBeenCalledWith({ useLightx2v: true, music: '/music/piano.ogg', musicVolume: 0.25 });
   });
 
   it('music on with a library and no manual selection: approve sends the first track', async () => {
@@ -73,7 +73,7 @@ describe('ReviewPanel render options', () => {
     await user.click(screen.getByRole('switch', { name: /Música de fondo/i }));
     await user.click(screen.getByRole('button', { name: 'Aprobar y generar' }));
     expect(screen.getByLabelText('Canción')).toHaveValue('/music/ambient.mp3');
-    expect(props.onApprove).toHaveBeenCalledWith({ music: '/music/ambient.mp3', musicVolume: 0.25 });
+    expect(props.onApprove).toHaveBeenCalledWith({ useLightx2v: true, music: '/music/ambient.mp3', musicVolume: 0.25 });
   });
 
   it('music on with no library and an empty path: does not approve and shows the required message', async () => {
@@ -89,21 +89,21 @@ describe('ReviewPanel render options', () => {
     await user.click(screen.getByRole('switch', { name: /Música de fondo/i }));
     await user.type(screen.getByLabelText('Ruta del archivo'), '/home/felipe/Music/x.mp3');
     await user.click(screen.getByRole('button', { name: 'Aprobar y generar' }));
-    expect(props.onApprove).toHaveBeenCalledWith({ music: '/home/felipe/Music/x.mp3', musicVolume: 0.25 });
+    expect(props.onApprove).toHaveBeenCalledWith({ useLightx2v: true, music: '/home/felipe/Music/x.mp3', musicVolume: 0.25 });
   });
 
   it('subtitles off: approve body carries subtitles:false only', async () => {
     const { props, user } = setup();
     await user.click(screen.getByRole('switch', { name: /Subtítulos/i }));
     await user.click(screen.getByRole('button', { name: 'Aprobar y generar' }));
-    expect(props.onApprove).toHaveBeenCalledWith({ subtitles: false });
+    expect(props.onApprove).toHaveBeenCalledWith({ useLightx2v: true, subtitles: false });
   });
 
   it('vertical on: approve body carries vertical:true', async () => {
     const { props, user } = setup();
     await user.click(screen.getByRole('switch', { name: /Vertical/i }));
     await user.click(screen.getByRole('button', { name: 'Aprobar y generar' }));
-    expect(props.onApprove).toHaveBeenCalledWith({ vertical: true });
+    expect(props.onApprove).toHaveBeenCalledWith({ useLightx2v: true, vertical: true });
   });
 
   it('all on: one combined approve body', async () => {
@@ -113,7 +113,7 @@ describe('ReviewPanel render options', () => {
     await user.click(screen.getByRole('switch', { name: /Subtítulos/i }));
     await user.click(screen.getByRole('switch', { name: /Vertical/i }));
     await user.click(screen.getByRole('button', { name: 'Aprobar y generar' }));
-    expect(props.onApprove).toHaveBeenCalledWith({ music: '/music/ambient.mp3', musicVolume: 0.25, subtitles: false, vertical: true });
+    expect(props.onApprove).toHaveBeenCalledWith({ useLightx2v: true, music: '/music/ambient.mp3', musicVolume: 0.25, subtitles: false, vertical: true });
   });
 
   it('segment editor voice options come from the Piper roster', async () => {
@@ -125,5 +125,21 @@ describe('ReviewPanel render options', () => {
     setup(makeApi());
     expect((await screen.findAllByText('Masculina')).length).toBeGreaterThanOrEqual(1);
     expect((await screen.findAllByText('Femenina')).length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('fast mode is ON by default and sends useLightx2v: true', async () => {
+    const { props, user } = setup();
+    expect(screen.getByRole('switch', { name: 'Modo rápido' })).toBeChecked();
+    expect(screen.getByText(/13 veces más rápido/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Aprobar y generar' }));
+    expect(props.onApprove).toHaveBeenCalledWith({ useLightx2v: true });
+  });
+
+  it('turning fast mode OFF omits useLightx2v from the approve body', async () => {
+    const { props, user } = setup();
+    await user.click(screen.getByRole('switch', { name: 'Modo rápido' }));
+    expect(screen.getByRole('switch', { name: 'Modo rápido' })).not.toBeChecked();
+    await user.click(screen.getByRole('button', { name: 'Aprobar y generar' }));
+    expect(props.onApprove).toHaveBeenCalledWith(undefined);
   });
 });

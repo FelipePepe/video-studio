@@ -332,3 +332,22 @@ test('unconfiguredExecute can still be injected explicitly', async () => {
   const row = db.prepare('SELECT error FROM jobs WHERE id = ?').get(job.id) as { error: string };
   assert.equal(row.error, 'pipeline not configured');
 });
+
+test('F6: GET /api/jobs and /api/jobs/:id expose persisted warnings', async () => {
+  const { app, db, runner, draftId } = setup({
+    execute: async (_job, ctx) => {
+      ctx.emit({ type: 'progress', stage: 'transitions', progress: 0.6, message: 'hard cut on transition 0', warning: true });
+      return { outputPath: join(ctx.workDir, 'o.mp4') };
+    },
+  });
+  runner.start();
+  const job = runner.enqueue(draftId);
+  await runner.idle();
+  const one = await request(app).get(`/api/jobs/${job.id}`);
+  assert.equal(one.status, 200);
+  assert.deepEqual(one.body.warnings, ['hard cut on transition 0']);
+  const list = await request(app).get('/api/jobs');
+  assert.deepEqual(list.body.find((j: { id: string }) => j.id === job.id).warnings, ['hard cut on transition 0']);
+  const plain = createJob(db, draftId);
+  assert.deepEqual((await request(app).get(`/api/jobs/${plain.id}`)).body.warnings, []);
+});

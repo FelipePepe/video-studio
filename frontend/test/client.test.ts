@@ -63,6 +63,7 @@ describe('listJobs', () => {
     updatedAt: '2026-10-17T10:00:00Z',
     startedAt: null,
     finishedAt: null,
+    warnings: [],
   });
 
   it('GETs /api/jobs and returns the list', async () => {
@@ -303,5 +304,84 @@ describe('approveDraft', () => {
     expect(last).toEqual(seen[0]);
     expect(cancelCalled).toBe(false);
     expect(calls).toHaveLength(1);
+  });
+});
+
+describe('characters', () => {
+  const ch = (over: Record<string, unknown> = {}) => ({
+    id: 'c1',
+    name: 'Ana',
+    description: 'd',
+    status: 'generated',
+    keyColor: '0x00ff00',
+    crop: { x: 0, y: 0, w: 1, h: 1 },
+    width: 10,
+    height: 10,
+    mouthY: null,
+    imageUrl: '/api/characters/c1/image',
+    createdAt: 'x',
+    updatedAt: 'x',
+    ...over,
+  });
+
+  it('listCharacters GETs /api/characters and unwraps { characters }', async () => {
+    const { fetchImpl, calls } = fakeFetch(() => json({ characters: [ch()] }));
+    const list = await createApiClient({ fetchImpl }).listCharacters();
+    expect(list).toEqual([ch()]);
+    expect(calls[0].url).toBe('/api/characters');
+  });
+
+  it('listCharacters filters by status', async () => {
+    const { fetchImpl, calls } = fakeFetch(() => json({ characters: [] }));
+    await createApiClient({ fetchImpl }).listCharacters({ status: 'approved' });
+    expect(calls[0].url).toBe('/api/characters?status=approved');
+  });
+
+  it('createCharacter POSTs JSON and returns the character (seed only when given)', async () => {
+    const { fetchImpl, calls } = fakeFetch(() => json(ch(), 201));
+    const client = createApiClient({ fetchImpl });
+    expect(await client.createCharacter({ name: 'Ana', description: 'd' })).toEqual(ch());
+    expect(calls[0].url).toBe('/api/characters');
+    expect(calls[0].init?.method).toBe('POST');
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({ name: 'Ana', description: 'd' });
+    await client.createCharacter({ name: 'Ana', description: 'd', seed: 7 });
+    expect(JSON.parse(String(calls[1].init?.body))).toEqual({ name: 'Ana', description: 'd', seed: 7 });
+  });
+
+  it('createCharacter rejects an ApiError carrying the status and server message', async () => {
+    const { fetchImpl } = fakeFetch(() => json({ error: 'a character is already being generated' }, 429));
+    const err = await createApiClient({ fetchImpl })
+      .createCharacter({ name: 'a', description: 'b' })
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect((err as ApiError).status).toBe(429);
+    expect((err as ApiError).message).toBe('a character is already being generated');
+  });
+
+  it('approveCharacter encodes the id and sends mouthY only when given', async () => {
+    const { fetchImpl, calls } = fakeFetch(() => json(ch({ status: 'approved' })));
+    const client = createApiClient({ fetchImpl });
+    await client.approveCharacter('a b');
+    expect(calls[0].url).toBe('/api/characters/a%20b/approve');
+    expect(calls[0].init?.method).toBe('POST');
+    expect(calls[0].init?.body).toBeUndefined();
+    await client.approveCharacter('a b', { mouthY: 0.6 });
+    expect(JSON.parse(String(calls[1].init?.body))).toEqual({ mouthY: 0.6 });
+  });
+
+  it('deleteCharacter sends DELETE and resolves undefined on 204', async () => {
+    const { fetchImpl, calls } = fakeFetch(() => new Response(null, { status: 204 }));
+    await expect(createApiClient({ fetchImpl }).deleteCharacter('x')).resolves.toBeUndefined();
+    expect(calls[0].url).toBe('/api/characters/x');
+    expect(calls[0].init?.method).toBe('DELETE');
+  });
+
+  it('prefixes baseUrl to the returned imageUrl', async () => {
+    const { fetchImpl } = fakeFetch((c) =>
+      c.init?.method === 'POST' ? json(ch(), 201) : json({ characters: [ch()] }),
+    );
+    const client = createApiClient({ fetchImpl, baseUrl: 'http://h' });
+    expect((await client.listCharacters())[0].imageUrl).toBe('http://h/api/characters/c1/image');
+    expect((await client.createCharacter({ name: 'a', description: 'b' })).imageUrl).toBe('http://h/api/characters/c1/image');
   });
 });

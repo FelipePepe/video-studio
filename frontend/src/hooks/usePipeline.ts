@@ -7,6 +7,7 @@ import { useI18n } from '../i18n';
 export type PipelineApi = Pick<
   ApiClient,
   'createDraft' | 'approveDraft' | 'cancelJob' | 'putSegments' | 'listMusic' | 'listVoices' | 'getJob' | 'getDraft' | 'watchJob' | 'listJobs'
+  | 'listCharacters' | 'createCharacter' | 'approveCharacter' | 'deleteCharacter'
 >;
 
 /** Survives tab switches and reloads: just enough to re-fetch the draft and re-follow its job. */
@@ -39,8 +40,10 @@ function writeStored(value: StoredPipeline | null): void {
 
 export type PipelineState = 'idle' | 'drafting' | 'review' | 'rendering' | 'done' | 'failed';
 
+/** `presenters` only exists for jobs that use on-screen presenters. */
+const STAGE_ORDER = ['tts', 'images', 'transitions', 'presenters', 'assemble'] as const;
+export type StageId = (typeof STAGE_ORDER)[number];
 export const STAGE_IDS = ['tts', 'images', 'transitions', 'assemble'] as const;
-export type StageId = (typeof STAGE_IDS)[number];
 export type StageStatus = 'pending' | 'active' | 'done' | 'failed';
 export interface StageInfo {
   id: StageId;
@@ -71,10 +74,19 @@ export interface UsePipeline {
   reset(): void;
 }
 
-const pendingStages = (): StageInfo[] => STAGE_IDS.map((id) => ({ id, status: 'pending' }));
+const pendingStages = (withPresenters = false): StageInfo[] =>
+  STAGE_ORDER.filter((id) => withPresenters || id !== 'presenters').map((id) => ({ id, status: 'pending' }));
+
+/** Inserts the presenters stage before assemble when absent. */
+function withPresentersStage(stages: StageInfo[]): StageInfo[] {
+  if (stages.some((s) => s.id === 'presenters')) return stages;
+  const at = stages.findIndex((s) => s.id === 'assemble');
+  const stage: StageInfo = { id: 'presenters', status: 'pending' };
+  return at === -1 ? [...stages, stage] : [...stages.slice(0, at), stage, ...stages.slice(at)];
+}
 
 function isStageId(value: unknown): value is StageId {
-  return STAGE_IDS.includes(value as StageId);
+  return STAGE_ORDER.includes(value as StageId);
 }
 
 export function usePipeline(api: PipelineApi): UsePipeline {
@@ -197,13 +209,14 @@ export function usePipeline(api: PipelineApi): UsePipeline {
     const stage = event.stage;
     if (isStageId(stage) && (event.type === 'stage' || event.type === 'progress')) {
       activeStage.current = stage;
-      const idx = STAGE_IDS.indexOf(stage);
-      setStages((prev) =>
-        prev.map((s, i) => ({
+      setStages((current) => {
+        const prev = stage === 'presenters' ? withPresentersStage(current) : current;
+        const idx = prev.findIndex((s) => s.id === stage);
+        return prev.map((s, i) => ({
           id: s.id,
           status: s.status === 'failed' ? 'failed' : i < idx ? 'done' : i === idx ? 'active' : s.status === 'done' ? 'done' : 'pending',
-        })),
-      );
+        }));
+      });
     }
     if (typeof event.progress === 'number') {
       const value = Math.min(1, Math.max(0, event.progress));
@@ -239,7 +252,7 @@ export function usePipeline(api: PipelineApi): UsePipeline {
   }, [setState]);
 
   /** Claims the pipeline view for a new stream: aborts the previous one and resets progress state. */
-  const startRun = useCallback(() => {
+  const startRun = useCallback((usesPresenters = false) => {
     controller.current?.abort();
     openSeq.current += 1;
     const run = ++runId.current;
@@ -249,7 +262,7 @@ export function usePipeline(api: PipelineApi): UsePipeline {
     activeStage.current = null;
     jobIdRef.current = null;
     setError(null);
-    setStages(pendingStages());
+    setStages(pendingStages(usesPresenters));
     setProgress(0);
     setWarnings([]);
     setSubstep(null);
@@ -294,7 +307,7 @@ export function usePipeline(api: PipelineApi): UsePipeline {
         setError(tRef.current('error.noDraft'));
         return;
       }
-      const run = startRun();
+      const run = startRun(Boolean(options?.body?.presenters));
       await consume(
         run,
         (onEvent, signal) => api.approveDraft(current.id, { onEvent, signal, body: options?.body }),
@@ -316,7 +329,7 @@ export function usePipeline(api: PipelineApi): UsePipeline {
         const loaded = { id: full.id, escaleta: full.escaleta, status: full.status };
         draftRef.current = loaded;
         setDraft(loaded);
-        const run = startRun();
+        const run = startRun(Boolean(job.options?.presenters));
         jobIdRef.current = job.id;
         setJobId(job.id);
         jobsLog.info('job opened', { jobId: job.id, draftId: job.draftId });

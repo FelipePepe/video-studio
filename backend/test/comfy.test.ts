@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ComfyClient, extractOutputFile, extractVideoOutput, type ProgressInfo } from '../src/clients/comfy';
+import { ComfyClient, ComfyUnavailableError, isComfyUnavailable, extractOutputFile, extractVideoOutput, type ProgressInfo } from '../src/clients/comfy';
 
 type Call = { url: string; init?: RequestInit };
 
@@ -511,4 +511,90 @@ test('B3: waitForCompletion timeout is real elapsed time, not summed intervalMs'
     /timed out after 60ms/,
   );
   assert.ok(Date.now() - t0 < 250, `timeout should fire in ~60 ms of real time (took ${Date.now() - t0} ms)`);
+});
+
+// F6: failures are classified so the orchestrator can tell "ComfyUI rejected this prompt"
+// (degrade) from "ComfyUI is down" (abort after repeated failures). Messages stay unchanged.
+test('F6: network failure is an infrastructure failure with the same message', async () => {
+  const { fetchImpl } = fakeFetch([new Error('ECONNREFUSED')]);
+  const client = new ComfyClient('http://comfy:8188', { fetchImpl });
+  const err = await client.submit({}).catch((e: unknown) => e);
+  assert.ok(err instanceof ComfyUnavailableError);
+  assert.ok(isComfyUnavailable(err));
+  assert.equal((err as Error).message, 'ComfyUI unreachable at http://comfy:8188: ECONNREFUSED');
+});
+
+test('F6: an HTTP 503 is an infrastructure failure, a 400 is not', async () => {
+  const down = new ComfyClient('http://c', { fetchImpl: fakeFetch([new Response('busy', { status: 503 })]).fetchImpl });
+  const err503 = await down.submit({}).catch((e: unknown) => e);
+  assert.ok(isComfyUnavailable(err503));
+  assert.match((err503 as Error).message, /\/prompt failed: 503 busy/);
+
+  const rejects = new ComfyClient('http://c', { fetchImpl: fakeFetch([new Response('bad workflow', { status: 400 })]).fetchImpl });
+  const err400 = await rejects.submit({}).catch((e: unknown) => e);
+  assert.ok(err400 instanceof Error);
+  assert.ok(!isComfyUnavailable(err400));
+  assert.match((err400 as Error).message, /\/prompt failed: 400 bad workflow/);
+});
+
+test('F6: a request timeout is an infrastructure failure', async () => {
+  const fetchImpl = ((_url: string | URL | Request, init?: RequestInit) =>
+    new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(new Error('aborted')));
+    })) as typeof fetch;
+  const client = new ComfyClient('http://c', { fetchImpl, sleep: noSleep, requestTimeoutMs: 20 });
+  const keepAlive = setTimeout(() => {}, 2000);
+  try {
+    const err = await client.submit({}).catch((e: unknown) => e);
+    assert.ok(isComfyUnavailable(err));
+    assert.match((err as Error).message, /unreachable.*aborted/);
+  } finally {
+    clearTimeout(keepAlive);
+  }
+});
+
+test('F6: a prompt timeout is an infrastructure failure', async () => {
+  const { fetchImpl } = fakeFetch([json({}), json({}), json({}), json({}), json({})]);
+  const client = new ComfyClient('http://c', { fetchImpl, sleep: noSleep });
+  const err = await client.waitForCompletion('p1', { intervalMs: 10, timeoutMs: 25 }).catch((e: unknown) => e);
+  assert.ok(isComfyUnavailable(err));
+  assert.match((err as Error).message, /prompt p1 timed out after 25ms/);
+});
+
+test('F6: a lost prompt (no history, not queued) is an infrastructure failure', async () => {
+  const { fetchImpl } = fakeFetch([json({}), json({}), json({}), json({ queue_running: [], queue_pending: [] })]);
+  const client = new ComfyClient('http://c', { fetchImpl, sleep: noSleep });
+  const err = await client.waitForCompletion('p1', { intervalMs: 1, emptyHistoryLimit: 3 }).catch((e: unknown) => e);
+  assert.ok(isComfyUnavailable(err));
+  assert.match((err as Error).message, /lost — server restart\?/);
+});
+
+test('F6: repeated 5xx on /history is an infrastructure failure', async () => {
+  const { fetchImpl } = fakeFetch([500, 500, 500, 500].map(() => new Response('boom', { status: 500 })));
+  const client = new ComfyClient('http://c', { fetchImpl, sleep: noSleep });
+  const err = await client.waitForCompletion('p1').catch((e: unknown) => e);
+  assert.ok(isComfyUnavailable(err));
+  assert.match((err as Error).message, /history.*500/);
+});
+
+test('F6: an execution_error in history is a rejection, not infrastructure', async () => {
+  const { fetchImpl } = fakeFetch([
+    json({ p1: { status: { status_str: 'error', messages: [['execution_error', { exception_message: 'CUDA out of memory' }]] } } }),
+  ]);
+  const client = new ComfyClient('http://c', { fetchImpl, sleep: noSleep });
+  const err = await client.waitForCompletion('p1').catch((e: unknown) => e);
+  assert.ok(err instanceof Error);
+  assert.ok(!isComfyUnavailable(err));
+  assert.equal((err as Error).message, 'ComfyUI prompt p1 failed: CUDA out of memory');
+});
+
+test('F6: a user abort while waiting is never reported as unavailable', async () => {
+  const { fetchImpl } = fakeFetch([]);
+  const client = new ComfyClient('http://c', { fetchImpl, sleep: noSleep });
+  const controller = new AbortController();
+  controller.abort();
+  const err = await client.waitForCompletion('p1', { signal: controller.signal }).catch((e: unknown) => e);
+  assert.equal((err as Error).name, 'AbortError');
+  assert.ok(!isComfyUnavailable(err));
+  assert.ok(!isComfyUnavailable('not an error'));
 });

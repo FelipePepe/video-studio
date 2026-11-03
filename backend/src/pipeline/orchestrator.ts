@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { join, resolve, sep } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { ComfyClient, ProgressInfo } from '../clients/comfy';
-import { extractVideoOutput, extractOutputFile } from '../clients/comfy';
+import { extractVideoOutput, extractOutputFile, isComfyUnavailable } from '../clients/comfy';
 import { logger } from '../lib/logger';
 import type { PiperClient } from '../clients/piper';
 import { buildI2VWorkflow, buildT2VWorkflow, DEFAULTS } from '../comfy/workflows';
@@ -16,16 +16,37 @@ import {
   muxAudioArgs,
   burnSubtitlesArgs,
   verticalCropArgs,
+  verticalBurnSubtitlesArgs,
   coverArgs,
   normalizeClipArgs,
+  presenterClipArgs,
+  presenterConcatList,
+  presenterOverlayArgs,
+  presenterMouthSpriteArgs,
+  presenterSpriteArgs,
   runFfmpeg,
 } from '../media/ffmpeg';
+import { mouthStates, presenterTimelines, type MouthState, type SceneTrack } from '../media/audioEnvelope';
 import { parseWav, type PcmFormat, wavDurationSec, wavSilence } from '../media/wav';
+import type { MouthBox } from '../media/characterAnalysis';
 import { getDraft } from './draftRepository';
-import { buildSrt, sceneCues } from './subtitles';
+import { buildSrt, sceneCues, presenterSubtitleStyle } from './subtitles';
 import { DEFAULT_MUSIC_VOLUME, type Escaleta } from './types';
 import { ContentCache, TTS_CACHE_VERSION, WORKFLOW_VERSION } from './contentCache';
 import { buildChapters, type Chapter } from './chapters';
+
+export interface PresenterAssets {
+  /** Absolute path of the character PNG. */
+  imagePath: string;
+  /** '0xRRGGBB' (CharacterAnalysis.keyColor). */
+  keyColor: string;
+  /** CharacterAnalysis.crop. */
+  crop: { x: number; y: number; w: number; h: number };
+  /** Fraction of the cropped height; the presenterSpriteArgs default applies when absent. */
+  mouthY?: number;
+  /** Lips box in FULL-image px; when present the mouth sprite replaces the jaw split. */
+  mouth?: MouthBox;
+}
 
 export type FfmpegFn = (args: string[], opts?: { signal?: AbortSignal }) => Promise<void>;
 
@@ -38,15 +59,20 @@ export interface OrchestratorDeps {
   framesPerTransition?: number;
   /** Directory for the content cache of rendered artifacts; off when omitted. App default: data/cache. */
   cacheDir?: string;
+  /** Consecutive ComfyUI infrastructure failures on transitions that abort the job. Default 2. */
+  transitionInfraAbortAfter?: number;
+  /** Resolves a character id to its approved image and analysis. Provided by the character store (T15). */
+  presenterAssets?: (characterId: string) => Promise<PresenterAssets>;
 }
 
-export type Stage = 'tts' | 'images' | 'transitions' | 'assemble';
+export type Stage = 'tts' | 'images' | 'transitions' | 'presenters' | 'assemble';
 
 const RANGES: Record<Stage, [number, number]> = {
   tts: [0, 0.15],
   images: [0.15, 0.55],
   transitions: [0.55, 0.85],
-  assemble: [0.85, 1],
+  presenters: [0.85, 0.9],
+  assemble: [0.9, 1],
 };
 // libass force_style for the 9:16 (720x1280) vertical variant: sized to the frame, centered,
 // with margins that keep text inside the portrait frame (vs. the default 16:9 sizing).
@@ -100,7 +126,16 @@ interface AssembleResult {
   chapters: Chapter[];
 }
 
+interface PresenterClips {
+  clipA: string;
+  clipB: string;
+  /** Stored crop boxes, used to keep the subtitles clear of the overlaid sprites. */
+  cropA: { w: number; h: number };
+  cropB: { w: number; h: number };
+}
+
 interface Shared {
+  presenterAssets?: (characterId: string) => Promise<PresenterAssets>;
   job: Job;
   signal: AbortSignal;
   /**
@@ -116,6 +151,7 @@ interface Shared {
   piper: PiperClient;
   ffmpeg: FfmpegFn;
   frames: number;
+  infraAbortAfter: number;
   cache?: ContentCache;
   audioDir: string;
   stillsDir: string;
@@ -127,6 +163,8 @@ interface Shared {
   fail: (stage: Stage, what: string, e: unknown) => never;
   emit: (partial: EmitInput) => void;
   begin: (stage: Stage, msg?: string) => void;
+  /** Non-fatal degradation: shown live (message) and persisted on the job (warning flag). */
+  warn: (stage: Stage, text: string) => void;
   step: (stage: Stage, done: number, total: number) => void;
   comfyStep: (stage: Stage, info: ProgressInfo) => void;
   sceneFile: (dir: string, name: string, i: number, ext: string) => string;
@@ -143,16 +181,23 @@ async function executeTTS(s: Shared): Promise<TTSResult> {
   for (let i = 0; i < n; i++) {
     guard();
     const key = s.cache?.key(TTS_CACHE_VERSION, escaleta[i].narration, escaleta[i].voice);
-    let wav: Buffer;
+    let wav: Buffer | undefined;
     if (s.cache && key && s.cache.has(key)) {
-      wav = s.cache.read(key);
-    } else {
+      try {
+        wav = s.cache.read(key);
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e; // pruned meanwhile: a miss
+      }
+    }
+    if (!wav) {
       try {
         wav = await piper.synthesize({ text: escaleta[i].narration, voice: escaleta[i].voice });
       } catch (e) {
         return fail('tts', `scene ${i + 1}`, e);
       }
-      if (s.cache && key) s.cache.store(key, wav);
+      // Validate before caching: an invalid WAV must never become a permanent hit.
+      const dur = wavDurationSec(wav);
+      if (s.cache && key && dur > 0) s.cache.store(key, wav);
     }
     durations.push(wavDurationSec(wav));
     const sceneFormat = parseWav(wav).format;
@@ -183,9 +228,7 @@ async function executeStills(s: Shared): Promise<StillsResult> {
     const png = sceneFile(stillsDir, 'scene', i, 'png');
     const prompt = stylePrompt(s.job.options?.style, escaleta[i].visualPrompt);
     const key = s.cache?.key(WORKFLOW_VERSION, 't2v', prompt, seed, DEFAULTS.width, DEFAULTS.height, 1, s.job.options?.useLightx2v);
-    if (s.cache && key && s.cache.has(key)) {
-      writeFileSync(png, s.cache.read(key));
-    } else {
+    if (!(s.cache && key && s.cache.has(key) && s.cache.copyTo(key, png))) {
       try {
         const id = await comfy.submit(
           buildT2VWorkflow({
@@ -203,7 +246,7 @@ async function executeStills(s: Shared): Promise<StillsResult> {
         const file = extractOutputFile(outputs);
         if (!file) throw new Error('ComfyUI returned no image output');
         writeFileSync(png, await comfy.download(file));
-        if (s.cache && key) s.cache.store(key, readFileSync(png));
+        if (s.cache && key) s.cache.storeFile(key, png);
       } catch (e) {
         return fail('images', `scene ${i + 1}`, e);
       }
@@ -215,11 +258,14 @@ async function executeStills(s: Shared): Promise<StillsResult> {
 }
 
 // Stage 3 — I2V transitions between consecutive stills. A failed transition degrades to a hard
-// cut (an undefined slot) with a stage-event message. Cache key:
+// cut (an undefined slot) with a persisted warning. A prompt ComfyUI rejected counts as "not
+// infrastructure"; `infraAbortAfter` consecutive infrastructure failures (ComfyUI down) abort the
+// job instead of rendering a video of hard cuts. Cache key:
 // (WORKFLOW_VERSION, 'i2v', startPrompt, targetPrompt, seed, frames).
 async function executeTransitions(s: Shared, stills: StillsResult): Promise<TransitionMap> {
   const { n, escaleta, comfy, guard, sceneFile, transDir, prefix, frames } = s;
   const transitions: TransitionMap = [];
+  let infraStreak = 0;
   s.begin('transitions');
   // Each still is uploaded to ComfyUI at most once per run (transitions share a still
   // as end/i+1 and start/i+2); we just reference the name on subsequent transitions.
@@ -236,10 +282,9 @@ async function executeTransitions(s: Shared, stills: StillsResult): Promise<Tran
     guard();
     const seed = seedFor(s.job.draftId, 1000 + i);
     const key = s.cache?.key(WORKFLOW_VERSION, 'i2v', stylePrompt(s.job.options?.style, escaleta[i].visualPrompt), stylePrompt(s.job.options?.style, escaleta[i + 1].visualPrompt), seed, frames, s.job.options?.useLightx2v);
-    if (s.cache && key && s.cache.has(key)) {
-      const out = sceneFile(transDir, 'trans', i, 'mp4');
-      writeFileSync(out, s.cache.read(key));
-      transitions.push(out);
+    const hitOut = sceneFile(transDir, 'trans', i, 'mp4');
+    if (s.cache && key && s.cache.has(key) && s.cache.copyTo(key, hitOut)) {
+      transitions.push(hitOut);
     } else {
       try {
         const start = await uploadStill(i);
@@ -263,11 +308,16 @@ async function executeTransitions(s: Shared, stills: StillsResult): Promise<Tran
         const out = sceneFile(transDir, 'trans', i, 'mp4');
         await comfy.downloadToFile(file, out);
         transitions.push(out);
-        if (s.cache && key) s.cache.store(key, readFileSync(out));
+        if (s.cache && key) s.cache.storeFile(key, out);
+        infraStreak = 0;
       } catch (e) {
         guard();
+        infraStreak = isComfyUnavailable(e) ? infraStreak + 1 : 0;
+        if (infraStreak >= s.infraAbortAfter) {
+          throw new Error(`ComfyUI is unavailable: ${infraStreak} consecutive transition failures (last: ${message(e)})`);
+        }
         transitions.push(undefined);
-        s.begin('transitions', `transition ${i} failed, using a hard cut: ${message(e)}`);
+        s.warn('transitions', `transition ${i} failed, using a hard cut: ${message(e)}`);
       }
     }
     s.step('transitions', i + 1, n - 1);
@@ -275,12 +325,110 @@ async function executeTransitions(s: Shared, stills: StillsResult): Promise<Tran
   return transitions;
 }
 
+const PRESENTER_FPS = 24;
+
+/**
+ * Per-scene frame counts from CUMULATIVE seconds, so the non-integer gap (49.5 frames) never
+ * drifts: the sum of all bounds is exactly round(totalSec * fps). `gapSec[i]` is the gap after
+ * scene i (0 for none).
+ */
+export function sceneFrameBounds(durations: number[], gapSec: number[], fps: number): Array<{ speechFrames: number; gapFrames: number }> {
+  const out: Array<{ speechFrames: number; gapFrames: number }> = [];
+  let cumSec = 0;
+  let prevEnd = 0;
+  for (let i = 0; i < durations.length; i++) {
+    cumSec += durations[i];
+    const speechEnd = Math.round(cumSec * fps);
+    cumSec += gapSec[i] ?? 0;
+    const gapEnd = Math.round(cumSec * fps);
+    out.push({ speechFrames: speechEnd - prevEnd, gapFrames: gapEnd - speechEnd });
+    prevEnd = gapEnd;
+  }
+  return out;
+}
+
+// Presenters stage — mouth timelines from the scene WAVs -> sprites -> alpha clips (A and B).
+// Never fails the job: any non-abort error degrades to "no presenters" with a persisted warning.
+async function executePresenters(s: Shared, tts: TTSResult, transitions: TransitionMap): Promise<PresenterClips | undefined> {
+  const presenters = s.job.options?.presenters;
+  if (!presenters) return undefined;
+  if (!s.escaleta.some((sc) => sc.speaker !== undefined)) {
+    s.warn('presenters', 'presenters skipped: the script has no speakers (narration format)');
+    return undefined;
+  }
+  if (!s.presenterAssets) {
+    s.warn('presenters', 'presenters skipped: no character store configured');
+    return undefined;
+  }
+  const lookup = s.presenterAssets;
+  s.begin('presenters');
+  try {
+    const transitionSec = s.frames / DEFAULTS.fps;
+    const gapSec = tts.durations.map((_, i) => (i < s.n - 1 && transitions[i] ? transitionSec : 0));
+    const bounds = sceneFrameBounds(tts.durations, gapSec, PRESENTER_FPS);
+    const tracks: SceneTrack[] = bounds.map((b, i) => {
+      const raw = mouthStates(readFileSync(tts.wavPaths[i]), { fps: PRESENTER_FPS, normalize: true });
+      const states = raw.slice(0, b.speechFrames);
+      while (states.length < b.speechFrames) states.push('closed');
+      return { speaker: s.escaleta[i].speaker, states, gapFrames: b.gapFrames };
+    });
+    const timelines = presenterTimelines(tracks);
+    const dir = join(s.workDir, 'presenters');
+    mkdirSync(dir, { recursive: true });
+    const [assetsA, assetsB] = await Promise.all([lookup(presenters.a), lookup(presenters.b)]);
+    const clips: string[] = [];
+    const sides = [
+      { key: 'A' as const, assets: assetsA },
+      { key: 'B' as const, assets: assetsB },
+    ];
+    for (const [k, { key, assets }] of sides.entries()) {
+      const sprites = {} as Record<MouthState, string>;
+      for (const state of ['closed', 'mid', 'open'] as const) {
+        s.guard();
+        sprites[state] = join(dir, `${key}_${state}.png`);
+        await s.run(
+          assets.mouth
+            ? presenterMouthSpriteArgs({
+                image: assets.imagePath,
+                out: sprites[state],
+                state,
+                mouth: assets.mouth,
+                keyColor: assets.keyColor,
+                crop: assets.crop,
+              })
+            : presenterSpriteArgs({
+                image: assets.imagePath,
+                out: sprites[state],
+                state,
+                keyColor: assets.keyColor,
+                crop: assets.crop,
+                ...(assets.mouthY !== undefined ? { mouthY: assets.mouthY } : {}),
+              }),
+        );
+      }
+      s.guard();
+      const timeline = timelines[key];
+      const listFile = join(dir, `${key}.txt`);
+      const out = join(dir, `${key}.mov`);
+      writeFileSync(listFile, presenterConcatList(timeline, sprites, PRESENTER_FPS));
+      await s.run(presenterClipArgs({ listFile, out, fps: PRESENTER_FPS, frames: timeline.length }));
+      clips.push(out);
+      s.step('presenters', k + 1, 2);
+    }
+    return { clipA: clips[0], clipB: clips[1], cropA: assetsA.crop, cropB: assetsB.crop };
+  } catch (e) {
+    s.guard();
+    s.warn('presenters', `presenters failed, rendering without them: ${message(e)}`);
+    return undefined;
+  }
+}
+
 // Stage 4 — assemble. Ken Burns per still -> concat with transitions (one silence per cut) ->
 // mux (optional music, ducked) -> burn subtitles (if on) -> 9:16 crop (if on) -> cover frame.
 // The four music x subtitle branches are kept as-is in this pass; deduplicating them is the
 // separate "final del montaje" improvement and depends on the vertical/subtitle bug fix.
 // Not cached: it is cheap ffmpeg over already-cached inputs.
-async function executeAssemble(s: Shared, tts: TTSResult, stills: StillsResult, transitions: TransitionMap): Promise<AssembleResult> {
+async function executeAssemble(s: Shared, tts: TTSResult, stills: StillsResult, transitions: TransitionMap, presenters?: PresenterClips): Promise<AssembleResult> {
   const { n, escaleta, job, guard, run, sceneFile, clipsDir, audioDir, workDir, frames } = s;
   const { wavPaths, durations, format } = tts;
   const pngs = stills.pngs;
@@ -311,12 +459,25 @@ async function executeAssemble(s: Shared, tts: TTSResult, stills: StillsResult, 
 
   const videoList = join(workDir, 'video.txt');
   const audioList = join(workDir, 'audio.txt');
-  const video = join(workDir, 'video.mp4');
+  let video = join(workDir, 'video.mp4');
   const narration = join(audioDir, 'narration.wav');
   const finalPath = join(workDir, 'final.mp4');
   writeFileSync(videoList, buildConcatList(videoParts));
   writeFileSync(audioList, buildConcatList(audioParts));
   await run(concatArgs({ listFile: videoList, out: video }));
+  let presentersOverlaid = false;
+  if (presenters) {
+    // Overlay on the silent concat so subtitles, the vertical variant and the cover include them.
+    const overlaid = join(workDir, 'video_p.mp4');
+    try {
+      await run(presenterOverlayArgs({ video, clipA: presenters.clipA, clipB: presenters.clipB, out: overlaid, videoHeight: 720 }));
+      video = overlaid;
+      presentersOverlaid = true;
+    } catch (e) {
+      guard();
+      s.warn('assemble', `presenter overlay failed, rendering without presenters: ${message(e)}`);
+    }
+  }
   await run(concatArgs({ listFile: audioList, out: narration }));
 
   const subtitlesOn = job.options?.subtitles !== false;
@@ -346,19 +507,21 @@ async function executeAssemble(s: Shared, tts: TTSResult, stills: StillsResult, 
     const srtPath = join(workDir, 'subtitles.srt');
     const present = durations.slice(0, -1).map((_, i) => transitions[i] !== undefined);
     writeFileSync(srtPath, buildSrt(sceneCues(durations, transitionSec, escaleta.map((sc) => sc.narration), present)));
-    await run(burnSubtitlesArgs({ input: basePath, srt: srtPath, out: finalPath }));
+    // With presenters on screen the text must stay in the free centre column.
+    const style = presenters && presentersOverlaid
+      ? presenterSubtitleStyle({ videoWidth: 1280, videoHeight: 720, cropA: presenters.cropA, cropB: presenters.cropB })
+      : undefined;
+    await run(burnSubtitlesArgs({ input: basePath, srt: srtPath, out: finalPath, ...(style ? { style } : {}) }));
     deliverable = finalPath;
   }
 
-  // C) Vertical 9:16 variant: crop the SUBTITLE-FREE base first, then (only if subtitles are
-  //    on) burn them in a 9:16-appropriate style. The crop therefore never clips the subtitles
-  //    because they are applied to the already-cropped portrait frame. (fix: vertical subs)
+  // C) Vertical 9:16 variant: crop + (if subtitles are on) burn them in a 9:16-appropriate style
+  //    in ONE x264 pass, so the subtitles are applied to the already-cropped portrait frame
+  //    without an intermediate re-encode. (fix: vertical subs + one-pass render)
   if (job.options?.vertical) {
     const finalV = join(workDir, 'final_v.mp4');
     if (subtitlesOn) {
-      const baseV = join(workDir, 'base_v.mp4');
-      await run(verticalCropArgs({ input: basePath, out: baseV }));
-      await run(burnSubtitlesArgs({ input: baseV, srt: join(workDir, 'subtitles.srt'), out: finalV, style: VERTICAL_SUB_STYLE }));
+      await run(verticalBurnSubtitlesArgs({ input: basePath, srt: join(workDir, 'subtitles.srt'), out: finalV, style: VERTICAL_SUB_STYLE }));
     } else {
       await run(verticalCropArgs({ input: basePath, out: finalV }));
     }
@@ -369,6 +532,22 @@ async function executeAssemble(s: Shared, tts: TTSResult, stills: StillsResult, 
   await run(coverArgs({ input: basePath, atSec: totalSec / 2, out: coverPath }));
 
   return { outputPath: deliverable, chaptersPath, chapters };
+}
+
+/**
+ * Contract: every args builder in media/ffmpeg.ts puts the OUTPUT path as the LAST argument
+ * (locked by a test). On an ffmpeg failure the partial output is removed best-effort, but only
+ * when it lies inside the job's workDir; a cleanup problem never masks the original error.
+ */
+export function removePartialFfmpegOutput(args: string[], workDir: string): void {
+  try {
+    const out = args[args.length - 1];
+    if (typeof out !== 'string' || out === '' || out.startsWith('-')) return;
+    if (!resolve(out).startsWith(resolve(workDir) + sep)) return;
+    rmSync(out, { force: true });
+  } catch {
+    /* best-effort */
+  }
 }
 
 export function createExecute(deps: OrchestratorDeps): ExecuteFn {
@@ -432,6 +611,8 @@ export function createExecute(deps: OrchestratorDeps): ExecuteFn {
       throw new Error(`${_stage} failed for ${what}: ${message(e)}`);
     };
     const begin = (stage: Stage, msg?: string) => emit({ type: 'stage', stage, progress: advance(RANGES[stage][0]), ...(msg ? { message: msg } : {}) });
+    const warn = (stage: Stage, text: string) =>
+      emit({ type: 'progress', stage, progress: advance(RANGES[stage][0]), message: text, warning: true });
     const step = (stage: Stage, done: number, total: number) => {
       const [lo, hi] = RANGES[stage];
       emit({ type: 'progress', stage, progress: advance(lo + ((hi - lo) * done) / total) });
@@ -445,6 +626,7 @@ export function createExecute(deps: OrchestratorDeps): ExecuteFn {
       try {
         await ffmpeg(args, { signal });
       } catch (e) {
+        removePartialFfmpegOutput(args, workDir);
         guard();
         throw e;
       }
@@ -467,6 +649,7 @@ export function createExecute(deps: OrchestratorDeps): ExecuteFn {
       piper,
       ffmpeg,
       frames,
+      infraAbortAfter: Math.max(1, deps.transitionInfraAbortAfter ?? 2),
       cache,
       audioDir,
       stillsDir,
@@ -478,8 +661,10 @@ export function createExecute(deps: OrchestratorDeps): ExecuteFn {
       fail,
       emit,
       begin,
+      warn,
       step,
       comfyStep,
+      presenterAssets: deps.presenterAssets,
       sceneFile: (dir, name, i, ext) => join(dir, `${name}_${pad(i)}.${ext}`),
     };
 
@@ -500,7 +685,8 @@ export function createExecute(deps: OrchestratorDeps): ExecuteFn {
       const tts = await timed('tts', () => executeTTS(shared));
       const stills = await timed('stills', () => executeStills(shared));
       const transitions = await timed('transitions', () => executeTransitions(shared, stills));
-      return await timed('assemble', () => executeAssemble(shared, tts, stills, transitions));
+      const presenters = await timed('presenters', () => executePresenters(shared, tts, transitions));
+      return await timed('assemble', () => executeAssemble(shared, tts, stills, transitions, presenters));
     } finally {
       signal.removeEventListener('abort', onAbort);
       if (comfyAbort) await comfyAbort;

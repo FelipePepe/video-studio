@@ -16,18 +16,19 @@ pnpm test                 # all workspaces (backend: node:test via tsx, frontend
 pnpm typecheck
 pnpm --filter @video-studio/backend dev     # backend on :3001 (tsx watch)
 pnpm --filter @video-studio/frontend dev    # Vite; proxies /api -> localhost:3001
+docker compose up -d --build                # backend + nginx web on :20014 (see README "Docker")
 
 # single test
 cd backend && node --test --import tsx test/orchestrator.test.ts
 cd frontend && pnpm vitest run test/ReviewPanel.test.tsx
 ```
 
-Backend env: `PORT`, `HOST`, `DB_PATH` (default `data/video-studio.sqlite`), `API_TOKEN` (optional shared-token guard on state-changing routes), `LOG_LEVEL`, `OLLAMA_MODEL`, `OLLAMA_NUM_CTX` (optional; sent as Ollama `num_ctx` only when set), `MUSIC_DIR`. Runtime data and logs live in `data/` (gitignored).
+Backend env: `PORT`, `HOST`, `DB_PATH` (default `data/video-studio.sqlite`), `API_TOKEN` (optional shared-token guard on state-changing routes), `LOG_LEVEL`, `OLLAMA_MODEL`, `OLLAMA_NUM_CTX` (optional; sent as Ollama `num_ctx` only when set), `OLLAMA_TIMEOUT_MS` (chat timeout, default 300000), `OLLAMA_TAGS_TIMEOUT_MS` (model list timeout, default 5000), `DRAFT_MAX_CONCURRENCY` (concurrent `POST /draft`, default 2; extra requests get 429), `FFMPEG_STALL_TIMEOUT_MS` (ffmpeg watchdog, default 1800000), `MUSIC_DIR`, `CACHE_TTL_DAYS` (default 30) and `CACHE_MAX_GB` (default 20) for the content-cache retention. Runtime data and logs live in `data/` (gitignored).
 
 ## Architecture
 
 - **Two-phase, human-gated pipeline.** `POST /api/pipeline/draft` produces a persisted draft; the user edits segments; `POST .../approve` creates a *job*. Re-approve is only allowed when the draft's latest job is `failed`/`cancelled` (409/404 otherwise).
-- **Static orchestrator** (`backend/src/pipeline/orchestrator.ts`, `createExecute`): hard-wired `tts → images → transitions → assemble`, each a `step()` with guard/fail/abort semantics. ffmpeg work is split into pure argument builders in `backend/src/media/ffmpeg.ts`, so tests don't need a GPU or real ffmpeg. Approve options are a strict allowlist (`parseApproveOptions`); unknown keys are rejected.
+- **Static orchestrator** (`backend/src/pipeline/orchestrator.ts`, `createExecute`): hard-wired `tts → images → transitions → assemble`, each a `step()` with guard/fail/abort semantics. A failed transition degrades to a hard cut plus a persisted job warning (`jobs.warnings`); 2 consecutive ComfyUI infrastructure failures (`ComfyUnavailableError`) abort the job instead. ffmpeg work is split into pure argument builders in `backend/src/media/ffmpeg.ts`, so tests don't need a GPU or real ffmpeg. Approve options are a strict allowlist (`parseApproveOptions`); unknown keys are rejected.
 - **Jobs** (`backend/src/jobs/`): `JobRunner` + SQLite `jobRepository`; progress goes through `EventHub` to SSE (`/api/jobs/:id/events`). Artifacts (`final.mp4`, `final_v.mp4`, `cover.jpg`) are served from the job dir.
 - **Clients + runtime config.** `backend/src/clients/` wraps ComfyUI, Ollama and Piper (Wyoming over TCP). Hosts are resolved per call via `resolveEffectiveConfig` (env defaults overridden by persisted settings, editable through `/api/config`), so changing a host needs no restart.
 - **`buildApp(opts)`** (`backend/src/app.ts`) is the composition root; every client, the DB, ffmpeg and the job `execute` function are injectable. Tests rely on this (in-memory DB, fake clients) — follow the same seam when adding dependencies.

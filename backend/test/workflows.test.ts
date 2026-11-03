@@ -5,11 +5,17 @@ import {
   I2V_LOW_MODEL,
   I2V_MODEL,
   LORA,
+  QWEN_IMAGE_MODEL,
+  QWEN_TEXT_ENCODER,
+  QWEN_VAE,
+  LIGHTX2V_STILL_CFG,
+  NON_DISTILLED_I2V_SHIFT,
   T2V_LOW_MODEL,
   T2V_MODEL,
   T5_ENCODER,
   WAN_VAE,
   buildI2VWorkflow,
+  buildQwenImageWorkflow,
   buildT2VWorkflow,
   type Workflow,
   type WorkflowNode,
@@ -294,6 +300,53 @@ test('without useLightx2v there is no LoLA and steps stay at 50/42', () => {
   assert.equal(high.inputs.steps, DEFAULTS.steps);
 });
 
+test('lightx2v single-frame T2V stills use cfg 3; I2V and video T2V stay at cfg 1', () => {
+  const assertCg = (wf: Workflow, expected: number, label: string): void => {
+    const { high, low } = samplerPair(wf);
+    assert.equal(high.inputs.cfg, expected, `${label} high-noise cfg`);
+    assert.equal(low.inputs.cfg, expected, `${label} low-noise cfg`);
+  };
+
+  const still = buildT2VWorkflow({ prompt: 'p', seed: 1, useLightx2v: true, numFrames: 1 });
+  assertCg(still, LIGHTX2V_STILL_CFG, 'lightx2v T2V still (1 frame)');
+
+  // Multi-frame (default) T2V keeps cfg 1.
+  assertCg(buildT2VWorkflow({ prompt: 'p', seed: 1, useLightx2v: true }), 1, 'lightx2v T2V video');
+
+  // I2V keeps cfg 1.
+  assertCg(buildI2VWorkflow({ prompt: 'p', seed: 1, startImage: 'a.png', useLightx2v: true }), 1, 'lightx2v I2V');
+
+  // An explicit cfg wins over the lightx2v still default.
+  assertCg(buildT2VWorkflow({ prompt: 'p', seed: 1, useLightx2v: true, numFrames: 1, cfg: 2 }), 2, 'explicit cfg lightx2v still');
+
+  // A single frame without lightx2v keeps the global default cfg.
+  assertCg(buildT2VWorkflow({ prompt: 'p', seed: 1, numFrames: 1 }), DEFAULTS.cfg, 'plain T2V still');
+});
+
+test('lightx2v sets cfg 1 on both experts; without it cfg stays at DEFAULTS', () => {
+  const assertCg = (wf: Workflow, expected: number, label: string): void => {
+    const { high, low } = samplerPair(wf);
+    assert.equal(high.inputs.cfg, expected, `${label} high-noise cfg`);
+    assert.equal(low.inputs.cfg, expected, `${label} low-noise cfg`);
+  };
+
+  const t2v = buildT2VWorkflow({ prompt: 'p', seed: 1, useLightx2v: true });
+  assertCg(t2v, 1, 'lightx2v T2V');
+  const i2v = buildI2VWorkflow({ prompt: 'p', seed: 1, startImage: 'a.png', useLightx2v: true });
+  assertCg(i2v, 1, 'lightx2v I2V');
+
+  const plainT2v = buildT2VWorkflow({ prompt: 'p', seed: 1 });
+  assertCg(plainT2v, DEFAULTS.cfg, 'default T2V');
+  const plainI2v = buildI2VWorkflow({ prompt: 'p', seed: 1, startImage: 'a.png' });
+  assertCg(plainI2v, DEFAULTS.cfg, 'default I2V');
+
+  // An explicit cfg wins over both the lightx2v default and the global default.
+  assertCg(buildT2VWorkflow({ prompt: 'p', seed: 1, useLightx2v: true, cfg: 3 }), 3, 'explicit cfg lightx2v T2V');
+  assertCg(buildI2VWorkflow({ prompt: 'p', seed: 1, startImage: 'a.png', useLightx2v: true, cfg: 3 }), 3, 'explicit cfg lightx2v I2V');
+  assertCg(buildT2VWorkflow({ prompt: 'p', seed: 1, cfg: 3 }), 3, 'explicit cfg plain T2V');
+  assertCg(buildI2VWorkflow({ prompt: 'p', seed: 1, startImage: 'a.png', cfg: 3 }), 3, 'explicit cfg plain I2V');
+});
+
 test('I2V lightx2v uses the i2v LoRAs', () => {
   const wf = buildI2VWorkflow({ prompt: 'p', seed: 1, startImage: 'a.png', useLightx2v: true });
   assert.deepEqual(
@@ -302,4 +355,69 @@ test('I2V lightx2v uses the i2v LoRAs', () => {
   );
   const { high } = samplerPair(wf);
   assert.equal(high.inputs.steps, 4);
+});
+
+test('shift: I2V without lightx2v uses NON_DISTILLED_I2V_SHIFT (16); lightx2v and T2V keep 5', () => {
+  const shifts = (wf: ReturnType<typeof buildT2VWorkflow>) => {
+    const { high, low } = samplerPair(wf);
+    return [high.inputs.shift, low.inputs.shift];
+  };
+  assert.equal(NON_DISTILLED_I2V_SHIFT, 16);
+  assert.deepEqual(shifts(buildI2VWorkflow({ prompt: 'p', seed: 1, startImage: 'a.png' })), [16, 16]);
+  assert.deepEqual(shifts(buildI2VWorkflow({ prompt: 'p', seed: 1, startImage: 'a.png', useLightx2v: true })), [5, 5]);
+  assert.deepEqual(shifts(buildT2VWorkflow({ prompt: 'p', seed: 1 })), [5, 5]);
+  assert.deepEqual(shifts(buildT2VWorkflow({ prompt: 'p', seed: 1, useLightx2v: true })), [5, 5]);
+});
+
+test('buildQwenImageWorkflow wires UNET/CLIP/VAE -> AuraFlow -> KSampler -> VAEDecode -> SaveImage', () => {
+  const wf = buildQwenImageWorkflow({ prompt: 'a felt owl', negativePrompt: 'blurry', seed: 7 });
+  assertConnectionsValid(wf);
+  assert.equal(one(wf, 'UNETLoader').inputs.unet_name, QWEN_IMAGE_MODEL);
+  assert.equal(one(wf, 'UNETLoader').inputs.weight_dtype, 'default');
+  const clip = one(wf, 'CLIPLoader');
+  assert.equal(clip.inputs.clip_name, QWEN_TEXT_ENCODER);
+  assert.equal(clip.inputs.type, 'qwen_image');
+  assert.equal(one(wf, 'VAELoader').inputs.vae_name, QWEN_VAE);
+  const aura = one(wf, 'ModelSamplingAuraFlow');
+  assert.equal(aura.inputs.shift, 3.1);
+  assert.equal(conn(wf, aura, 'model'), one(wf, 'UNETLoader').id);
+  const ks = one(wf, 'KSampler');
+  assert.equal(conn(wf, ks, 'model'), aura.id);
+  const encoders = byType(wf, 'CLIPTextEncode');
+  assert.equal(encoders.length, 2);
+  for (const e of encoders) assert.equal(conn(wf, e, 'clip'), clip.id);
+  assert.equal(wf[conn(wf, ks, 'positive')].inputs.text, 'a felt owl');
+  assert.equal(wf[conn(wf, ks, 'negative')].inputs.text, 'blurry');
+  assert.equal(conn(wf, ks, 'latent_image'), one(wf, 'EmptySD3LatentImage').id);
+  const decode = one(wf, 'VAEDecode');
+  assert.equal(conn(wf, decode, 'samples'), ks.id);
+  assert.equal(conn(wf, decode, 'vae'), one(wf, 'VAELoader').id);
+  assert.equal(conn(wf, one(wf, 'SaveImage'), 'images'), decode.id);
+});
+
+test('buildQwenImageWorkflow passes seed/size/steps/cfg/prefix through and has sane defaults', () => {
+  const custom = buildQwenImageWorkflow({
+    prompt: 'p', seed: 99, width: 768, height: 512, steps: 10, cfg: 4, filenamePrefix: 'x',
+  });
+  const ks = one(custom, 'KSampler');
+  assert.equal(ks.inputs.seed, 99);
+  assert.equal(ks.inputs.steps, 10);
+  assert.equal(ks.inputs.cfg, 4);
+  const lat = one(custom, 'EmptySD3LatentImage');
+  assert.equal(lat.inputs.width, 768);
+  assert.equal(lat.inputs.height, 512);
+  assert.equal(one(custom, 'SaveImage').inputs.filename_prefix, 'x');
+
+  const def = buildQwenImageWorkflow({ prompt: 'p', seed: 1 });
+  const dk = one(def, 'KSampler');
+  assert.equal(dk.inputs.steps, 25);
+  assert.equal(dk.inputs.cfg, 2.5);
+  assert.equal(dk.inputs.sampler_name, 'euler');
+  assert.equal(dk.inputs.scheduler, 'simple');
+  assert.equal(dk.inputs.denoise, 1);
+  assert.equal(one(def, 'EmptySD3LatentImage').inputs.width, 1024);
+  assert.equal(one(def, 'EmptySD3LatentImage').inputs.height, 1024);
+  assert.equal(one(def, 'EmptySD3LatentImage').inputs.batch_size, 1);
+  assert.equal(one(def, 'SaveImage').inputs.filename_prefix, 'character');
+  assert.equal(byType(def, 'WanVideoSampler').length, 0);
 });

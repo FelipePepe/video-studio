@@ -54,6 +54,13 @@ describe('i18n', () => {
     expect(Object.keys(dictionaries.en).sort()).toEqual(Object.keys(dictionaries.es).sort());
   });
 
+  it('has the fast mode labels and hint in both languages', () => {
+    expect(dictionaries.es['review.fastMode']).toBe('Modo rápido');
+    expect(dictionaries.en['review.fastMode']).toBe('Fast mode');
+    expect(dictionaries.es['review.fastModeHint']).toBeTruthy();
+    expect(dictionaries.en['review.fastModeHint']).toBeTruthy();
+  });
+
   it('works without a provider using the default language', () => {
     function Probe() {
       return <span>{useI18n().t('nav.pipeline')}</span>;

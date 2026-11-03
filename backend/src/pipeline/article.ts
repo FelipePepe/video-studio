@@ -5,6 +5,8 @@ export interface FetchArticleOptions {
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
   maxBytes?: number;
+  /** Aborts the fetch (e.g. the client went away); reported as an AbortError, not as a timeout. */
+  signal?: AbortSignal;
 }
 
 export class ArticleInputError extends Error {}
@@ -86,11 +88,18 @@ async function readCapped(res: Response, maxBytes: number): Promise<string> {
   return Buffer.concat(chunks).toString('utf8');
 }
 
+function abortError(): Error {
+  const err = new Error('Article fetch aborted');
+  err.name = 'AbortError';
+  return err;
+}
+
 // Private-network hosts are intentionally allowed (personal intranet tool), so there is no SSRF
 // host filtering; the scheme, credential, size and time limits below still apply.
 export async function fetchArticleText(rawUrl: string, opts: FetchArticleOptions = {}): Promise<string> {
-  const { fetchImpl = fetch, timeoutMs = 15_000, maxBytes = 2_000_000 } = opts;
+  const { fetchImpl = fetch, timeoutMs = 15_000, maxBytes = 2_000_000, signal } = opts;
   const url = parseUrl(rawUrl);
+  if (signal?.aborted) throw abortError();
 
   const controller = new AbortController();
   let timedOut = false;
@@ -98,6 +107,9 @@ export async function fetchArticleText(rawUrl: string, opts: FetchArticleOptions
     timedOut = true;
     controller.abort();
   }, timeoutMs);
+  const onCallerAbort = () => controller.abort();
+  if (signal?.aborted) onCallerAbort();
+  else signal?.addEventListener('abort', onCallerAbort, { once: true });
   try {
     const res = await fetchImpl(url.href, { redirect: 'follow', signal: controller.signal });
     if (!res.ok) throw new ArticleFetchError(`Article fetch failed: HTTP ${res.status}`);
@@ -107,10 +119,12 @@ export async function fetchArticleText(rawUrl: string, opts: FetchArticleOptions
     }
     return htmlToText(await readCapped(res, maxBytes)).slice(0, MAX_TEXT_CHARS);
   } catch (e) {
+    if (signal?.aborted && !timedOut) throw abortError();
     if (e instanceof ArticleFetchError) throw e;
     if (timedOut) throw new ArticleFetchError(`Article fetch timed out after ${timeoutMs}ms`);
     throw new ArticleFetchError(`Article fetch failed: ${(e as Error).message}`);
   } finally {
     clearTimeout(timer);
+    signal?.removeEventListener('abort', onCallerAbort);
   }
 }

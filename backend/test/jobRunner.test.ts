@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openDatabase } from '../src/db/connection';
 import { createDraft } from '../src/pipeline/draftRepository';
-import { createJob, getJob, markRunning } from '../src/jobs/jobRepository';
+import { createJob, getJob, markRunning, updateJob, type UpdateJobFn } from '../src/jobs/jobRepository';
 import { EventHub } from '../src/jobs/eventHub';
 import { JobRunner } from '../src/jobs/runner';
 import type { ExecuteFn, JobEvent } from '../src/jobs/types';
@@ -15,7 +15,7 @@ afterEach(() => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 
-function setup(execute: ExecuteFn) {
+function setup(execute: ExecuteFn, opts: { updateJob?: UpdateJobFn } = {}) {
   const workDir = mkdtempSync(join(tmpdir(), 'vs-runner-'));
   dirs.push(workDir);
   const db = openDatabase(':memory:');
@@ -29,7 +29,7 @@ function setup(execute: ExecuteFn) {
     escaleta: [],
   });
   const hub = new EventHub();
-  const runner = new JobRunner({ db, hub, execute, workDir, clearGraceMs: 0 });
+  const runner = new JobRunner({ db, hub, execute, workDir, clearGraceMs: 0, updateJob: opts.updateJob });
   return { db, hub, runner, workDir, draftId: draft.id };
 }
 
@@ -220,4 +220,123 @@ test('idle resolves immediately when nothing is queued', async () => {
   const { runner } = setup(async () => ({ outputPath: '' }));
   runner.start();
   await runner.idle();
+});
+
+test('stop aborts the running job and resolves once it has ended cancelled', async () => {
+  let aborted = false;
+  const started = deferred();
+  const { runner, db, draftId } = setup((_job, ctx) => {
+    started.resolve();
+    return new Promise((_resolve, reject) => {
+      ctx.signal.addEventListener('abort', () => {
+        aborted = true;
+        reject(new Error('aborted'));
+      });
+    });
+  });
+  runner.start();
+  const job = runner.enqueue(draftId);
+  await started.promise;
+  await runner.stop();
+  assert.equal(aborted, true);
+  assert.equal(getJob(db, job.id)?.status, 'cancelled');
+});
+
+test('stop does not start the next queued job', async () => {
+  const started = deferred();
+  const executed: string[] = [];
+  const { runner, db, draftId } = setup((job, ctx) => {
+    executed.push(job.id);
+    started.resolve();
+    return new Promise((_resolve, reject) => {
+      ctx.signal.addEventListener('abort', () => reject(new Error('aborted')));
+    });
+  });
+  runner.start();
+  const first = runner.enqueue(draftId);
+  const second = runner.enqueue(draftId);
+  await started.promise;
+  await runner.stop();
+  await tick();
+  assert.deepEqual(executed, [first.id]);
+  assert.equal(getJob(db, second.id)?.status, 'queued');
+});
+
+test('a job scheduled after stop is never started', async () => {
+  const executed: string[] = [];
+  const { runner, db, draftId } = setup(async (job) => {
+    executed.push(job.id);
+    return { outputPath: 'x' };
+  });
+  runner.start();
+  await runner.stop();
+  const job = runner.enqueue(draftId);
+  await tick();
+  await tick();
+  assert.deepEqual(executed, []);
+  assert.equal(getJob(db, job.id)?.status, 'queued');
+});
+
+test('stop is safe to call twice and resolves immediately on an idle runner', async () => {
+  const { runner } = setup(async () => ({ outputPath: 'x' }));
+  runner.start();
+  await runner.stop();
+  await runner.stop();
+  const started = deferred();
+  const busy = setup((_job, ctx) => {
+    started.resolve();
+    return new Promise((_resolve, reject) => {
+      ctx.signal.addEventListener('abort', () => reject(new Error('aborted')));
+    });
+  });
+  busy.runner.start();
+  busy.runner.enqueue(busy.draftId);
+  await started.promise;
+  await Promise.all([busy.runner.stop(), busy.runner.stop()]);
+});
+
+test('F6: a warning emitted through ctx.emit is persisted on the job', async () => {
+  const { runner, db, draftId } = setup(async (_job, ctx) => {
+    ctx.emit({ type: 'progress', stage: 'transitions', progress: 0.6, message: 'transition 0 failed, using a hard cut: x', warning: true });
+    ctx.emit({ type: 'progress', stage: 'transitions', progress: 0.7, message: 'plain progress note' });
+    ctx.emit({ type: 'progress', stage: 'transitions', progress: 0.8, warning: true });
+    return { outputPath: join(ctx.workDir, 'o.mp4') };
+  });
+  runner.start();
+  const job = runner.enqueue(draftId);
+  await runner.idle();
+  assert.deepEqual(getJob(db, job.id)?.warnings, ['transition 0 failed, using a hard cut: x']);
+});
+
+test('P3: sub-percentage progress ticks on the same stage are not persisted one-by-one', async () => {
+  let persists = 0;
+  const counting: UpdateJobFn = (db, id, patch, clock) => { persists++; return updateJob(db, id, patch, clock); };
+  const { runner, db, draftId } = setup(async (_job, ctx) => {
+    ctx.emit({ type: 'progress', stage: 'images', progress: 0.3 });
+    for (let i = 1; i <= 40; i++) {
+      ctx.emit({ type: 'progress', stage: 'images', progress: 0.3 + i / 1000 });
+    }
+    return { outputPath: join(ctx.workDir, 'o.mp4') };
+  }, { updateJob: counting });
+  runner.start();
+  const job = runner.enqueue(draftId);
+  await runner.idle();
+  assert.equal(getJob(db, job.id)?.status, 'done');
+  // 41 same-stage ticks each moving 0.1% must NOT persist one-by-one: it may only persist a
+  // crossing of >=1% (or a stage change). 0.30 -> 0.34 can cross at most ~5 times, far fewer
+  // than 41. We assert the real invariant: a strict upper bound well under the tick count.
+  assert.ok(persists < 41, 'ticks must not persist one-per-tick, got ' + persists);
+  assert.ok(persists <= 6, '41 same-stage ticks should persist at most the >=1% crossings; got ' + persists);
+});
+
+test('P3: a stage change is always persisted even without a progress crossing', async () => {
+  const { runner, db, draftId } = setup(async (_job, ctx) => {
+    ctx.emit({ type: 'progress', stage: 'images', progress: 0.1 } as Parameters<typeof ctx.emit>[0]);
+    ctx.emit({ type: 'progress', stage: 'transitions', progress: 0.1005 } as Parameters<typeof ctx.emit>[0]);
+    return { outputPath: join(ctx.workDir, 'o.mp4') };
+  });
+  runner.start();
+  const job = runner.enqueue(draftId);
+  await runner.idle();
+  assert.equal(getJob(db, job.id)?.stage, 'transitions');
 });

@@ -5,6 +5,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { ApproveOptions } from '../pipeline/types';
 import type { EventHub } from './eventHub';
 import {
+  addJobWarning,
   createJob,
   failInterruptedJobs,
   getJob,
@@ -15,6 +16,7 @@ import {
   retentionJobs,
   updateJob,
   type Clock,
+  type UpdateJobFn,
 } from './jobRepository';
 import { pruneWorkDirs, retentionConfigFromEnv } from './retention';
 import { logger } from '../lib/logger';
@@ -30,6 +32,8 @@ export interface JobRunnerOptions {
   clock?: Clock;
   /** How long the hub keeps a finished job's replay buffer. Default 60 s. */
   clearGraceMs?: number;
+  /** Persister used to persist progress crossings; injectable for counting in tests. */
+  updateJob?: UpdateJobFn;
 }
 
 export const unconfiguredExecute: ExecuteFn = async () => {
@@ -43,11 +47,14 @@ export class JobRunner {
   private readonly execute: ExecuteFn;
   private readonly clock: Clock;
   private readonly clearGraceMs: number;
+  private readonly updateJob: UpdateJobFn;
   private readonly queue: string[] = [];
   private readonly idleWaiters: Array<() => void> = [];
   private current: { id: string; controller: AbortController } | undefined;
   private started = false;
   private draining = false;
+  private stopping = false;
+  private stopPromise: Promise<void> | undefined;
 
   constructor(opts: JobRunnerOptions) {
     this.db = opts.db;
@@ -56,6 +63,7 @@ export class JobRunner {
     this.workDir = opts.workDir;
     this.clock = opts.clock ?? (() => new Date());
     this.clearGraceMs = opts.clearGraceMs ?? 60_000;
+    this.updateJob = opts.updateJob ?? updateJob;
   }
 
   start(): void {
@@ -107,19 +115,39 @@ export class JobRunner {
     return false;
   }
 
+  /**
+   * Graceful shutdown: starts no further job, aborts the running one (the orchestrator then kills
+   * ffmpeg and cancels the ComfyUI prompt, so the job ends `cancelled`) and resolves once idle.
+   * Jobs still queued stay `queued` in the DB; `start()` marks them failed on the next boot.
+   * Idempotent and never throws.
+   */
+  stop(): Promise<void> {
+    if (!this.stopPromise) {
+      this.stopping = true;
+      this.current?.controller.abort();
+      this.stopPromise = this.idle().catch(() => undefined);
+    }
+    return this.stopPromise;
+  }
+
+  /**
+   * Resolves when no job is running and nothing is left to start. NOTE: once `stop()` has been called
+   * it also resolves while jobs are still queued (they are intentionally left behind, see `stop()`).
+   */
   idle(): Promise<void> {
-    if (!this.draining && this.queue.length === 0) return Promise.resolve();
+    if (!this.draining && (this.stopping || this.queue.length === 0)) return Promise.resolve();
     return new Promise((resolve) => this.idleWaiters.push(resolve));
   }
 
   private kick(): void {
-    if (!this.started || this.draining) return;
+    if (!this.started || this.draining || this.stopping) return;
     this.draining = true;
     void this.drain();
   }
 
   private async drain(): Promise<void> {
     for (;;) {
+      if (this.stopping) break;
       const id = this.queue.shift();
       if (!id) break;
       try {
@@ -151,14 +179,27 @@ export class JobRunner {
       const workDir = join(this.workDir, id);
       mkdirSync(workDir, { recursive: true });
       log.info('job started', { jobId: id, draftId: job.draftId, workDir });
+      let lastPersistedStage: string | undefined = job.stage;
+      let lastPersistedProgress: number | null = job.progress;
       const ctx: JobContext = {
         signal: controller.signal,
         workDir,
         emit: (partial) => {
           if (settled) return;
-          if (partial.stage !== undefined || partial.progress !== undefined) {
-            updateJob(this.db, id, { stage: partial.stage, progress: partial.progress }, this.clock);
+          // P3: a progress tick per ComfyUI sampler step used to be one UPDATE even when the value
+          // was unchanged; persist only a stage change or a >=1% progress move (or reaching 1).
+          const stageChanged = partial.stage !== undefined && partial.stage !== lastPersistedStage;
+          const crossed = partial.progress !== undefined &&
+            (lastPersistedProgress === null || Math.abs(partial.progress - lastPersistedProgress) >= 0.01 || partial.progress === 1);
+          if (stageChanged || crossed) {
+            this.updateJob(this.db, id, {
+              stage: partial.stage ?? lastPersistedStage,
+              progress: (partial.progress ?? lastPersistedProgress) as number | undefined,
+            }, this.clock);
+            lastPersistedStage = partial.stage ?? lastPersistedStage;
+            lastPersistedProgress = partial.progress ?? lastPersistedProgress;
           }
+          if (partial.warning && partial.message) addJobWarning(this.db, id, partial.message, this.clock);
           this.publish({ ...partial, jobId: id });
         },
       };

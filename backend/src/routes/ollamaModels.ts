@@ -4,7 +4,7 @@ import { Router } from 'express';
 export type ModelEntry = string | { name: string };
 
 export interface OllamaModelsDeps {
-  listModels: () => Promise<ModelEntry[]> | ModelEntry[];
+  listModels: (signal?: AbortSignal) => Promise<ModelEntry[]> | ModelEntry[];
 }
 
 /**
@@ -18,9 +18,13 @@ export function ollamaModelsRouter(deps: OllamaModelsDeps): Router {
   const router = Router();
 
   router.get('/', async (_req, res) => {
+    const controller = new AbortController();
+    res.on('close', () => {
+      if (!res.writableEnded) controller.abort();
+    });
     let names: string[] = [];
     try {
-      const result = await deps.listModels();
+      const result = await deps.listModels(controller.signal);
       if (Array.isArray(result)) {
         names = result
           .map((m) => (typeof m === 'string' ? m : m.name))

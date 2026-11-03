@@ -14,12 +14,21 @@ export const T2V_MODEL = 'wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors';
 export const T2V_LOW_MODEL = 'wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors';
 export const I2V_MODEL = 'wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors';
 export const I2V_LOW_MODEL = 'wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors';
+export const QWEN_IMAGE_MODEL = 'qwen_image_fp8_e4m3fn.safetensors';
+export const QWEN_TEXT_ENCODER = 'qwen_2.5_vl_7b_fp8_scaled.safetensors';
+export const QWEN_VAE = 'qwen_image_vae.safetensors';
 export const T5_ENCODER = 'umt5-xxl-enc-fp8_e4m3fn-fixed.safetensors';
 
 // ACE-Step 1.5 (doc §7): the checkpoint on the target box is v1.5, so we use the *1.5* node
 // family (TextEncodeAceStepAudio1.5 + EmptyAceStep1.5LatentAudio). Mixing the 1.3.5b nodes with
 // the v1.5 checkpoint is what broke VAEDecodeAudio validation on the shared server.
 export const ACE_STEP_CHECKPOINT = 'ace_step_v1_5.safetensors';
+
+// Real renders on the Spark (2026-10-31, same seed/prompt): 1-frame T2V stills with lightx2v and
+// cfg 1 or cfg 2 come out hazy/blurred; cfg 3, 4 and 6 are sharp, cfg 3 being the cleanest and
+// least saturated. I2V (and multi-frame T2V) are the opposite — cfg 1 is clean, cfg 3
+// oversaturates — so the cfg default depends on the workflow shape.
+export const LIGHTX2V_STILL_CFG = 3;
 // lightx2v 4-step LoRAs (high/low) — dramatically reduce denoising steps while keeping quality.
 // doc §1: 10× faster renders with near-identical output.
 export const LORA = {
@@ -45,6 +54,14 @@ export const DEFAULTS = {
   fps: 16,
 } as const;
 
+/**
+ * Sampler shift for I2V without the lightx2v LoRA. Real renders on the Spark (2026-11-01): the
+ * default shift 5 produces noisy, over-saturated I2V transitions; shift 16 at cfg 6 / 50 steps is
+ * clean at 1280x720. Not validated for T2V stills, nor needed for lightx2v (distilled), so those
+ * keep DEFAULTS.shift.
+ */
+export const NON_DISTILLED_I2V_SHIFT = 16;
+
 const DEFAULT_NEGATIVE = 'blurry, low quality, distorted, watermark, text, static, deformed';
 
 interface CommonOptions {
@@ -56,12 +73,16 @@ interface CommonOptions {
   numFrames?: number;
   steps?: number;
   switchStep?: number;
+  /** CFG scale for the samplers. Defaults to `DEFAULTS.cfg`; lightx2v defaults to 1 (I2V/video) or `LIGHTX2V_STILL_CFG` (1-frame T2V stills) unless explicitly set. */
+  cfg?: number;
   filenamePrefix?: string;
   pingpong?: boolean;
   /** When true, save the decoded frame with SaveImage (image) rather than VHS_VideoCombine (mp4). */
   saveImage?: boolean;
   /** doc §1: attach the lightx2v 4-step LoRA (high/low) to the dual-expert and drop to 4 total steps. ~10× faster, same quality. */
   useLightx2v?: boolean;
+  /** Sampler shift. Defaults to `DEFAULTS.shift`; `buildI2VWorkflow` sets it for the non-distilled path. */
+  shift?: number;
 }
 
 export type T2VOptions = CommonOptions;
@@ -149,8 +170,8 @@ function buildTail(
     image_embeds: [embeds, 0],
     text_embeds: [shared.text, 0],
     steps,
-    cfg: DEFAULTS.cfg,
-    shift: DEFAULTS.shift,
+    cfg: o.cfg ?? DEFAULTS.cfg,
+    shift: o.shift ?? DEFAULTS.shift,
     seed: o.seed,
     force_offload: true,
     scheduler: DEFAULTS.scheduler,
@@ -207,13 +228,18 @@ export function buildT2VWorkflow(o: T2VOptions): Workflow {
     height: o.height ?? DEFAULTS.height,
     num_frames: o.numFrames ?? DEFAULTS.numFrames,
   });
-  return buildTail(b, withLightx2v(o), shared, high, low, embeds);
+  // 1-frame (still) lightx2v T2V renders hazy/burnt at cfg 1; cfg 3 is the sharpest clean value
+  // (sparks renders, 2026-10-31). I2V and video keep cfg 1.
+  const defaultCfg = (o.numFrames ?? DEFAULTS.numFrames) === 1 ? LIGHTX2V_STILL_CFG : 1;
+  return buildTail(b, withLightx2v(o, defaultCfg), shared, high, low, embeds);
 }
 
-// lightx2v: 4 total steps split 3 (high) / 1 (low) across the dual expert.
-function withLightx2v(o: CommonOptions): CommonOptions {
+// lightx2v: 4 total steps split 3 (high) / 1 (low) across the dual expert. The default cfg is 1 for
+// I2V/video (the 4-step LoRAs are distilled for cfg-free sampling; cfg > 1 burns color/contrast),
+// while single-frame stills pass LIGHTX2V_STILL_CFG to avoid haze (see the constant).
+function withLightx2v(o: CommonOptions, defaultCfg: number = 1): CommonOptions {
   if (!o.useLightx2v) return o;
-  return { ...o, steps: o.steps ?? 4, switchStep: o.switchStep ?? 3 };
+  return { ...o, steps: o.steps ?? 4, switchStep: o.switchStep ?? 3, cfg: o.cfg ?? defaultCfg };
 }
 
 export function buildI2VWorkflow(o: I2VOptions): Workflow {
@@ -249,7 +275,8 @@ export function buildI2VWorkflow(o: I2VOptions): Workflow {
   };
   if (end) encodeInputs.end_image = [end, 0];
   const embeds = b.add('WanVideoImageToVideoEncode', encodeInputs);
-  return buildTail(b, withLightx2v(o), shared, high, low, embeds);
+  const shift = o.shift ?? (o.useLightx2v ? DEFAULTS.shift : NON_DISTILLED_I2V_SHIFT);
+  return buildTail(b, withLightx2v({ ...o, shift }), shared, high, low, embeds);
 }
 
 export interface ACEStepMusicOptions {
@@ -328,5 +355,46 @@ export function buildACEStepMusicWorkflow(o: ACEStepMusicOptions = {}): Workflow
   });
   const decoded = b.add('VAEDecodeAudio', { samples: [sampler, 1], vae: [checkpoint, 2] });
   b.add('SaveAudio', { audio: [decoded, 0], filename_prefix: o.filenamePrefix ?? 'vs_music' });
+  return b.nodes;
+}
+
+export interface QwenImageOptions {
+  prompt: string;
+  negativePrompt?: string;
+  seed: number;
+  width?: number;
+  height?: number;
+  steps?: number;
+  cfg?: number;
+  filenamePrefix?: string;
+}
+
+/**
+ * Qwen-Image text-to-image (tested on the Spark: ~98 s at 1024x1024, sharp head-and-shoulders).
+ * UNETLoader + CLIPLoader(qwen_image) + VAELoader -> ModelSamplingAuraFlow -> KSampler -> VAEDecode -> SaveImage.
+ */
+export function buildQwenImageWorkflow(o: QwenImageOptions): Workflow {
+  const b = new Builder();
+  const unet = b.add('UNETLoader', { unet_name: QWEN_IMAGE_MODEL, weight_dtype: 'default' });
+  const clip = b.add('CLIPLoader', { clip_name: QWEN_TEXT_ENCODER, type: 'qwen_image', device: 'default' });
+  const vae = b.add('VAELoader', { vae_name: QWEN_VAE });
+  const aura = b.add('ModelSamplingAuraFlow', { model: [unet, 0], shift: 3.1 });
+  const positive = b.add('CLIPTextEncode', { text: o.prompt, clip: [clip, 0] });
+  const negative = b.add('CLIPTextEncode', { text: o.negativePrompt ?? '', clip: [clip, 0] });
+  const latent = b.add('EmptySD3LatentImage', { width: o.width ?? 1024, height: o.height ?? 1024, batch_size: 1 });
+  const sampler = b.add('KSampler', {
+    model: [aura, 0],
+    positive: [positive, 0],
+    negative: [negative, 0],
+    latent_image: [latent, 0],
+    seed: o.seed,
+    steps: o.steps ?? 25,
+    cfg: o.cfg ?? 2.5,
+    sampler_name: 'euler',
+    scheduler: 'simple',
+    denoise: 1.0,
+  });
+  const decoded = b.add('VAEDecode', { samples: [sampler, 0], vae: [vae, 0] });
+  b.add('SaveImage', { images: [decoded, 0], filename_prefix: o.filenamePrefix ?? 'character' });
   return b.nodes;
 }

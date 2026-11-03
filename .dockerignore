@@ -1,0 +1,17 @@
+node_modules
+**/node_modules
+.git
+data
+odd
+docs
+.atl
+.taste-skill
+.github
+.env
+.env.*
+!.env.example
+**/dist
+coverage
+*.log
+*.sqlite*
+docker-compose*.yml

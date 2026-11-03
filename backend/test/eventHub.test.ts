@@ -36,6 +36,21 @@ test('replay buffer is bounded to the last 200 events', () => {
   assert.equal(replay[199].progress, 249);
 });
 
+test('stage events are pinned in the replay buffer: a flood of progress ticks never evicts them', () => {
+  const hub = new EventHub();
+  const stage = (s: string, p: number): JobEvent => ({ type: 'stage', jobId: 'a', stage: s, progress: p, at: 'now' });
+  hub.publish(stage('tts', 0.25));
+  for (let i = 0; i < 250; i++) hub.publish(ev('a', 0.26 + i / 1000));
+  hub.publish(stage('images', 0.5));
+  const replay = hub.replay('a');
+  const stages = replay.filter((e) => e.type === 'stage');
+  assert.deepEqual(
+    stages.map((s) => s.stage),
+    ['tts', 'images'],
+    'reconnecting clients must still see the stage context after the replay window fills with ticks');
+  assert.equal(replay.length, 200, 'the buffer still never exceeds replaySize: 198 ticks + 2 pinned stages');
+});
+
 test('replay of an unknown job is empty', () => {
   assert.deepEqual(new EventHub().replay('x'), []);
 });
